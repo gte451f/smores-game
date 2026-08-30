@@ -14,6 +14,7 @@ class AStrategyHUD;
 class UInputAction;
 struct FInputActionInstance;
 class AStrategyUnit;
+class AStrategyPlayerUnit;
 class UStrategyTouchControls;
 
 /**
@@ -91,6 +92,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* SelectionModifierAction;
 
+	/** Input Action for cycling selection between player-controlled pawns */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* CyclePawnAction;
+
 	/** Input Action for primary touch hold */
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* TouchPrimaryHoldAction;
@@ -156,6 +161,13 @@ protected:
 	/** Currently selected unit list */
 	TArray<AStrategyUnit*> ControlledUnits;
 
+	/** All player-controllable pawns in the level. Rebuilt on demand by RefreshPlayerPawns() */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<AStrategyPlayerUnit>> PlayerPawns;
+
+	/** Index into PlayerPawns of the pawn most recently cycled to. INDEX_NONE until the first cycle */
+	int32 CurrentPlayerPawnIndex = INDEX_NONE;
+
 public:
 
 	/** Constructor */
@@ -198,6 +210,12 @@ protected:
 
 	/** Resets the camera to its initial value */
 	void ResetCamera(const FInputActionValue& Value);
+
+	/** Rebuilds PlayerPawns from the world with deterministic ordering */
+	void RefreshPlayerPawns();
+
+	/** Replaces the current selection with the next player-controlled pawn */
+	void CyclePawn(const FInputActionValue& Value);
 
 	/** Start a select and hold input */
 	void SelectHoldStarted(const FInputActionValue& Value);

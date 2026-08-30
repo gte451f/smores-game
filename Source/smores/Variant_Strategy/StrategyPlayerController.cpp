@@ -14,6 +14,7 @@
 #include "Engine/CollisionProfile.h"
 #include "Kismet/GameplayStatics.h"
 #include "StrategyUnit.h"
+#include "StrategyPlayerUnit.h"
 #include "NavigationSystem.h"
 #include "Engine/OverlapResult.h"
 #include "InputAction.h"
@@ -52,6 +53,9 @@ void AStrategyPlayerController::BeginPlay()
 		}
 
 	}
+
+	// warm the player pawn list (CyclePawn refreshes again on use, so this is best-effort)
+	RefreshPlayerPawns();
 
 }
 
@@ -104,6 +108,12 @@ void AStrategyPlayerController::SetupInputComponent()
 			EnhancedInputComponent->BindAction(InteractHoldAction, ETriggerEvent::Triggered, this, &AStrategyPlayerController::InteractHoldTriggered);
 
 			EnhancedInputComponent->BindAction(InteractClickAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::InteractClick);
+
+			// Pawn cycling (desktop only; not mapped in the touch IMC)
+			if (CyclePawnAction)
+			{
+				EnhancedInputComponent->BindAction(CyclePawnAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::CyclePawn);
+			}
 
 			// Touch Interaction
 			EnhancedInputComponent->BindAction(TouchPrimaryHoldAction, ETriggerEvent::Started, this, &AStrategyPlayerController::TouchPrimaryHoldStarted);
@@ -218,6 +228,74 @@ void AStrategyPlayerController::ZoomCamera(const FInputActionValue& Value)
 void AStrategyPlayerController::ResetCamera(const FInputActionValue& Value)
 {
 	DoCameraResetZoomCommand();
+}
+
+void AStrategyPlayerController::RefreshPlayerPawns()
+{
+	PlayerPawns.Reset();
+
+	// gather every player-controllable pawn currently in the level
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsOfClass(this, AStrategyPlayerUnit::StaticClass(), FoundActors);
+
+	for (AActor* CurrentActor : FoundActors)
+	{
+		if (AStrategyPlayerUnit* CurrentUnit = Cast<AStrategyPlayerUnit>(CurrentActor))
+		{
+			PlayerPawns.Add(CurrentUnit);
+		}
+	}
+
+	// GetAllActorsOfClass order isn't stable across runs or streaming, so impose a
+	// deterministic order for the Tab cycle. Placed actors keep a stable object name.
+	PlayerPawns.Sort([](const AStrategyPlayerUnit& A, const AStrategyPlayerUnit& B)
+	{
+		return A.GetName() < B.GetName();
+	});
+}
+
+void AStrategyPlayerController::CyclePawn(const FInputActionValue& Value)
+{
+	// always work from a fresh list (handles units streamed in/out or destroyed at runtime)
+	RefreshPlayerPawns();
+
+	if (PlayerPawns.Num() == 0)
+	{
+		return;
+	}
+
+	// if a player pawn is currently the primary selection, resume cycling from its position
+	if (ControlledUnits.Num() > 0)
+	{
+		if (AStrategyPlayerUnit* CurrentlySelected = Cast<AStrategyPlayerUnit>(ControlledUnits[0]))
+		{
+			const int32 FoundIndex = PlayerPawns.IndexOfByKey(CurrentlySelected);
+
+			if (FoundIndex != INDEX_NONE)
+			{
+				CurrentPlayerPawnIndex = FoundIndex;
+			}
+		}
+	}
+
+	// advance with wrap-around. On the first press CurrentPlayerPawnIndex is INDEX_NONE (-1),
+	// so (-1 + 1) % N == 0 and we select the first pawn.
+	CurrentPlayerPawnIndex = (CurrentPlayerPawnIndex + 1) % PlayerPawns.Num();
+
+	AStrategyPlayerUnit* NextPawn = PlayerPawns[CurrentPlayerPawnIndex].Get();
+
+	if (!IsValid(NextPawn))
+	{
+		return;
+	}
+
+	// replace the selection using the existing deselect/select path
+	DoDeselectAllUnitsCommand();
+
+	ControlledUnits.Add(NextPawn);
+	NextPawn->UnitSelected();
+
+	// NOTE: deliberately does not touch ControlledCameraPawn - the camera must not move on cycle
 }
 
 void AStrategyPlayerController::SelectHoldStarted(const FInputActionValue& Value)
@@ -393,10 +471,10 @@ bool AStrategyPlayerController::DoSelectCommand(const FVector& SelectLocation, b
 
 	if (GetWorld()->OverlapMultiByObjectType(OutOverlaps, SelectLocation, FQuat::Identity, ObjectParams, CollisionSphere, QueryParams))
 	{
-		// find the first unit we've overlapped
+		// find the first player-controlled unit we've overlapped (NPC units are not selectable)
 		for (const FOverlapResult& CurrentOverlap : OutOverlaps)
 		{
-			if (AStrategyUnit* CurrentUnit = Cast<AStrategyUnit>(CurrentOverlap.GetActor()))
+			if (AStrategyPlayerUnit* CurrentUnit = Cast<AStrategyPlayerUnit>(CurrentOverlap.GetActor()))
 			{
 				// is this unit already selected?
 				if (ControlledUnits.Contains(CurrentUnit))
@@ -426,15 +504,15 @@ bool AStrategyPlayerController::DoSelectCommand(const FVector& SelectLocation, b
 
 void AStrategyPlayerController::DoSelectAllUnitsOnScreenCommand()
 {
-	// get all units on the level
+	// get all player-controlled units on the level (NPC units are not selectable)
 	TArray<AActor*> Units;
 
-	UGameplayStatics::GetAllActorsOfClass(this, AStrategyUnit::StaticClass(), Units);
+	UGameplayStatics::GetAllActorsOfClass(this, AStrategyPlayerUnit::StaticClass(), Units);
 
 	// process each unit
 	for (AActor* CurrentActor : Units)
 	{
-		if (AStrategyUnit* CurrentUnit = Cast<AStrategyUnit>(CurrentActor))
+		if (AStrategyPlayerUnit* CurrentUnit = Cast<AStrategyPlayerUnit>(CurrentActor))
 		{
 			// is the unit is not already selected, and is on screen?
 			if (!ControlledUnits.Contains(CurrentUnit) && CurrentUnit->WasRecentlyRendered(0.2f))

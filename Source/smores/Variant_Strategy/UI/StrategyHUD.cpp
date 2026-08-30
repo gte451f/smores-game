@@ -3,6 +3,7 @@
 
 #include "StrategyHUD.h"
 #include "StrategyUnit.h"
+#include "StrategyPlayerUnit.h"
 #include "StrategyPlayerController.h"
 #include "StrategyUI.h"
 
@@ -41,9 +42,17 @@ void AStrategyHUD::DrawHUD()
 		{
 			DrawRect(SelectionBoxColor, BoxStart.X, BoxStart.Y, BoxSize.X, BoxSize.Y);
 
-			// get all the units in the selection box
+			// get all the player-controlled units in the selection box (NPC units are not selectable)
+			TArray<AStrategyPlayerUnit*> BoxedPlayerUnits;
+			GetActorsInSelectionRectangle(BoxStart, BoxCurrentPosition, BoxedPlayerUnits, true);
+
+			// widen to the base type expected by the player controller
 			TArray<AStrategyUnit*> BoxedUnits;
-			GetActorsInSelectionRectangle(BoxStart, BoxCurrentPosition, BoxedUnits, true);
+			BoxedUnits.Reserve(BoxedPlayerUnits.Num());
+			for (AStrategyPlayerUnit* CurrentUnit : BoxedPlayerUnits)
+			{
+				BoxedUnits.Add(CurrentUnit);
+			}
 
 			// update the unit selection on the player controller
 			PC->DragSelectUnits(BoxedUnits);

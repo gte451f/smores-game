@@ -13,9 +13,26 @@ UE5.8 projects are built through the Unreal Editor or via UnrealBuildTool. There
 - `smores.slnx` — game module only
 - `Automation_smores.slnx` — includes automation/testing targets
 
-To rebuild C++ from the editor: **Tools → Compile** (or Live Coding for hot-reload of *existing* functions/properties). For new `UCLASS`/`USTRUCT`/`UENUM` types or structural changes, close the editor and do a full build from Visual Studio.
+To rebuild C++ from the editor: **Tools → Compile**. Live Coding hot-reloads *existing* functions/properties but is unreliable — for new `UCLASS`/`USTRUCT`/`UENUM` types or any structural change, close the editor and do a cold build from Visual Studio.
 
-> **Live Coding is unreliable for new UCLASS types and sometimes for existing edits** — always do a cold VS build for structural changes.
+## Development approach: C++ first
+
+**Prefer writing C++ directly over driving the editor through `unreal-mcp`.** Even with Epic's
+newer MCP toolsets, round-tripping gameplay logic through MCP tools is slower and less reliable
+than editing `Source/smores/` and doing a build. Put behavior, state, systems, and anything
+non-trivial in C++.
+
+Use Blueprints (via `unreal-mcp` or the editor) for what they are actually good at:
+
+- **Wiring**: assigning asset references to the `EditAnywhere` properties on the C++ classes
+  (meshes, `UInputAction` / `UInputMappingContext`, widget classes, EQS queries, etc.).
+- **Configuration**: tuning exposed `UPROPERTY` values, curves, and data-only assets.
+- **Light glue**: small `BlueprintImplementableEvent` hooks (`BP_*`) for cosmetic or
+  designer-facing responses.
+- **Content-only assets**: materials, Niagara, animation, level layout.
+
+Rule of thumb: if it has meaningful branching, iteration, or lifetime, it belongs in C++.
+When a task needs both, write the C++ first, then use MCP/Blueprints only to bind and configure it.
 
 ## Architecture
 
@@ -65,11 +82,9 @@ All input uses **Enhanced Input** (`UInputAction` / `UInputMappingContext`). Inp
 
 | Plugin | Purpose |
 |---|---|
-| StateTree / GameplayStateTree | Enabled but unused by game code (was TwinStick NPC AI); kept as a dependency of the `AllToolsets` StateTree toolset |
-| ModelContextProtocol + MCPClientToolset | MCP integration — exposes the in-editor `unreal-mcp` HTTP server |
+| ModelContextProtocol | Hosts the in-editor `unreal-mcp` HTTP server |
 | AllToolsets | Registers all Epic AI toolsets (Blueprint, scene, assets, Sequencer, …) with `unreal-mcp` |
-| ModelingToolsEditorMode | In-editor mesh modeling |
-| Terminal | In-editor terminal |
+| StateTree / GameplayStateTree | No longer used by game code; kept only as an `AllToolsets` dependency |
 
 ## Content layout
 
@@ -83,7 +98,9 @@ Content/
 
 ## MCP servers
 
-One MCP server is configured (`.mcp.json`): **unreal-mcp**, an HTTP server hosted by the editor at `http://127.0.0.1:8000/mcp` (Epic's `ModelContextProtocol` plugin). Requires the Unreal Editor running. Replaces the retired `flopperam-unreal`/`unreal-api` servers.
+One MCP server is configured (`.mcp.json`): **unreal-mcp**, an HTTP server hosted by the editor at `http://127.0.0.1:8000/mcp` (Epic's `ModelContextProtocol` plugin). Requires the Unreal Editor running.
+
+Reach for these tools for wiring, configuration, and content-only work — not for gameplay logic. See **Development approach: C++ first** above.
 
 ### Discovery workflow (do this — don't assume)
 
@@ -95,11 +112,9 @@ One MCP server is configured (`.mcp.json`): **unreal-mcp**, an HTTP server hoste
 
 ### What's available (high level)
 
-- **Blueprints**: `editor_toolset.toolsets.blueprint.BlueprintTools` — create assets, graphs, variables, functions, event dispatchers, nodes/pins/wiring, compile. Prefer `write_graph_dsl` (call `get_graph_dsl_docs` first) over node-by-node.
-- **Objects/props**: `editor_toolset.toolsets.object.ObjectTools` — read/write properties on any object or CDO, discover classes. UMG/other toolsets depend on it for property access.
-- **Scene/assets**: `ActorTools`, `SceneTools` (place/remove actors, levels, camera), `AssetTools`, `MaterialTools`, mesh/texture/data-table toolsets.
-- **Also**: UMG, Niagara (5), Control Rig + full Sequencer suite, GAS, GameplayTags, PCG, Physics assets, `SlateInspectorToolset` (editor UI automation), inspect-only BehaviorTree/StateTree/Conversation.
-- `editor_toolset.toolsets.programmatic.ProgrammaticToolset` batches multiple tool calls via a sandboxed Python script.
+- **Blueprints**: `editor_toolset.toolsets.blueprint.BlueprintTools` — create assets/graphs/variables/functions/nodes, wire pins, compile. Prefer `write_graph_dsl` (read `get_graph_dsl_docs` first) over node-by-node.
+- **Objects/props**: `editor_toolset.toolsets.object.ObjectTools` — read/write properties on any object or CDO. Other toolsets depend on it for property access.
+- **Also registered**: scene/actor/asset/material tools, UMG, Niagara, Control Rig + Sequencer, GAS, GameplayTags, PCG, Physics, and `ProgrammaticToolset` (batch calls via a sandboxed Python script). Discover schemas on demand.
 
 ### Caveats
 
