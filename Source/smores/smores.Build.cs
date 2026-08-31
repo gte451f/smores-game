@@ -26,7 +26,8 @@ public class smores : ModuleRules
 		PublicIncludePaths.AddRange(new string[] {
 			"smores",
 			"smores/Variant_Strategy",
-			"smores/Variant_Strategy/UI"
+			"smores/Variant_Strategy/UI",
+			"smores/Variant_Strategy/Inventory"
 		});
 
 		// Uncomment if you are using Slate UI

@@ -11,6 +11,7 @@
 class USphereComponent;
 class UEnvQuery;
 class UEnvQueryInstanceBlueprintWrapper;
+class UInventoryComponent;
 
 /** Delegate to report that this unit has finished moving */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnUnitMoveCompletedDelegate, AStrategyUnit*, Unit);
@@ -29,6 +30,10 @@ private:
 	/** Interaction range sphere */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	USphereComponent* InteractionRange;
+
+	/** Inventory carried by this unit. Present on NPC and player units alike. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UInventoryComponent> Inventory;
 
 protected:
 
@@ -63,6 +68,9 @@ public:
 
 	/** Returns the last cached movement goal location */
 	FVector GetMovementGoal() const;
+
+	/** Returns this unit's inventory component */
+	UInventoryComponent* GetInventory() const { return Inventory; }
 
 protected:
 

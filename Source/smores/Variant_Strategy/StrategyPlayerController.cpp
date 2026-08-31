@@ -20,6 +20,9 @@
 #include "InputAction.h"
 #include "StrategyTouchControls.h"
 #include "Widgets/Input/SVirtualJoystick.h"
+#include "InventoryWidget.h"
+#include "Inventory/InventoryComponent.h"
+#include "Blueprint/UserWidget.h"
 #include "smores.h"
 
 AStrategyPlayerController::AStrategyPlayerController()
@@ -113,6 +116,12 @@ void AStrategyPlayerController::SetupInputComponent()
 			if (CyclePawnAction)
 			{
 				EnhancedInputComponent->BindAction(CyclePawnAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::CyclePawn);
+			}
+
+			// Inventory toggle (desktop only; not mapped in the touch IMC)
+			if (ToggleInventoryAction)
+			{
+				EnhancedInputComponent->BindAction(ToggleInventoryAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::ToggleInventory);
 			}
 
 			// Touch Interaction
@@ -296,6 +305,72 @@ void AStrategyPlayerController::CyclePawn(const FInputActionValue& Value)
 	NextPawn->UnitSelected();
 
 	// NOTE: deliberately does not touch ControlledCameraPawn - the camera must not move on cycle
+
+	// the previous pawn's inventory (if shown) is now stale
+	CloseInventory();
+}
+
+void AStrategyPlayerController::ToggleInventory(const FInputActionValue& Value)
+{
+	// if a screen is already open, pressing again closes it
+	if (InventoryWidget && InventoryWidget->IsInViewport())
+	{
+		CloseInventory();
+		return;
+	}
+
+	// require exactly one selected player-controlled pawn
+	AStrategyPlayerUnit* SinglePlayerUnit = nullptr;
+
+	for (AStrategyUnit* CurrentUnit : ControlledUnits)
+	{
+		if (AStrategyPlayerUnit* PlayerUnit = Cast<AStrategyPlayerUnit>(CurrentUnit))
+		{
+			if (SinglePlayerUnit)
+			{
+				// more than one player pawn selected - do nothing
+				return;
+			}
+
+			SinglePlayerUnit = PlayerUnit;
+		}
+	}
+
+	if (!SinglePlayerUnit)
+	{
+		return;
+	}
+
+	// spawn the widget on first use
+	if (!InventoryWidget)
+	{
+		if (!InventoryWidgetClass)
+		{
+			UE_LOG(Logsmores, Warning, TEXT("StrategyPlayerController has no InventoryWidgetClass set; can't open the inventory screen."));
+			return;
+		}
+
+		InventoryWidget = CreateWidget<UInventoryWidget>(this, InventoryWidgetClass);
+	}
+
+	if (InventoryWidget)
+	{
+		InventoryWidget->SetInventory(SinglePlayerUnit->GetInventory());
+		InventoryWidget->AddToViewport(0);
+	}
+}
+
+void AStrategyPlayerController::CloseInventory()
+{
+	if (InventoryWidget)
+	{
+		InventoryWidget->ClearInventory();
+
+		if (InventoryWidget->IsInViewport())
+		{
+			InventoryWidget->RemoveFromParent();
+		}
+	}
 }
 
 void AStrategyPlayerController::SelectHoldStarted(const FInputActionValue& Value)
@@ -540,6 +615,9 @@ void AStrategyPlayerController::DoDeselectAllUnitsCommand()
 
 	// clear the selection list
 	ControlledUnits.Empty();
+
+	// nothing is selected, so any open inventory screen is now stale
+	CloseInventory();
 }
 
 void AStrategyPlayerController::DoToggleSelectAllUnitsCommand()

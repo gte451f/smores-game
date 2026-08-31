@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "StrategyUnit.h"
+#include "Inventory/InventoryComponent.h"
 #include "StrategyPlayerUnit.generated.h"
 
 /**
@@ -23,4 +24,14 @@ public:
 
 	/** Constructor */
 	AStrategyPlayerUnit();
+
+protected:
+
+	/** Items every player unit starts with. Populated with defaults in the constructor; overridable per-Blueprint. */
+	UPROPERTY(EditAnywhere, Category = "Inventory")
+	TArray<FInventoryItem> StartingItems;
+
+	//~ Begin AActor interface
+	virtual void BeginPlay() override;
+	//~ End AActor interface
 };

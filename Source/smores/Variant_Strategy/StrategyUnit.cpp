@@ -6,6 +6,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Components/SphereComponent.h"
+#include "Inventory/InventoryComponent.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "EnvironmentQuery/EnvQueryManager.h"
 #include "EnvironmentQuery/EnvQueryInstanceBlueprintWrapper.h"
@@ -24,6 +25,9 @@ AStrategyUnit::AStrategyUnit()
 
 	InteractionRange->SetSphereRadius(100.0f);
 	InteractionRange->SetCollisionProfileName(FName("OverlapAllDynamic"));
+
+	// create the inventory component
+	Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
 
 	// configure movement
 	GetCharacterMovement()->GravityScale = 1.5f;

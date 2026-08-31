@@ -116,7 +116,37 @@ Reach for these tools for wiring, configuration, and content-only work — not f
 - **Objects/props**: `editor_toolset.toolsets.object.ObjectTools` — read/write properties on any object or CDO. Other toolsets depend on it for property access.
 - **Also registered**: scene/actor/asset/material tools, UMG, Niagara, Control Rig + Sequencer, GAS, GameplayTags, PCG, Physics, and `ProgrammaticToolset` (batch calls via a sandboxed Python script). Discover schemas on demand.
 
+### Token discipline (MCP results persist for the whole session)
+
+Every `call_tool` result stays in context until the session ends. On the two tasks
+that built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
+
+- **Run MCP-heavy editor wiring in a `fork` / subagent.** A multi-step asset build is
+  ~20–30 calls whose payloads are pure noise once the work is done. Let the fork do the
+  wiring and report back "done + any manual steps"; the main context never sees the calls.
+- **Do the C++ first, then wire in one pass.** Workflow: close editor → cold build →
+  reopen → do all wiring → `/compact`. Don't interleave.
+- **Skip `list_properties`.** It dumps the entire inherited property tree with every
+  nested sub-schema (a `TextBlock` is ~6 KB). Call `get_properties` / `set_properties`
+  with the field names you already know; only fall back to discovery on a failed set.
+- **Don't `get_properties` just to learn field names** — `set_properties` returns a bool,
+  so set and check.
+- **Batch multi-step builds through `ProgrammaticToolset.execute_tool_script`** (one
+  round-trip instead of a dozen `AddWidget` / `set_properties` / compile calls).
+- `describe_toolset` on a big toolset (BlueprintTools, UMGToolSet) auto-persists to a
+  file and stays *out* of context — read it back with `jq`/grep for the tools you need.
+
 ### Caveats
 
 - Prefer `BlueprintTools` (sets override flags + compiles) over raw CDO writes. If writing a CDO property directly, the Blueprint override flag is **not** set automatically — have the user verify and save the Blueprint in the editor afterward.
 - Create/modify operations that touch project assets: get user confirmation first.
+- **`UInputMappingContext` key mappings can't be round-tripped via MCP.** `ObjectTools`
+  reads the array back in a different shape than it writes (`key` flattens to a string;
+  mappings hold refPaths to IMC-owned instanced modifier/trigger subobjects), and the
+  operative array is `defaultKeyMappings.mappings`, not the empty top-level `mappings`.
+  Creating the `UInputAction` asset is fine — duplicate an existing IA of the same
+  `ValueType` (`IA_Strategy_CyclePawn` is `Boolean`) — but hand the IMC key-binding step
+  to the user.
+- New `UCLASS`/`USTRUCT`/`UENUM` (or any `UPROPERTY` add) needs a cold build with the
+  editor **closed** before the MCP phase can reference the new types — Live Coding won't
+  register them. See **Building**.

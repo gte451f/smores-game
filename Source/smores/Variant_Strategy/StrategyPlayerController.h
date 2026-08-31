@@ -16,6 +16,7 @@ struct FInputActionInstance;
 class AStrategyUnit;
 class AStrategyPlayerUnit;
 class UStrategyTouchControls;
+class UInventoryWidget;
 
 /**
  *  Player Controller for a top-down strategy game.
@@ -96,6 +97,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* CyclePawnAction;
 
+	/** Input Action for toggling the inventory screen for the selected pawn */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* ToggleInventoryAction;
+
 	/** Input Action for primary touch hold */
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* TouchPrimaryHoldAction;
@@ -161,6 +166,13 @@ protected:
 	/** Currently selected unit list */
 	TArray<AStrategyUnit*> ControlledUnits;
 
+	/** Inventory screen widget class to spawn when the player opens an inventory */
+	UPROPERTY(EditAnywhere, Category="UI")
+	TSubclassOf<UInventoryWidget> InventoryWidgetClass;
+
+	/** Active inventory screen widget, if one is open */
+	TObjectPtr<UInventoryWidget> InventoryWidget;
+
 	/** All player-controllable pawns in the level. Rebuilt on demand by RefreshPlayerPawns() */
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<AStrategyPlayerUnit>> PlayerPawns;
@@ -216,6 +228,12 @@ protected:
 
 	/** Replaces the current selection with the next player-controlled pawn */
 	void CyclePawn(const FInputActionValue& Value);
+
+	/** Toggles the inventory screen for the selected pawn (requires exactly one selected player pawn) */
+	void ToggleInventory(const FInputActionValue& Value);
+
+	/** Closes the inventory screen if one is open */
+	void CloseInventory();
 
 	/** Start a select and hold input */
 	void SelectHoldStarted(const FInputActionValue& Value);

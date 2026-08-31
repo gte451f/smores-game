@@ -2,10 +2,25 @@
 
 
 #include "StrategyPlayerUnit.h"
+#include "Inventory/InventoryComponent.h"
 
 AStrategyPlayerUnit::AStrategyPlayerUnit()
 {
-	// Intentionally empty. All configuration is inherited from AStrategyUnit and set on
-	// the BP_PlayerUnit Blueprint. Reserved as the extension point for future
-	// player-unit-only state.
+	// every player unit starts with a couple of fake items for this first pass
+	StartingItems.Add(FInventoryItem(TEXT("Apple"), FText::FromString(TEXT("Apple"))));
+	StartingItems.Add(FInventoryItem(TEXT("PocketKnife"), FText::FromString(TEXT("Pocket Knife"))));
+}
+
+void AStrategyPlayerUnit::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// stock the inventory with the starting items
+	if (UInventoryComponent* InventoryComp = GetInventory())
+	{
+		for (const FInventoryItem& Item : StartingItems)
+		{
+			InventoryComp->AddItem(Item);
+		}
+	}
 }
