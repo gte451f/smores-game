@@ -29,6 +29,12 @@ void AStrategyContainer::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// start out showing the unselected material
+	if (NormalMaterial)
+	{
+		ContainerMesh->SetMaterial(0, NormalMaterial);
+	}
+
 	// stock the inventory with the starting items
 	for (const FInventoryItem& Item : StartingItems)
 	{
@@ -44,4 +50,9 @@ bool AStrategyContainer::IsUnitInRange(const AStrategyUnit* Unit) const
 void AStrategyContainer::NotifyOpened()
 {
 	BP_ContainerOpened();
+}
+
+void AStrategyContainer::SetSelected(bool bSelected)
+{
+	ContainerMesh->SetMaterial(0, bSelected ? SelectedMaterial : NormalMaterial);
 }

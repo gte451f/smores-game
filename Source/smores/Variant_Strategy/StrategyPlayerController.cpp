@@ -397,6 +397,9 @@ void AStrategyPlayerController::ToggleContainer(const FInputActionValue& Value)
 		return;
 	}
 
+	// opening a container always leaves it highlighted, even via the no-ambiguity auto-fallback
+	SetSelectedContainer(NearbyContainer);
+
 	// spawn the widget on first use
 	if (!ContainerWidget)
 	{
@@ -631,6 +634,19 @@ bool AStrategyPlayerController::DoSelectCommand(const FVector& SelectLocation, b
 		}
 	}
 
+	// no unit under the cursor - check for a container so the player can disambiguate
+	// which one they mean when several are nearby
+	if (AStrategyContainer* Clicked = FindContainerAtLocation(SelectLocation))
+	{
+		SetSelectedContainer(Clicked);
+		return true;
+	}
+	else if (!bAdditiveSelection && SelectedContainer)
+	{
+		// clicking empty ground clears the container pick, same as it clears unit selection
+		SetSelectedContainer(nullptr);
+	}
+
 	// didn't find a unit
 	return false;
 }
@@ -828,6 +844,8 @@ AStrategyContainer* AStrategyPlayerController::FindContainerInRange() const
 	TArray<AActor*> FoundContainers;
 	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AStrategyContainer::StaticClass(), FoundContainers);
 
+	AStrategyContainer* FirstInRange = nullptr;
+
 	for (AActor* CurrentActor : FoundContainers)
 	{
 		if (AStrategyContainer* CurrentContainer = Cast<AStrategyContainer>(CurrentActor))
@@ -836,13 +854,64 @@ AStrategyContainer* AStrategyPlayerController::FindContainerInRange() const
 			{
 				if (CurrentContainer->IsUnitInRange(CurrentUnit))
 				{
-					return CurrentContainer;
+					// the player explicitly picked this one - always prefer it over any other in-range container
+					if (CurrentContainer == SelectedContainer)
+					{
+						return CurrentContainer;
+					}
+
+					if (!FirstInRange)
+					{
+						FirstInRange = CurrentContainer;
+					}
+
+					break;
 				}
 			}
 		}
 	}
 
+	return FirstInRange;
+}
+
+AStrategyContainer* AStrategyPlayerController::FindContainerAtLocation(const FVector& Location) const
+{
+	// gather every container in the level (picks up every AStrategyContainer subclass)
+	TArray<AActor*> FoundContainers;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AStrategyContainer::StaticClass(), FoundContainers);
+
+	for (AActor* CurrentActor : FoundContainers)
+	{
+		if (AStrategyContainer* CurrentContainer = Cast<AStrategyContainer>(CurrentActor))
+		{
+			if (FVector::Dist(CurrentContainer->GetActorLocation(), Location) <= SelectionRadius)
+			{
+				return CurrentContainer;
+			}
+		}
+	}
+
 	return nullptr;
+}
+
+void AStrategyPlayerController::SetSelectedContainer(AStrategyContainer* NewContainer)
+{
+	if (NewContainer == SelectedContainer)
+	{
+		return;
+	}
+
+	if (SelectedContainer)
+	{
+		SelectedContainer->SetSelected(false);
+	}
+
+	SelectedContainer = NewContainer;
+
+	if (SelectedContainer)
+	{
+		SelectedContainer->SetSelected(true);
+	}
 }
 
 FVector2D AStrategyPlayerController::GetMouseLocationForPlayer()

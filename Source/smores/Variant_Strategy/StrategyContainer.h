@@ -9,6 +9,7 @@
 
 class USphereComponent;
 class UStaticMeshComponent;
+class UMaterialInterface;
 class AStrategyUnit;
 
 /**
@@ -42,6 +43,14 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Inventory")
 	TArray<FInventoryItem> StartingItems;
 
+	/** Material applied to ContainerMesh when this container is not the selected one */
+	UPROPERTY(EditAnywhere, Category = "Container")
+	TObjectPtr<UMaterialInterface> NormalMaterial;
+
+	/** Material applied to ContainerMesh when this container is the selected one */
+	UPROPERTY(EditAnywhere, Category = "Container")
+	TObjectPtr<UMaterialInterface> SelectedMaterial;
+
 public:
 
 	/** Constructor */
@@ -63,6 +72,9 @@ public:
 
 	/** Notifies this container that it has been opened, so Blueprint can play cosmetic feedback */
 	void NotifyOpened();
+
+	/** Updates this container's material to reflect whether it is the player's current selected container */
+	void SetSelected(bool bSelected);
 
 protected:
 

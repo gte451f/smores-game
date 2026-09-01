@@ -171,6 +171,9 @@ protected:
 	/** Currently selected unit list */
 	TArray<AStrategyUnit*> ControlledUnits;
 
+	/** The container the player has explicitly picked, used to disambiguate when several are in range */
+	TObjectPtr<AStrategyContainer> SelectedContainer;
+
 	/** Inventory screen widget class to spawn when the player opens an inventory */
 	UPROPERTY(EditAnywhere, Category="UI")
 	TSubclassOf<UInventoryWidget> InventoryWidgetClass;
@@ -331,8 +334,14 @@ protected:
 	/** Sorts all controlled units based on their distance to the provided world location */
 	AStrategyUnit* GetClosestSelectedUnitToLocation(FVector TargetLocation);
 
-	/** Returns the first container in the level with a selected unit within its InteractionRange, or nullptr */
+	/** Returns the first container in the level with a selected unit within its InteractionRange, preferring SelectedContainer if it qualifies, or nullptr */
 	AStrategyContainer* FindContainerInRange() const;
+
+	/** Returns the container within click range of the given world location, or nullptr */
+	AStrategyContainer* FindContainerAtLocation(const FVector& Location) const;
+
+	/** Updates SelectedContainer, toggling the old and new container's highlight material to match */
+	void SetSelectedContainer(AStrategyContainer* NewContainer);
 
 	/** Calculates and returns the current mouse location */
 	FVector2D GetMouseLocationForPlayer();
