@@ -17,6 +17,7 @@ class AStrategyUnit;
 class AStrategyPlayerUnit;
 class UStrategyTouchControls;
 class UInventoryWidget;
+class AStrategyContainer;
 
 /**
  *  Player Controller for a top-down strategy game.
@@ -101,6 +102,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* ToggleInventoryAction;
 
+	/** Input Action for opening/closing a nearby container's inventory screen */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* ToggleContainerAction;
+
 	/** Input Action for primary touch hold */
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* TouchPrimaryHoldAction;
@@ -173,6 +178,13 @@ protected:
 	/** Active inventory screen widget, if one is open */
 	TObjectPtr<UInventoryWidget> InventoryWidget;
 
+	/** Screen widget class to spawn when the player opens a container (chest, barrel, etc.) */
+	UPROPERTY(EditAnywhere, Category="UI")
+	TSubclassOf<UInventoryWidget> ContainerWidgetClass;
+
+	/** Active container screen widget, if one is open */
+	TObjectPtr<UInventoryWidget> ContainerWidget;
+
 	/** All player-controllable pawns in the level. Rebuilt on demand by RefreshPlayerPawns() */
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<AStrategyPlayerUnit>> PlayerPawns;
@@ -234,6 +246,12 @@ protected:
 
 	/** Closes the inventory screen if one is open */
 	void CloseInventory();
+
+	/** Opens the inventory screen for a nearby container, or closes it if already open */
+	void ToggleContainer(const FInputActionValue& Value);
+
+	/** Closes the container screen if one is open */
+	void CloseContainer();
 
 	/** Start a select and hold input */
 	void SelectHoldStarted(const FInputActionValue& Value);
@@ -312,6 +330,9 @@ protected:
 
 	/** Sorts all controlled units based on their distance to the provided world location */
 	AStrategyUnit* GetClosestSelectedUnitToLocation(FVector TargetLocation);
+
+	/** Returns the first container in the level with a selected unit within its InteractionRange, or nullptr */
+	AStrategyContainer* FindContainerInRange() const;
 
 	/** Calculates and returns the current mouse location */
 	FVector2D GetMouseLocationForPlayer();

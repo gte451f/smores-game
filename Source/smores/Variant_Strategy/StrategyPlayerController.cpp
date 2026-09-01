@@ -22,6 +22,7 @@
 #include "Widgets/Input/SVirtualJoystick.h"
 #include "InventoryWidget.h"
 #include "Inventory/InventoryComponent.h"
+#include "StrategyContainer.h"
 #include "Blueprint/UserWidget.h"
 #include "smores.h"
 
@@ -122,6 +123,12 @@ void AStrategyPlayerController::SetupInputComponent()
 			if (ToggleInventoryAction)
 			{
 				EnhancedInputComponent->BindAction(ToggleInventoryAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::ToggleInventory);
+			}
+
+			// Container toggle (desktop only; not mapped in the touch IMC)
+			if (ToggleContainerAction)
+			{
+				EnhancedInputComponent->BindAction(ToggleContainerAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::ToggleContainer);
 			}
 
 			// Touch Interaction
@@ -369,6 +376,57 @@ void AStrategyPlayerController::CloseInventory()
 		if (InventoryWidget->IsInViewport())
 		{
 			InventoryWidget->RemoveFromParent();
+		}
+	}
+}
+
+void AStrategyPlayerController::ToggleContainer(const FInputActionValue& Value)
+{
+	// if a screen is already open, pressing again closes it
+	if (ContainerWidget && ContainerWidget->IsInViewport())
+	{
+		CloseContainer();
+		return;
+	}
+
+	// require a container within range of at least one selected unit
+	AStrategyContainer* NearbyContainer = FindContainerInRange();
+
+	if (!NearbyContainer)
+	{
+		return;
+	}
+
+	// spawn the widget on first use
+	if (!ContainerWidget)
+	{
+		if (!ContainerWidgetClass)
+		{
+			UE_LOG(Logsmores, Warning, TEXT("StrategyPlayerController has no ContainerWidgetClass set; can't open the container screen."));
+			return;
+		}
+
+		ContainerWidget = CreateWidget<UInventoryWidget>(this, ContainerWidgetClass);
+	}
+
+	if (ContainerWidget)
+	{
+		ContainerWidget->SetInventory(NearbyContainer->GetInventory());
+		ContainerWidget->AddToViewport(0);
+
+		NearbyContainer->NotifyOpened();
+	}
+}
+
+void AStrategyPlayerController::CloseContainer()
+{
+	if (ContainerWidget)
+	{
+		ContainerWidget->ClearInventory();
+
+		if (ContainerWidget->IsInViewport())
+		{
+			ContainerWidget->RemoveFromParent();
 		}
 	}
 }
@@ -762,6 +820,29 @@ AStrategyUnit* AStrategyPlayerController::GetClosestSelectedUnitToLocation(FVect
 
 	// return the selected unit
 	return OutUnit;
+}
+
+AStrategyContainer* AStrategyPlayerController::FindContainerInRange() const
+{
+	// gather every container in the level (picks up every AStrategyContainer subclass)
+	TArray<AActor*> FoundContainers;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AStrategyContainer::StaticClass(), FoundContainers);
+
+	for (AActor* CurrentActor : FoundContainers)
+	{
+		if (AStrategyContainer* CurrentContainer = Cast<AStrategyContainer>(CurrentActor))
+		{
+			for (AStrategyUnit* CurrentUnit : ControlledUnits)
+			{
+				if (CurrentContainer->IsUnitInRange(CurrentUnit))
+				{
+					return CurrentContainer;
+				}
+			}
+		}
+	}
+
+	return nullptr;
 }
 
 FVector2D AStrategyPlayerController::GetMouseLocationForPlayer()

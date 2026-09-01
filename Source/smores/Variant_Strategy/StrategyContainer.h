@@ -1,0 +1,72 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/Actor.h"
+#include "Inventory/InventoryComponent.h"
+#include "StrategyContainer.generated.h"
+
+class USphereComponent;
+class UStaticMeshComponent;
+class AStrategyUnit;
+
+/**
+ *  Base class for a world container holding its own inventory (a chest, barrel, bag, etc.).
+ *  A selected unit must be within InteractionRange to open one. Concrete container types
+ *  (e.g. AStrategyChest) derive from this to supply their own default StartingItems and
+ *  any type-specific behavior; this class only holds what every container type needs.
+ */
+UCLASS(abstract)
+class AStrategyContainer : public AActor
+{
+	GENERATED_BODY()
+
+private:
+
+	/** Visual mesh for this container */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UStaticMeshComponent> ContainerMesh;
+
+	/** Interaction range sphere. A unit must be within this radius to open the container. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<USphereComponent> InteractionRange;
+
+	/** Inventory held by this container */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UInventoryComponent> Inventory;
+
+protected:
+
+	/** Items this container starts with. Empty by default here; concrete types populate it in their constructor. */
+	UPROPERTY(EditAnywhere, Category = "Inventory")
+	TArray<FInventoryItem> StartingItems;
+
+public:
+
+	/** Constructor */
+	AStrategyContainer();
+
+protected:
+
+	//~ Begin AActor interface
+	virtual void BeginPlay() override;
+	//~ End AActor interface
+
+public:
+
+	/** Returns this container's inventory component */
+	UInventoryComponent* GetInventory() const { return Inventory; }
+
+	/** Returns true if the given unit is close enough to open this container */
+	bool IsUnitInRange(const AStrategyUnit* Unit) const;
+
+	/** Notifies this container that it has been opened, so Blueprint can play cosmetic feedback */
+	void NotifyOpened();
+
+protected:
+
+	/** Blueprint handler for cosmetic/audio response when this container is opened */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Container", meta = (DisplayName = "Container Opened"))
+	void BP_ContainerOpened();
+};
