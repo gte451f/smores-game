@@ -172,6 +172,7 @@ protected:
 	TArray<AStrategyUnit*> ControlledUnits;
 
 	/** The container the player has explicitly picked, used to disambiguate when several are in range */
+	UPROPERTY()
 	TObjectPtr<AStrategyContainer> SelectedContainer;
 
 	/** Inventory screen widget class to spawn when the player opens an inventory */
@@ -179,6 +180,7 @@ protected:
 	TSubclassOf<UInventoryWidget> InventoryWidgetClass;
 
 	/** Active inventory screen widget, if one is open */
+	UPROPERTY()
 	TObjectPtr<UInventoryWidget> InventoryWidget;
 
 	/** Screen widget class to spawn when the player opens a container (chest, barrel, etc.) */
@@ -186,6 +188,7 @@ protected:
 	TSubclassOf<UInventoryWidget> ContainerWidgetClass;
 
 	/** Active container screen widget, if one is open */
+	UPROPERTY()
 	TObjectPtr<UInventoryWidget> ContainerWidget;
 
 	/** All player-controllable pawns in the level. Rebuilt on demand by RefreshPlayerPawns() */
@@ -255,6 +258,9 @@ protected:
 
 	/** Closes the container screen if one is open */
 	void CloseContainer();
+
+	/** Opens the given container's inventory screen, spawning the widget on first use */
+	void OpenContainer(AStrategyContainer* Container);
 
 	/** Start a select and hold input */
 	void SelectHoldStarted(const FInputActionValue& Value);

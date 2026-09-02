@@ -18,7 +18,7 @@ AStrategyContainer::AStrategyContainer()
 	InteractionRange = CreateDefaultSubobject<USphereComponent>(TEXT("Interaction Range"));
 	InteractionRange->SetupAttachment(RootComponent);
 
-	InteractionRange->SetSphereRadius(250.0f);
+	InteractionRange->SetSphereRadius(312.5f);
 	InteractionRange->SetCollisionProfileName(FName("OverlapAllDynamic"));
 
 	// create the inventory component

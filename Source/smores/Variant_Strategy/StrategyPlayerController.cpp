@@ -400,6 +400,29 @@ void AStrategyPlayerController::ToggleContainer(const FInputActionValue& Value)
 	// opening a container always leaves it highlighted, even via the no-ambiguity auto-fallback
 	SetSelectedContainer(NearbyContainer);
 
+	OpenContainer(NearbyContainer);
+}
+
+void AStrategyPlayerController::CloseContainer()
+{
+	if (ContainerWidget)
+	{
+		ContainerWidget->ClearInventory();
+
+		if (ContainerWidget->IsInViewport())
+		{
+			ContainerWidget->RemoveFromParent();
+		}
+	}
+}
+
+void AStrategyPlayerController::OpenContainer(AStrategyContainer* Container)
+{
+	if (!Container)
+	{
+		return;
+	}
+
 	// spawn the widget on first use
 	if (!ContainerWidget)
 	{
@@ -414,23 +437,10 @@ void AStrategyPlayerController::ToggleContainer(const FInputActionValue& Value)
 
 	if (ContainerWidget)
 	{
-		ContainerWidget->SetInventory(NearbyContainer->GetInventory());
+		ContainerWidget->SetInventory(Container->GetInventory());
 		ContainerWidget->AddToViewport(0);
 
-		NearbyContainer->NotifyOpened();
-	}
-}
-
-void AStrategyPlayerController::CloseContainer()
-{
-	if (ContainerWidget)
-	{
-		ContainerWidget->ClearInventory();
-
-		if (ContainerWidget->IsInViewport())
-		{
-			ContainerWidget->RemoveFromParent();
-		}
+		Container->NotifyOpened();
 	}
 }
 
@@ -491,6 +501,34 @@ void AStrategyPlayerController::SelectClickAdditive(const FInputActionValue& Val
 
 void AStrategyPlayerController::SelectAllDoubleClick(const FInputActionValue& Value)
 {
+	// if the double-click landed on a container, select + open it instead of the usual select-all gesture
+	FVector CursorLocation;
+
+	if (GetLocationUnderCursor(CursorLocation))
+	{
+		if (AStrategyContainer* Clicked = FindContainerAtLocation(CursorLocation))
+		{
+			// highlight it dark green, same as a single click, regardless of range
+			SetSelectedContainer(Clicked);
+
+			// open it if any player-controlled pawn is close enough. Checked against every player
+			// pawn (not just ControlledUnits) since the plain SelectClickAction fires alongside
+			// this gesture and, being non-additive, may have just cleared the current selection.
+			RefreshPlayerPawns();
+
+			for (const TObjectPtr<AStrategyPlayerUnit>& PlayerPawn : PlayerPawns)
+			{
+				if (IsValid(PlayerPawn) && Clicked->IsUnitInRange(PlayerPawn))
+				{
+					OpenContainer(Clicked);
+					break;
+				}
+			}
+
+			return;
+		}
+	}
+
 	DoSelectAllUnitsOnScreenCommand();
 }
 
