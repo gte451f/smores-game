@@ -4,6 +4,8 @@
 #include "InventoryWidget.h"
 #include "InventoryComponent.h"
 #include "Components/TextBlock.h"
+#include "Components/PanelWidget.h"
+#include "Components/UniformGridPanel.h"
 
 #define LOCTEXT_NAMESPACE "InventoryWidget"
 
@@ -57,7 +59,7 @@ FText UInventoryWidget::GetSlotSummary() const
 
 	for (int32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
 	{
-		const FText SlotContents = Items.IsValidIndex(SlotIndex)
+		const FText SlotContents = (Items.IsValidIndex(SlotIndex) && !Items[SlotIndex].IsEmpty())
 			? Items[SlotIndex].DisplayName
 			: LOCTEXT("EmptySlot", "(empty)");
 
@@ -79,6 +81,41 @@ void UInventoryWidget::RefreshDisplay()
 		SlotListText->SetText(GetSlotSummary());
 	}
 
+	if (SlotContainer && SlotWidgetClass)
+	{
+		SlotContainer->ClearChildren();
+		SlotWidgets.Reset();
+
+		const int32 SlotCount = GetNumSlots();
+		const TArray<FInventoryItem> CurrentItems = GetItems();
+		UUniformGridPanel* GridPanel = Cast<UUniformGridPanel>(SlotContainer.Get());
+		const int32 SafeGridColumns = FMath::Max(GridColumns, 1);
+
+		for (int32 Index = 0; Index < SlotCount; ++Index)
+		{
+			UInventorySlotWidget* SlotWidget = CreateWidget<UInventorySlotWidget>(this, SlotWidgetClass);
+
+			if (!SlotWidget)
+			{
+				continue;
+			}
+
+			const FInventoryItem SlotItem = CurrentItems.IsValidIndex(Index) ? CurrentItems[Index] : FInventoryItem();
+			SlotWidget->SetSlot(Index, SlotItem);
+
+			if (GridPanel)
+			{
+				GridPanel->AddChildToUniformGrid(SlotWidget, Index / SafeGridColumns, Index % SafeGridColumns);
+			}
+			else
+			{
+				SlotContainer->AddChild(SlotWidget);
+			}
+
+			SlotWidgets.Add(SlotWidget);
+		}
+	}
+
 	BP_InventoryUpdated();
 }
 
@@ -87,6 +124,16 @@ void UInventoryWidget::NativeDestruct()
 	ClearInventory();
 
 	Super::NativeDestruct();
+}
+
+void UInventoryWidget::RequestClose_Implementation()
+{
+	ClearInventory();
+
+	if (IsInViewport())
+	{
+		RemoveFromParent();
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

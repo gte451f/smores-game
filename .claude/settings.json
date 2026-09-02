@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/save_approved_plan.py 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}

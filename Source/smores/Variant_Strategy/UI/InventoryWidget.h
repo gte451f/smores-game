@@ -3,20 +3,23 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Blueprint/UserWidget.h"
+#include "WindowWidget.h"
 #include "InventoryComponent.h"
+#include "InventorySlotWidget.h"
 #include "InventoryWidget.generated.h"
 
 class UTextBlock;
+class UPanelWidget;
 
 /**
  *  Inventory screen for a single selected pawn.
  *  Mirrors the UStrategyUI pattern: C++ owns the data, Blueprint builds the visuals.
- *  The default visual is a single text block listing every slot; a designer can hide it
- *  and build a richer layout off the BP_InventoryUpdated hook instead.
+ *  The default visual is a single text block listing every slot; if a SlotContainer and
+ *  SlotWidgetClass are set, per-slot widgets are spawned into it instead (a UUniformGridPanel
+ *  renders as a grid, any other UPanelWidget renders as a list).
  */
 UCLASS(abstract)
-class UInventoryWidget : public UUserWidget
+class UInventoryWidget : public UWindowWidget
 {
 	GENERATED_BODY()
 
@@ -28,6 +31,26 @@ protected:
 	/** Optional text block that shows one line per slot. Name it "SlotListText" in the WBP to auto-bind. */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> SlotListText;
+
+	/**
+	 *  Optional container for per-slot widgets. A UUniformGridPanel renders as a grid
+	 *  (using GridColumns); any other UPanelWidget (e.g. UVerticalBox) renders as a list.
+	 *  Name it "SlotContainer" in the WBP to auto-bind.
+	 */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UPanelWidget> SlotContainer;
+
+	/** Widget class spawned once per slot into SlotContainer. Must be set for slot widgets to appear. */
+	UPROPERTY(EditAnywhere, Category = "Inventory")
+	TSubclassOf<UInventorySlotWidget> SlotWidgetClass;
+
+	/** Number of columns to wrap at when SlotContainer is a UUniformGridPanel. Ignored otherwise. */
+	UPROPERTY(EditAnywhere, Category = "Inventory", meta = (ClampMin = 1))
+	int32 GridColumns = 4;
+
+	/** Slot widgets spawned by the last RefreshDisplay */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UInventorySlotWidget>> SlotWidgets;
 
 public:
 
@@ -65,4 +88,8 @@ protected:
 	//~ Begin UUserWidget interface
 	virtual void NativeDestruct() override;
 	//~ End UUserWidget interface
+
+	//~ Begin UWindowWidget interface
+	virtual void RequestClose_Implementation() override;
+	//~ End UWindowWidget interface
 };

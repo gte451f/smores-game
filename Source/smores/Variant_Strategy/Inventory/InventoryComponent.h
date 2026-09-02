@@ -41,6 +41,9 @@ struct FInventoryItem
 		, Description(InDescription)
 	{
 	}
+
+	/** True if this represents an empty slot (no item placed) */
+	bool IsEmpty() const { return ItemId.IsNone(); }
 };
 
 /** Broadcast whenever the slot count or item list changes */
@@ -66,9 +69,13 @@ public:
 
 protected:
 
-	/** Items currently held. Never larger than NumSlots. */
+	/** Items currently held, always exactly NumSlots entries; an empty FInventoryItem marks an empty slot. */
 	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
 	TArray<FInventoryItem> Items;
+
+	//~ Begin UActorComponent interface
+	virtual void BeginPlay() override;
+	//~ End UActorComponent interface
 
 public:
 
@@ -87,6 +94,14 @@ public:
 	/** Number of empty slots remaining */
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	int32 GetFreeSlotCount() const;
+
+	/** True if the slot at Index holds no item (or Index is out of range) */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	bool IsSlotEmpty(int32 Index) const;
+
+	/** Item at the given slot index; an empty item if Index is invalid or the slot is empty */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	FInventoryItem GetItemAt(int32 Index) const;
 
 	/** Current number of slots */
 	UFUNCTION(BlueprintPure, Category = "Inventory")

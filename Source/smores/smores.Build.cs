@@ -18,7 +18,8 @@ public class smores : ModuleRules
 			"NavigationSystem",
 			"Niagara",
 			"UMG",
-			"Slate"
+			"Slate",
+			"SlateCore"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
