@@ -1,6 +1,6 @@
 ---
 name: game-design
-description: Reference and maintain smores' high-level game design intentions — vision, pillars, and the desired end states for every major game system (factions, economy, combat, characters, base building, tech, the open world, saves, player experience, multiplayer/content), with no implementation detail. Use when discussing game design direction, checking whether a proposed feature fits the game's pillars, or documenting/updating design intent. Skip for engine implementation, C++ systems, or MCP/editor work — use the game-systems / player-facing skills and Source/smores/ for that.
+description: Reference and maintain smores' high-level game design intentions — vision, pillars, and the desired end states for every major game system (factions, economy, combat, characters, base building, tech, the open world, saves, player experience, multiplayer/content, menus, UI, narrative, and more), with no implementation detail. Use when discussing game design direction, checking whether a proposed feature fits the game's pillars, or documenting/updating design intent. Skip for engine implementation, C++ systems, or MCP/editor work — use the game-systems skill and Source/smores/ for that.
 ---
 
 # High-Level Game Design
@@ -31,10 +31,21 @@ This topic covers intendent game designs that may not exist yet.
 | [`topics/save-system.md`](topics/save-system.md) | What must persist, save slots, version/mod compatibility as player-facing promises |
 | [`topics/player-experience.md`](topics/player-experience.md) | Onboarding philosophy, Codex, tooltips, settings, accessibility, localization |
 | [`topics/multiplayer-and-content.md`](topics/multiplayer-and-content.md) | Co-op vision and scope, update/patch philosophy toward players, mod/DLC design relationship |
+| [`topics/main-menu-and-meta-flow.md`](topics/main-menu-and-meta-flow.md) | *(placeholder)* Title screen, new-game setup, continue/load, options structure, announcements |
+| [`topics/difficulty-and-modifiers.md`](topics/difficulty-and-modifiers.md) | *(placeholder)* New-game difficulty modifiers beyond ironman |
+| [`topics/tutorial-and-scenario-start.md`](topics/tutorial-and-scenario-start.md) | *(placeholder)* Concrete starting scenario, squad, and first objective |
+| [`topics/player-interface.md`](topics/player-interface.md) | *(placeholder)* In-session UI intent — always-on vs. contextual info, squad status, diegetic presentation |
+| [`topics/notifications-and-alerts.md`](topics/notifications-and-alerts.md) | *(placeholder)* What triggers a notification, severity, history |
+| [`topics/world-map-and-travel.md`](topics/world-map-and-travel.md) | *(placeholder)* Map presentation and travel, may merge into `open-world.md` |
+| [`topics/narrative-and-lore.md`](topics/narrative-and-lore.md) | *(placeholder)* Worldbuilding, backstory delivery, in-fiction system justification |
+| [`topics/quests-and-objectives.md`](topics/quests-and-objectives.md) | *(placeholder)* What structures player goals, if anything, beyond emergent play |
+| [`topics/end-game-and-win-loss.md`](topics/end-game-and-win-loss.md) | *(placeholder)* Whether any fixed win/loss condition exists |
+| [`topics/character-death-and-permadeath.md`](topics/character-death-and-permadeath.md) | *(placeholder)* Death consequences outside ironman mode |
+| [`topics/audio-design.md`](topics/audio-design.md) | *(placeholder)* Music, ambient sound, mixing philosophy |
+| [`topics/input-and-platforms.md`](topics/input-and-platforms.md) | *(placeholder)* Target input methods and platforms |
 
-More topics belong here as the game's design surface grows — lore, additional systems, new
-end-game objective categories. Add one file per topic under `topics/`, in the same
-distilled style, and add a row to the table above.
+More topics belong here as the game's design surface grows. Add one file per topic under
+`topics/`, in the same distilled style, and add a row to the table above.
 
 ## Working in this skill
 
@@ -51,3 +62,7 @@ distilled style, and add a row to the table above.
   split so each file stays skimmable and independently updatable.
 - **Cross-references** between topics use bare filenames in backticks (e.g.
   `` `economy.md` ``) since all topics live in the same `topics/` folder.
+- **Placeholders are expected.** A topic can exist here with only a `**Status:**
+  placeholder` line and a few open questions, long before the corresponding system is
+  built. Don't wait for implementation to start before creating the file — the point of
+  this skill is to capture intent early.
