@@ -1,0 +1,61 @@
+ Fix RMB/MMB Camera Control Conflict + Q/E Double-Mapping
+
+ Context
+
+ The free-look camera work (Design/plans/9-4-26-free-look-camera.md) put camera rotation on RMB-hold, reusing the same physical button as the pre-existing RMB "move pawn to location" click command. The two are disambiguated today by an InputTriggerHold (0.2s) on the rotate action, an InputTriggerTap (0.2s release max) on the move-order action, and a C++ suppress-window (CameraRotateDragSuppressWindow/LastCameraRotateDragTime) that blocks a move-order from firing right after a rotate-drag release. The hold and tap thresholds are exactly equal (0.2s each), leaving zero margin — this is the "conflicting commands" the user is running into.
+
+ Separately, Q/E (added for camera height) are still double-mapped to IA_Strategy_Zoom as well as IA_Strategy_AdjustHeight — a leftover from before height existed — so raising/lowering the camera also changes zoom at the same time.
+
+ Goal: RMB does move-to-location only; MMB becomes the dedicated rotate button (with no artificial start delay); Q/E only change height. Confirmed with the user:
+ - Reset Camera (currently on MMB tap) is dropped from the mouse entirely, no replacement binding.
+ - The Hold-trigger threshold on rotate is no longer needed now that it has its own dedicated button.
+
+ Investigation findings (already confirmed, no further discovery needed)
+
+ C++ (Source/smores/Variant_Strategy/StrategyPlayerController.h/.cpp) — nothing here needs to change to move rotation to MMB. bIsRotatingCamera/PlayerTick/DoCameraRotateCommand/InteractHoldStarted/InteractHoldCompleted are all driven purely by InteractHoldAction's Started/Completed events, independent of which physical key fires them. Confirmed via SetupInputComponent() bindings and the InteractHoldStarted/InteractClick implementations (lines ~602–650).
+
+ Current IMC mappings (Content/Variant_Strategy/Input/IMC_Strategy_Mouse.uasset, read via ObjectTools.get_properties on DefaultKeyMappings):
+ - RightMouseButton → IA_Strategy_InteractClick (Tap trigger, TapReleaseTimeThreshold=0.2)
+ - RightMouseButton → IA_Strategy_InteractHold (Hold trigger, HoldTimeThreshold=0.2)
+ - MiddleMouseButton → IA_Strategy_ResetCamera (Tap trigger)
+ - Q → IA_Strategy_Zoom and Q → IA_Strategy_AdjustHeight
+ - E → IA_Strategy_Zoom and E → IA_Strategy_AdjustHeight
+ - MouseWheelAxis → IA_Strategy_Zoom (primary zoom path, untouched)
+ - W/A/S/D → IA_Strategy_MoveCamera (untouched, sole pan method — no live mouse-drag pan exists in C++ today, confirmed via grep)
+
+ Changes
+
+ 1. Content (manual editor steps — IMC/trigger instanced subobjects can't be safely round-tripped via MCP writes, per CLAUDE.md)
+
+ Content/Variant_Strategy/Input/IMC_Strategy_Mouse.uasset:
+ - Remove the RightMouseButton → IA_Strategy_InteractHold mapping.
+ - Add MiddleMouseButton → IA_Strategy_InteractHold.
+ - Remove the MiddleMouseButton → IA_Strategy_ResetCamera mapping entirely (no replacement key).
+ - Remove Q → IA_Strategy_Zoom and E → IA_Strategy_Zoom mappings.
+ - Leave unchanged: RightMouseButton → IA_Strategy_InteractClick, MouseWheelAxis → IA_Strategy_Zoom, Q/E → IA_Strategy_AdjustHeight, WASD → IA_Strategy_MoveCamera.
+
+ Content/Variant_Strategy/Input/Actions/IA_Strategy_InteractHold.uasset:
+ - Remove the InputTriggerHold entry from Triggers (clear it to empty). With no explicit trigger, Enhanced Input uses its default press-based behavior — Started fires immediately on press, no threshold — which is what's wanted now that MMB has no competing click action.
+
+ 2. C++ cleanup (Source/smores/Variant_Strategy/StrategyPlayerController.h/.cpp)
+
+ Now that RMB no longer shares with rotate, the suppress-window mechanism is dead weight:
+ - Remove the CameraRotateDragSuppressWindow (UPROPERTY) and LastCameraRotateDragTime members from the header.
+ - Remove the if (GetWorld()->GetTimeSeconds() - LastCameraRotateDragTime <= CameraRotateDragSuppressWindow) { return; } guard at the top of InteractClick() — RMB's Completed is now always a clean move-order.
+ - Remove the LastCameraRotateDragTime = GetWorld()->GetTimeSeconds(); stamp at the end of PlayerTick().
+
+ No other gameplay logic changes — DoCameraRotateCommand, PlayerTick's mouse-delta sampling, InteractHoldStarted/Completed stay exactly as they are.
+
+ Build & wiring order
+
+ 1. Make the C++ edits above.
+ 2. Cold build (removing struct members is a layout change — close editor, build from Visual Studio, per CLAUDE.md's Building section).
+ 3. Reopen the editor, make the two manual content edits above (IMC mapping changes + clearing IA_Strategy_InteractHold's trigger), save both assets.
+
+ Verification (PIE)
+
+ - RMB click issues a move order for selected units; camera never rotates from RMB, at any hold duration.
+ - MMB press starts camera rotation immediately (no perceptible delay before it responds to mouse movement); releasing MMB stops rotation and does not issue a move order or reset the camera.
+ - Q/E only change camera height — zoom no longer changes when pressing Q/E.
+ - Mouse wheel still zooms in/out as before.
+ - WASD panning still works correctly at any camera rotation (regression check, unrelated to this change).

@@ -7,7 +7,7 @@
 ## Multiplayer
 
 ### Decision
-The game supports **co-op multiplayer for 2–4 players** using a self-hosted server model — one player hosts, others connect. This is architecturally similar to Minecraft: the host runs a listen server or a standalone dedicated server process, and clients connect over LAN or the internet. There is no matchmaking, no central Anthropic/publisher-run server, and no live service dependency.
+The game supports **co-op multiplayer for 2–8 players** using a self-hosted server model — one player hosts, others connect. This is architecturally similar to Minecraft: the host runs a listen server or a standalone dedicated server process, and clients connect over LAN or the internet. There is no matchmaking, no central Anthropic/publisher-run server, and no live service dependency.
 
 ### Why This Model
 - Self-hosted fits the game's independent, community-driven character

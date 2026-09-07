@@ -2,12 +2,12 @@
 
 ## Project Shape
 
-This is a top-down RTS prototype. Core gameplay logic is implemented in C++ under `Source/unreal_game_dev/`. Blueprint subclasses in `Content/` complete class defaults, presentation, asset references, widgets, and map-specific setup.
+This is a top-down RTS prototype. Core gameplay logic is implemented in C++ under `Source/smores/`. Blueprint subclasses in `Content/` complete class defaults, presentation, asset references, widgets, and map-specific setup.
 
 ## Source Layout
 
-- Module entry point lives directly under `Source/unreal_game_dev/`.
-- Strategy classes live under `Source/unreal_game_dev/Variant_Strategy/`.
+- Module entry point lives directly under `Source/smores/`.
+- Strategy classes live under `Source/smores/Variant_Strategy/`.
 
 Keep new gameplay code under `Variant_Strategy/` unless it is genuinely module-level.
 

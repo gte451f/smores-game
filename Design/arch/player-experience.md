@@ -17,18 +17,6 @@ This game does not hold the player's hand. The design pillars explicitly embrace
 
 The onboarding goal: a new player can move their squad, interact with NPCs, and understand what a tooltip is saying within the first 10 minutes. What to do with that knowledge is the game's challenge, not the tutorial's lesson.
 
-### Tutorial
-An optional, skippable tutorial scenario introduces:
-- Camera movement and squad selection
-- Issuing move orders and target priority
-- The basic interaction model with NPCs (trade, recruit, talk)
-- The inventory and equipment screen
-- One combat encounter with explicit framing of the automated combat model ("your squad fights on their own — direct them, don't control individual attacks")
-
-The tutorial does not teach the economy, faction relationships, base building, or skill progression. These are discoverable systems. The tutorial's job is controls only.
-
-Players who skip the tutorial or finish it and are later confused can revisit any tutorial topic through the Codex.
-
 ### Codex (In-Game Encyclopedia)
 The Codex is an in-game reference that the player builds through play. Entries unlock as the player encounters or discovers related content — they do not start with a full encyclopedia.
 
