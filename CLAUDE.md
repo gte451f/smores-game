@@ -50,49 +50,42 @@ When a task needs both, write the C++ first, then use MCP/Blueprints only to bin
 
 ## Multiplayer discipline
 
-The game is designed for co-op from day one (see the `game-design` skill's
-`multiplayer-and-content.md`) — self-hosted listen-server or dedicated server, up to 8
-players, server-authoritative simulation. The intent is that Unreal's built-in networking
-(replication, RPCs, server authority) supplies the large majority of what multiplayer
-actually needs; the responsibility on the code side is discipline, not building networking
-infrastructure. Multiplayer itself may not be wired up or testable for a while — this
-section is about not painting the codebase into a corner in the meantime, since retrofitting
-these habits later is far more expensive than following them from the start.
+Co-op is designed in from day one (self-hosted listen-server or dedicated server, up to 8
+players, server-authoritative simulation — see the `game-design` skill's
+`multiplayer-and-content.md`), even though multiplayer itself isn't wired up or testable
+yet. Unreal's built-in networking (replication, RPCs, server authority) is meant to supply
+the large majority of what multiplayer needs; the responsibility on the code side is
+discipline now, since retrofitting these habits later is far more expensive than following
+them from the start.
 
 When writing gameplay code:
 
 - **No singleton-player assumptions.** Never assume there is exactly one
-  `PlayerController`, one camera, one squad, or one HUD in the world. Key state and lookups
-  off the owning `PlayerController`/`PlayerState`, not a global/singleton reference — this
-  is the single most expensive habit to retrofit later, so it isn't optional just because
-  multiplayer isn't active yet.
+  `PlayerController`, camera, squad, or HUD in the world. Key state and lookups off the
+  owning `PlayerController`/`PlayerState`, not a global/singleton reference — the single
+  most expensive habit to retrofit later.
 - **Gate shared-state mutation on authority.** Anything that changes world state other than
-  the local player's own cosmetic/UI-only state must check `HasAuthority()` (or run through
-  a `Server`-flagged RPC) before mutating it — health, inventory, faction standing, squad
-  membership, item ownership, etc. Never assume client == server, even in current
-  single-player-only testing.
-- **Replicate through the engine's mechanisms, not ad hoc sync.** State that other players
-  need to see goes through `UPROPERTY(Replicated)` + `GetLifetimeReplicatedProps` (with
-  `RepNotify` where clients need to react to a change); actions go through RPCs
-  (`Server`/`Client`/`NetMulticast`). Don't invent a custom sync path when replication
-  already covers the case.
+  the local player's own cosmetic/UI state — health, inventory, faction standing, squad
+  membership, item ownership — must check `HasAuthority()` (or run through a
+  `Server`-flagged RPC) before mutating it. Never assume client == server.
+- **Replicate through the engine's mechanisms, not ad hoc sync.** Shared state goes through
+  `UPROPERTY(Replicated)` + `GetLifetimeReplicatedProps` (with `RepNotify` where clients
+  react to a change); actions go through RPCs (`Server`/`Client`/`NetMulticast`). Don't
+  invent a custom sync path when replication already covers the case.
 - **Decide data ownership before writing a system.** Before adding new gameplay state,
-  decide who authoritatively owns it (usually the server) and who merely holds a replicated
-  copy — this determines whether it needs to be `Replicated` at all and prevents divergent
-  client/server logic later.
-- **Don't add prediction machinery speculatively.** This game's point-and-click command
-  scheme (see `Variant_Strategy`) is latency-tolerant by design, unlike an action game — no
-  need for client-side prediction/reconciliation unless a specific system proves it's
-  needed.
+  decide who authoritatively owns it (usually the server) and who merely holds a
+  replicated copy — this determines whether it needs to be `Replicated` at all.
+- **Don't add prediction machinery speculatively.** The point-and-click command scheme
+  (`Variant_Strategy`) is latency-tolerant by design — no client-side
+  prediction/reconciliation unless a specific system proves it's needed.
 - **Dedicated server hosting targets Linux**, cross-compiled from the same C++ source as
-  the Windows client — this doesn't require the client itself to run on Linux. Avoid
-  Windows-only APIs/dependencies in gameplay code so the server target stays portable, and
-  watch asset-reference case sensitivity (Linux is case-sensitive, Windows isn't) once a
-  Linux cook is actually attempted.
+  the Windows client. Avoid Windows-only APIs/dependencies in gameplay code, and watch
+  asset-reference case sensitivity (Linux is case-sensitive, Windows isn't) once a Linux
+  cook is attempted.
 
-This is guidance for how to write code now — session/connect flow, dedicated server
-packaging, and the Linux cross-compile toolchain itself are not yet built; see
-`multiplayer-and-content.md` for what's scheduled vs. deferred.
+Session/connect flow, dedicated server packaging, and the Linux cross-compile toolchain
+itself aren't built yet — see `multiplayer-and-content.md` for what's scheduled vs.
+deferred.
 
 ## Architecture
 
@@ -119,17 +112,11 @@ Blueprint hooks follow the convention `BP_*` (`BP_Damaged`, `BP_UnitSelected`, e
 
 The active gameplay variant. Squad-based by design intent (see the `game-design` skill);
 its current control scheme — camera pan/zoom, click/drag-box selection, move commands —
-is RTS-style, inherited from Epic's Strategy template. Key types:
-
-| Class | Role |
-|---|---|
-| `AStrategyPlayerController` | Unit selection (click, drag-box, double-tap), camera pan/zoom, mouse + touch input paths |
-| `AStrategyUnit` | Abstract AI-driven character; commanded indirectly by the PC. Uses EQS (`InteractionQuery`, `NoInteractionQuery`) to refine movement destinations |
-| `AStrategyPawn` | Camera-only pawn controlled by the Strategy PC |
-| `AStrategyHUD` | Renders drag-select box |
-| `EnvQueryContext_MoveGoal` | EQS context that exposes the unit's current movement goal |
-
-Selection state lives on `AStrategyPlayerController::ControlledUnits`. Movement commands go through `AStrategyUnit::MoveToLocation`, which runs an EQS query then delegates to the `AAIController`.
+is RTS-style, inherited from Epic's Strategy template. Key classes: `AStrategyPlayerController`
+(selection, camera pan/zoom, mouse + touch input), `AStrategyUnit` (abstract AI-driven
+character, EQS-refined movement via `AAIController`), `AStrategyPawn` (camera-only pawn),
+`AStrategyHUD` (drag-select box), `EnvQueryContext_MoveGoal`. See the `game-systems` skill
+for full behavior detail (selection rules, movement/command flow, EQS queries).
 
 ### Input system
 
@@ -162,61 +149,4 @@ Content/
 
 One MCP server is configured (`.mcp.json`): **unreal-mcp**, an HTTP server hosted by the editor at `http://127.0.0.1:8000/mcp` (Epic's `ModelContextProtocol` plugin). Requires the Unreal Editor running.
 
-Reach for these tools for wiring, configuration, and content-only work — not for gameplay logic. See **Development approach: C++ first** above.
-
-### Discovery workflow (do this — don't assume)
-
-`unreal-mcp` exposes only three meta-tools; the real tools are discovered on demand, so **no full tool list is in context**:
-
-1. `list_toolsets` — ~50 toolsets registered via the `AllToolsets` plugin. Names come in two styles, both used verbatim: `EditorToolset.EditorAppToolset` and `editor_toolset.toolsets.blueprint.BlueprintTools`.
-2. `describe_toolset(<name>)` — tool names + schemas for one toolset. Some responses are large; request only the toolset you need.
-3. `call_tool(tool_name, toolset_name, arguments)` — invoke.
-
-### What's available (high level)
-
-- **Blueprints**: `editor_toolset.toolsets.blueprint.BlueprintTools` — create assets/graphs/variables/functions/nodes, wire pins, compile. Prefer `write_graph_dsl` (read `get_graph_dsl_docs` first) over node-by-node.
-- **Objects/props**: `editor_toolset.toolsets.object.ObjectTools` — read/write properties on any object or CDO. Other toolsets depend on it for property access.
-- **Also registered**: scene/actor/asset/material tools, UMG, Niagara, Control Rig + Sequencer, GAS, GameplayTags, PCG, Physics, and `ProgrammaticToolset` (batch calls via a sandboxed Python script). Discover schemas on demand.
-
-### Token discipline (MCP results persist for the whole session)
-
-Every `call_tool` result stays in context until the session ends. On the two tasks
-that built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
-
-- **Run MCP-heavy editor wiring in a `fork` / subagent.** A multi-step asset build is
-  ~20–30 calls whose payloads are pure noise once the work is done. Let the fork do the
-  wiring and report back "done + any manual steps"; the main context never sees the calls.
-- **Do the C++ first, then wire in one pass.** Workflow: close editor → cold build →
-  reopen → do all wiring → `/compact`. Don't interleave.
-- **Skip `list_properties`.** It dumps the entire inherited property tree with every
-  nested sub-schema (a `TextBlock` is ~6 KB). Call `get_properties` / `set_properties`
-  with the field names you already know; only fall back to discovery on a failed set.
-- **Don't `get_properties` just to learn field names** — `set_properties` returns a bool,
-  so set and check.
-- **Batch multi-step builds through `ProgrammaticToolset.execute_tool_script`** (one
-  round-trip instead of a dozen `AddWidget` / `set_properties` / compile calls).
-- `describe_toolset` on a big toolset (BlueprintTools, UMGToolSet) auto-persists to a
-  file and stays *out* of context — read it back with `jq`/grep for the tools you need.
-
-### Caveats
-
-- Prefer `BlueprintTools` (sets override flags + compiles) over raw CDO writes. If writing a CDO property directly, the Blueprint override flag is **not** set automatically — have the user verify and save the Blueprint in the editor afterward.
-- Create/modify operations that touch project assets: get user confirmation first.
-- **`UInputMappingContext` key mappings can't be round-tripped via MCP.** `ObjectTools`
-  reads the array back in a different shape than it writes (`key` flattens to a string;
-  mappings hold refPaths to IMC-owned instanced modifier/trigger subobjects), and the
-  operative array is `defaultKeyMappings.mappings`, not the empty top-level `mappings`.
-  Creating the `UInputAction` asset is fine — duplicate an existing IA of the same
-  `ValueType` (`IA_Strategy_CyclePawn` is `Boolean`) — but hand the IMC key-binding step
-  to the user.
-- New `UCLASS`/`USTRUCT`/`UENUM` (or any `UPROPERTY` add) needs a cold build with the
-  editor **closed** before the MCP phase can reference the new types — Live Coding won't
-  register them. See **Building**.
-- **`PluginToolset.SetPluginEnabled` doesn't persist.** It returns success but writes
-  nothing to disk and doesn't change `IsEnabled`'s result, even before restarting.
-  Confirmed by calling it on a plugin and immediately re-checking `IsEnabled` (still
-  true) and the `.uproject` file (unchanged). To actually disable/enable a plugin,
-  close the editor and add/edit an explicit `{"Name": ..., "Enabled": false}` entry in
-  `smores.uproject`'s `Plugins` array directly (same shape the editor's own Plugin
-  Browser writes), then reopen. Use `GetPluginDependents`/`GetPluginDependencies` first
-  to check for non-optional dependents before disabling anything.
+Reach for these tools for wiring, configuration, and content-only work — not for gameplay logic. See **Development approach: C++ first** above. For the discovery workflow, token-discipline habits, and known tool bugs/caveats, use the `mcp-workflow` skill.
