@@ -4,7 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**smores** is an Unreal Engine 5.8 game project with a single C++ module (`smores`). It is an RTS-style game where the player commands AI-driven pawns, built on the **Strategy** variant of Epic's Top Down template. The template's TwinStick variant has been removed; a plain top-down base (`smoresCharacter` / `smoresGameMode` / `smoresPlayerController`) and the default `Lvl_TopDown` map remain.
+**smores** is an Unreal Engine 5.8 game project with a single C++ module (`smores`). The intended game is a **squad-based survival RPG in the vein of Kenshi** — the player commands a squad of individuals, not a single hero, but this is an RPG borrowing squad-command concepts, not an RTS or 4X. See the `game-design` skill for the full design intent (vision, pillars, and every major system) and the `player-facing` / `game-systems` skills for the current player-facing behavior and implementation.
+
+The current prototype's control scheme is built on the **Strategy** variant of Epic's Top Down template and is currently RTS-style (floating camera, click/drag-box selection, move commands) — that's an implementation detail of the current input/camera layer, not the intended genre. The template's TwinStick variant has been removed; a plain top-down base (`smoresCharacter` / `smoresGameMode` / `smoresPlayerController`) and the default `Lvl_TopDown` map remain.
+
+## Starting the editor
+
+UE 5.8 is installed at `C:\Program Files\Epic Games\UE_5.8`. Launch the project with:
+
+```
+"C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe" "C:\dev\smores\smores.uproject"
+```
+
+Run it detached/backgrounded (it's a long-lived GUI process). Once the editor has finished loading, the `ModelContextProtocol` plugin hosts `unreal-mcp` at `http://127.0.0.1:8000/mcp` — the MCP server only becomes reachable after the editor is fully up, not immediately on process launch.
 
 ## Building
 
@@ -14,6 +26,8 @@ UE5.8 projects are built through the Unreal Editor or via UnrealBuildTool. There
 - `Automation_smores.slnx` — includes automation/testing targets
 
 To rebuild C++ from the editor: **Tools → Compile**. Live Coding hot-reloads *existing* functions/properties but is unreliable — for new `UCLASS`/`USTRUCT`/`UENUM` types or any structural change, close the editor and do a cold build from Visual Studio.
+
+When executing an already-approved plan, it's safe to close the Unreal Editor gracefully (no need to ask first) as part of a cold-build step — just wait for confirmation it closed before building, and reopen it afterward per **Starting the editor** above.
 
 ## Development approach: C++ first
 
@@ -46,7 +60,7 @@ Source/smores/
   smoresGameMode.*           – Abstract base game mode
   smoresPlayerController.*   – Abstract base: point-and-click nav movement via PathFollowingComponent
 
-  Variant_Strategy/          – RTS gameplay (the active variant)
+  Variant_Strategy/          – Squad gameplay, the active variant (RTS-style camera/selection/command controls)
 ```
 
 ### Class hierarchy pattern
@@ -57,7 +71,9 @@ Blueprint hooks follow the convention `BP_*` (`BP_Damaged`, `BP_UnitSelected`, e
 
 ### Variant_Strategy
 
-An RTS-style variant. Key types:
+The active gameplay variant. Squad-based by design intent (see the `game-design` skill);
+its current control scheme — camera pan/zoom, click/drag-box selection, move commands —
+is RTS-style, inherited from Epic's Strategy template. Key types:
 
 | Class | Role |
 |---|---|
@@ -91,7 +107,7 @@ All input uses **Enhanced Input** (`UInputAction` / `UInputMappingContext`). Inp
 ```
 Content/
   TopDown/            – Default map (Lvl_TopDown) and BP_TopDownGameMode (set as GlobalDefaultGameMode)
-  Variant_Strategy/   – RTS gameplay assets (the active variant)
+  Variant_Strategy/   – Squad gameplay assets, the active variant (RTS-style controls)
   Characters/         – Shared character assets
   LevelPrototyping/   – Scratch levels
 ```
@@ -150,3 +166,11 @@ that built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it s
 - New `UCLASS`/`USTRUCT`/`UENUM` (or any `UPROPERTY` add) needs a cold build with the
   editor **closed** before the MCP phase can reference the new types — Live Coding won't
   register them. See **Building**.
+- **`PluginToolset.SetPluginEnabled` doesn't persist.** It returns success but writes
+  nothing to disk and doesn't change `IsEnabled`'s result, even before restarting.
+  Confirmed by calling it on a plugin and immediately re-checking `IsEnabled` (still
+  true) and the `.uproject` file (unchanged). To actually disable/enable a plugin,
+  close the editor and add/edit an explicit `{"Name": ..., "Enabled": false}` entry in
+  `smores.uproject`'s `Plugins` array directly (same shape the editor's own Plugin
+  Browser writes), then reopen. Use `GetPluginDependents`/`GetPluginDependencies` first
+  to check for non-optional dependents before disabling anything.
