@@ -36,7 +36,7 @@ This topic covers intendent game designs that may not exist yet.
 | [`topics/tutorial-and-scenario-start.md`](topics/tutorial-and-scenario-start.md) | No tutorial — player-chosen starter scenarios with cosmetic-only backstory, player-created starting squad (lineage/cosmetic only, fixed stats/skills baseline) |
 | [`topics/player-interface.md`](topics/player-interface.md) | *(placeholder)* In-session UI intent — always-on vs. contextual info, squad status, diegetic presentation |
 | [`topics/notifications-and-alerts.md`](topics/notifications-and-alerts.md) | *(placeholder)* What triggers a notification, severity, history |
-| [`topics/world-map-and-travel.md`](topics/world-map-and-travel.md) | *(placeholder)* Map presentation and travel, may merge into `open-world.md` |
+| [`topics/world-map-and-travel.md`](topics/world-map-and-travel.md) | No fast travel, map view of explored area, map annotations (events/POIs/trade routes/faction territory), mini-map widget, candidate QoL nav commands ("run to destination," "follow the leader") |
 | [`topics/narrative-and-lore.md`](topics/narrative-and-lore.md) | *(placeholder)* Worldbuilding, backstory delivery, in-fiction system justification |
 | [`topics/quests-and-objectives.md`](topics/quests-and-objectives.md) | *(placeholder)* What structures player goals, if anything, beyond emergent play |
 | [`topics/end-game-and-win-loss.md`](topics/end-game-and-win-loss.md) | *(placeholder)* Whether any fixed win/loss condition exists |

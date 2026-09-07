@@ -117,7 +117,7 @@ access itself.
 
 - Exact map scale and region count aren't determined yet — both significantly affect
   travel time, logistics complexity, and how far factions can realistically spread.
-- The strict no-fast-travel stance may be revisited depending on map scale; a diegetic
-  equivalent (faction-controlled roads or ferries) is the leading candidate if so.
+- No fast travel is a decided stance, not just a default (see `world-map-and-travel.md`).
+  Known roads/routes moving faster than raw terrain is the only speed-up mechanic.
 - Setting-specific terrain types and environmental hazards are deferred until setting is
   chosen.
