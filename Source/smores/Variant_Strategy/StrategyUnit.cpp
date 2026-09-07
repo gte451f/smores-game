@@ -421,19 +421,27 @@ void AStrategyUnit::PerformAttack(AStrategyUnit* Target)
 		return;
 	}
 
+	// chosen once, authoritatively (PerformAttack only ever runs server-side - see AttackTarget's
+	// HasAuthority guard), and replicated to every machine so the swing plays in lock-step
+	// everywhere rather than each machine picking its own random montage
+	if (UAnimMontage* ChosenMontage = AttackMontages[FMath::RandHelper(AttackMontages.Num())])
+	{
+		Multicast_PlayAttackMontage(ChosenMontage);
+	}
+}
+
+void AStrategyUnit::Multicast_PlayAttackMontage_Implementation(UAnimMontage* Montage)
+{
 	if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
 	{
-		if (UAnimMontage* ChosenMontage = AttackMontages[FMath::RandHelper(AttackMontages.Num())])
-		{
-			AnimInstance->Montage_Play(ChosenMontage);
+		AnimInstance->Montage_Play(Montage);
 
-			// bind fresh every swing (see the NOTE in BeginPlay) rather than relying on a
-			// persistent AnimInstance::OnMontageEnded subscription, which an AnimInstance
-			// recreation (e.g. an Animation Mode switch elsewhere) would silently orphan
-			FOnMontageEnded EndDelegate;
-			EndDelegate.BindUObject(this, &AStrategyUnit::OnAttackMontageEnded);
-			AnimInstance->Montage_SetEndDelegate(EndDelegate, ChosenMontage);
-		}
+		// bind fresh every swing (see the NOTE in BeginPlay) rather than relying on a
+		// persistent AnimInstance::OnMontageEnded subscription, which an AnimInstance
+		// recreation (e.g. an Animation Mode switch elsewhere) would silently orphan
+		FOnMontageEnded EndDelegate;
+		EndDelegate.BindUObject(this, &AStrategyUnit::OnAttackMontageEnded);
+		AnimInstance->Montage_SetEndDelegate(EndDelegate, Montage);
 	}
 }
 

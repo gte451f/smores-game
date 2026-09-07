@@ -154,6 +154,13 @@ private:
 	/** Faces and swings at Target, playing a random attack montage */
 	void PerformAttack(AStrategyUnit* Target);
 
+	/** Plays Montage locally and (re)binds OnAttackMontageEnded. Multicast so the swing (and its
+	 *  hit-frame AnimNotify) plays for every machine, not just the server - PerformAttack chooses
+	 *  the montage once, authoritatively, and passes it here rather than each machine picking its
+	 *  own (which would desync the swing shown to different observers). */
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_PlayAttackMontage(UAnimMontage* Montage);
+
 protected:
 
 	/** Blueprint handler for strategy game selection */
