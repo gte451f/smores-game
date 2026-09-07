@@ -1,6 +1,6 @@
 ---
 name: game-systems
-description: Reference smores' implemented gameplay systems — what they do, where they live in C++/Blueprint, and their known gaps. Use before changing camera/selection, unit commands, or inventory behavior, or when documenting a newly implemented gameplay system. This is implementation-level detail (unlike the game-design skill); pair with reading the actual source files before editing.
+description: Reference smores' implemented gameplay systems — what they do, where they live in C++/Blueprint, and their known gaps — including the player-visible surface (controls, game modes, terminology) for each. Use before changing camera/selection, unit commands, or inventory behavior, or when documenting a newly implemented gameplay system or control. This is implementation-level detail (unlike the game-design skill); pair with reading the actual source files before editing.
 ---
 
 # Game Systems
@@ -8,15 +8,21 @@ description: Reference smores' implemented gameplay systems — what they do, wh
 This skill documents smores' **implemented** gameplay systems: what each system does, the
 player-facing rules it enforces, where it lives in C++ and Blueprint, and its known gaps.
 Unlike the `game-design` skill (non-technical, desired end states), these topics describe
-current, real behavior and point at concrete classes and assets.
+current, real behavior and point at concrete classes and assets. There is no separate
+"player-facing" skill — the player surface (controls, visible game modes, terminology) is
+documented as part of each system topic, in its "Player Surface" section, plus the shared
+`game-modes.md` and `terminology.md` topics below for content that cuts across systems.
 
 ## Topics
 
 | Topic | Covers |
 |---|---|
-| [`topics/strategy-camera-and-selection.md`](topics/strategy-camera-and-selection.md) | RTS-style camera pawn, mouse/touch camera movement and zoom, unit selection, drag selection, double-tap |
+| [`topics/strategy-camera-and-selection.md`](topics/strategy-camera-and-selection.md) | RTS-style camera pawn, mouse/touch camera movement and zoom, unit selection, drag selection, double-tap, pawn cycling |
 | [`topics/strategy-unit-commands.md`](topics/strategy-unit-commands.md) | Move commands, lead-unit/formation targeting, movement completion, interaction triggering |
 | [`topics/inventory.md`](topics/inventory.md) | `UInventoryComponent` item storage, `UInventoryWidget` display, HUD-managed open/close/toggle |
+| [`topics/combat.md`](topics/combat.md) | `UHealthComponent` health/damage/Downed-recovery, NPC self-hunting, player-issued squad attacks, auto-retaliation |
+| [`topics/game-modes.md`](topics/game-modes.md) | Visible game modes and what they let the player do |
+| [`topics/terminology.md`](topics/terminology.md) | Player-surface terms used across topics (Controlled Units, Drag Selection, Interaction Radius, Lead Unit, Player Surface) |
 
 ## Working in this skill
 
@@ -32,4 +38,10 @@ current, real behavior and point at concrete classes and assets.
   implementation — see the existing topics for the expected split (Purpose / Player
   Surface / Core Rules / C++ Implementation / Blueprint-Asset Dependencies / Extension
   Points / Known Gaps).
-- **New system, new topic file.** Follow the same structure as the existing three.
+- **Input routing**: all input uses Enhanced Input. Route input actions into small shared
+  command methods (`DoSelectionCommand()`, `DoMoveUnitsCommand()`, etc.) so mouse,
+  touch, and any future gamepad input share the same gameplay behavior — keep input
+  parsing separate from gameplay rules, and add a shared command method before adding
+  parallel per-device gameplay logic.
+- **New system, new topic file.** Follow the same structure as the existing topics.
+  **New game mode or control surface**: add a topic, or a section to `game-modes.md`.

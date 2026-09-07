@@ -10,6 +10,8 @@ This system does **not** handle: save/load, equipment slots, drag-and-drop, netw
 
 With one or more units selected, press the inventory key to open the inventory panel for the first selected unit. Pressing the key again while the same unit is selected closes the panel. Selecting a different unit and pressing the key switches the panel to show that unit's inventory.
 
+Double-clicking a Downed NPC (with a player-controlled unit close enough) opens that NPC's inventory as a loot panel, the same gesture used to open a nearby container. A Passive or Aggressive NPC (i.e. not yet Downed) never opens this way.
+
 ## Core Rules
 
 - Only `ControlledUnits[0]` is inspected when multiple units are selected.

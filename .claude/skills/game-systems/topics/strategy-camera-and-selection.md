@@ -6,7 +6,7 @@ The Strategy camera and selection system provides an RTS-style camera pawn, mous
 
 ## Player Surface
 
-Players control a floating orthographic camera rather than a character. They can pan, zoom, reset zoom, select units individually, box-select units, deselect units, and on touch devices double-tap to select or deselect all visible units.
+Players control a floating orthographic camera rather than a character. They can pan, zoom, reset zoom, select units individually, box-select units, deselect units, and on touch devices double-tap to select or deselect all visible units. Pressing Tab cycles control to the next placed player pawn; each pawn keeps its own camera position and zoom level independently, and cycling works with any number of pawns placed in the level. On touch, a brief hold-then-drag pans the camera.
 
 ## Core Rules
 
@@ -22,6 +22,8 @@ Players control a floating orthographic camera rather than a character. They can
 - Touch uses custom tap and double-tap timing because Enhanced Input tap triggers behave differently on touch.
 - Touch double-tap toggles all recently rendered units on screen unless box selection is active.
 - Touch secondary input acts as the selection modifier and drives box selection.
+- Touch primary hold pans the camera once held past `TouchDragScrollHoldTime` (0.15s), via `DoCameraDragScrollCommand()`.
+- `CyclePawn()` rebuilds `PlayerPawns` (sorted by stable object name, since actor-iteration order isn't stable across runs), resumes from the currently-selected pawn's index if one is selected, then advances with wraparound and re-selects the next pawn.
 
 ## C++ Implementation
 
@@ -35,6 +37,8 @@ Players control a floating orthographic camera rather than a character. They can
   - Handles mouse selection with `SelectHold*()`, `SelectClick()`, and `SelectionModifier()`.
   - Handles touch selection with `TouchPrimaryHold*()` and `TouchSecondary*()`.
   - Applies selection changes through `DoSelectionCommand()`, `DoSelectAllOnScreenCommand()`, `DoDeselectAllCommand()`, and `DragSelectUnits()`.
+  - `CyclePawn()` (bound to `CyclePawnAction`) cycles selection across `PlayerPawns` (an `AStrategyPlayerUnit` list refreshed via `RefreshPlayerPawns()`), tracked by `CurrentPlayerPawnIndex`.
+  - `TouchPrimaryHoldStarted/Triggered/Completed()` drive touch camera drag-scroll through `DoCameraDragScrollCommand()`.
 - `AStrategyHUD`
   - Displays and clears the drag selection box.
 
