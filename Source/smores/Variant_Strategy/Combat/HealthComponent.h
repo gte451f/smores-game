@@ -6,6 +6,8 @@
 #include "Components/ActorComponent.h"
 #include "HealthComponent.generated.h"
 
+class ADamageNumberActor;
+
 /** Broadcast when this component's health drops to zero and it goes Downed */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnHealthDownedDelegate);
 
@@ -36,6 +38,14 @@ public:
 	/** How long this component stays Downed before auto-recovering to full health */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Health", meta = (ClampMin = 0, Units = "s"))
 	float DownedDurationSeconds = 15.0f;
+
+	/** Actor spawned above the owner to show a floating damage number on every hit. If unset, no number is shown. */
+	UPROPERTY(EditAnywhere, Category = "Health")
+	TSubclassOf<ADamageNumberActor> DamageNumberActorClass;
+
+	/** Height above the owner's actor location at which the damage number actor is spawned */
+	UPROPERTY(EditAnywhere, Category = "Health", meta = (ClampMin = 0, Units = "cm"))
+	float DamageNumberSpawnHeight = 180.0f;
 
 protected:
 
@@ -79,6 +89,9 @@ private:
 
 	/** Handle for the pending Recover() call while Downed */
 	FTimerHandle RecoveryTimerHandle;
+
+	/** Spawns a floating damage number above the owner, if DamageNumberActorClass is set */
+	void SpawnDamageNumber(float Amount) const;
 
 	/** Goes Downed: broadcasts OnDowned and starts the recovery timer */
 	void Downed();
