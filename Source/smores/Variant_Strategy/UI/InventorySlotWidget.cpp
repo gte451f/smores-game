@@ -4,6 +4,7 @@
 #include "InventorySlotWidget.h"
 #include "InventoryDragDropOperation.h"
 #include "Components/TextBlock.h"
+#include "StrategyPlayerController.h"
 
 void UInventorySlotWidget::SetSlot(UInventoryComponent* InOwningInventory, int32 InSlotIndex, const FInventoryItem& InItem)
 {
@@ -63,10 +64,19 @@ bool UInventorySlotWidget::NativeOnDrop(const FGeometry& InGeometry, const FDrag
 {
 	const UInventoryDragDropOperation* DragOperation = Cast<UInventoryDragDropOperation>(InOperation);
 
-	if (!DragOperation || !OwningInventory.IsValid())
+	if (!DragOperation || !OwningInventory.IsValid() || !DragOperation->SourceInventory.IsValid())
 	{
 		return false;
 	}
 
-	return UInventoryComponent::MoveItem(DragOperation->SourceInventory.Get(), DragOperation->SourceSlotIndex, OwningInventory.Get(), SlotIndex);
+	// the actual move is shared-world state, owned by the server - this widget can't mutate
+	// inventory contents directly (UInventoryComponent::SetItemAt is authority-only), so dispatch
+	// through the owning PlayerController instead
+	if (AStrategyPlayerController* PC = Cast<AStrategyPlayerController>(GetOwningPlayer()))
+	{
+		PC->Server_MoveInventoryItem(DragOperation->SourceInventory.Get(), DragOperation->SourceSlotIndex, OwningInventory.Get(), SlotIndex);
+		return true;
+	}
+
+	return false;
 }

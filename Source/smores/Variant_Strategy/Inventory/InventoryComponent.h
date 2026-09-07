@@ -63,19 +63,30 @@ public:
 	/** Constructor */
 	UInventoryComponent();
 
-	/** Number of item slots available on this inventory */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory", meta = (ClampMin = 0, ClampMax = 64))
+	/** Number of item slots available on this inventory. Replicated (see Items) since it's shared gameplay state. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Inventory", meta = (ClampMin = 0, ClampMax = 64))
 	int32 NumSlots = 64;
 
 protected:
 
-	/** Items currently held, always exactly NumSlots entries; an empty FInventoryItem marks an empty slot. */
-	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
+	/** Items currently held, always exactly NumSlots entries; an empty FInventoryItem marks an empty slot.
+	 *  Replicated so every machine sees the same contents (a container's inventory is visible to whichever
+	 *  player has it open, a unit's inventory to whoever's looting/trading with it). */
+	UPROPERTY(ReplicatedUsing = OnRep_Items, BlueprintReadOnly, Category = "Inventory")
 	TArray<FInventoryItem> Items;
 
 	//~ Begin UActorComponent interface
 	virtual void BeginPlay() override;
 	//~ End UActorComponent interface
+
+	//~ Begin UObject interface
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	//~ End UObject interface
+
+	/** Reacts on non-authority machines to a replicated item-list change - authority already broadcast
+	 *  OnInventoryChanged directly from AddItem/SetItemAt/SetNumSlots */
+	UFUNCTION()
+	void OnRep_Items();
 
 public:
 
@@ -83,15 +94,15 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Inventory")
 	FOnInventoryChangedDelegate OnInventoryChanged;
 
-	/** Adds an item if there's a free slot. Returns false (and warns) when full. */
+	/** Adds an item if there's a free slot. Authority-only (no-ops on a non-authority machine). Returns false (and warns) when full. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool AddItem(const FInventoryItem& Item);
 
-	/** Removes the item at the given index. Returns false if the index is invalid. */
+	/** Removes the item at the given index. Authority-only (see SetItemAt). Returns false if the index is invalid. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool RemoveItemAt(int32 Index);
 
-	/** Sets the item at the given index (an empty FInventoryItem clears the slot). Returns false if the index is invalid. */
+	/** Sets the item at the given index (an empty FInventoryItem clears the slot). Authority-only (no-ops on a non-authority machine). Returns false if the index is invalid. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool SetItemAt(int32 Index, const FInventoryItem& Item);
 
@@ -99,8 +110,9 @@ public:
 	 *  Moves the item at SourceIndex (on SourceInventory) to DestIndex (on DestInventory), swapping
 	 *  with whatever already occupies DestIndex. Works for reordering within one inventory
 	 *  (SourceInventory == DestInventory) and for transferring between two different inventories.
-	 *  No-ops (returns false) if either component is null, either index is invalid, the source slot
-	 *  is empty, or the source and destination are the same slot.
+	 *  Authority-only (enforced by the underlying SetItemAt calls). No-ops (returns false) if either
+	 *  component is null, either index is invalid, the source slot is empty, or the source and
+	 *  destination are the same slot.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	static bool MoveItem(UInventoryComponent* SourceInventory, int32 SourceIndex, UInventoryComponent* DestInventory, int32 DestIndex);
@@ -121,7 +133,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	int32 GetNumSlots() const { return NumSlots; }
 
-	/** Resizes the inventory, dropping any items that no longer fit */
+	/** Resizes the inventory, dropping any items that no longer fit. Authority-only (no-ops on a non-authority machine). */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void SetNumSlots(int32 NewNumSlots);
 

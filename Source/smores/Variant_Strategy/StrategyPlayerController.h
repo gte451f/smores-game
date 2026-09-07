@@ -18,6 +18,7 @@ class AStrategyPlayerUnit;
 class UStrategyTouchControls;
 class UInventoryWidget;
 class AStrategyContainer;
+class UInventoryComponent;
 
 /**
  *  Player Controller for a top-down strategy game.
@@ -455,6 +456,14 @@ private:
 	/** Server-side implementation of DoAttackCommand - see Server_MoveUnits for why Units travels explicitly */
 	UFUNCTION(Server, Reliable)
 	void Server_AttackCommand(const TArray<AStrategyUnit*>& Units, AStrategyUnit* Target);
+
+public:
+
+	/** Server-side entry point for an inventory drag-drop move/swap (see UInventorySlotWidget::NativeOnDrop -
+	 *  the widget can't mutate inventory contents directly, since UInventoryComponent::SetItemAt is
+	 *  authority-only). Just forwards to UInventoryComponent::MoveItem. */
+	UFUNCTION(Server, Reliable)
+	void Server_MoveInventoryItem(UInventoryComponent* SourceInventory, int32 SourceIndex, UInventoryComponent* DestInventory, int32 DestIndex);
 
 protected:
 

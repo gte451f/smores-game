@@ -2,6 +2,7 @@
 
 
 #include "InventoryComponent.h"
+#include "Net/UnrealNetwork.h"
 #include "smores.h"
 
 UInventoryComponent::UInventoryComponent()
@@ -9,7 +10,17 @@ UInventoryComponent::UInventoryComponent()
 	// inventory is pure state - it never needs to tick
 	PrimaryComponentTick.bCanEverTick = false;
 
+	SetIsReplicated(true);
+
 	Items.SetNum(NumSlots);
+}
+
+void UInventoryComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(UInventoryComponent, Items);
+	DOREPLIFETIME(UInventoryComponent, NumSlots);
 }
 
 void UInventoryComponent::BeginPlay()
@@ -26,6 +37,12 @@ void UInventoryComponent::BeginPlay()
 
 bool UInventoryComponent::AddItem(const FInventoryItem& Item)
 {
+	// shared gameplay state - only the server may mutate it
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return false;
+	}
+
 	int32 FreeIndex = INDEX_NONE;
 
 	for (int32 Index = 0; Index < Items.Num(); ++Index)
@@ -60,6 +77,12 @@ bool UInventoryComponent::RemoveItemAt(int32 Index)
 
 bool UInventoryComponent::SetItemAt(int32 Index, const FInventoryItem& Item)
 {
+	// shared gameplay state - only the server may mutate it
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return false;
+	}
+
 	if (!Items.IsValidIndex(Index))
 	{
 		return false;
@@ -130,6 +153,12 @@ FInventoryItem UInventoryComponent::GetItemAt(int32 Index) const
 
 void UInventoryComponent::SetNumSlots(int32 NewNumSlots)
 {
+	// shared gameplay state - only the server may mutate it
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
 	NewNumSlots = FMath::Clamp(NewNumSlots, 0, 64);
 
 	if (NewNumSlots == NumSlots)
@@ -143,6 +172,17 @@ void UInventoryComponent::SetNumSlots(int32 NewNumSlots)
 	if (Items.Num() > NumSlots)
 	{
 		Items.SetNum(NumSlots);
+	}
+
+	OnInventoryChanged.Broadcast();
+}
+
+void UInventoryComponent::OnRep_Items()
+{
+	// authority already broadcast this directly from AddItem/SetItemAt/SetNumSlots
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		return;
 	}
 
 	OnInventoryChanged.Broadcast();

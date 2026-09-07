@@ -1133,6 +1133,11 @@ void AStrategyPlayerController::Server_MoveUnits_Implementation(const TArray<ASt
 	}
 }
 
+void AStrategyPlayerController::Server_MoveInventoryItem_Implementation(UInventoryComponent* SourceInventory, int32 SourceIndex, UInventoryComponent* DestInventory, int32 DestIndex)
+{
+	UInventoryComponent::MoveItem(SourceInventory, SourceIndex, DestInventory, DestIndex);
+}
+
 void AStrategyPlayerController::Server_AttackCommand_Implementation(const TArray<AStrategyUnit*>& Units, AStrategyUnit* Target)
 {
 	if (!IsValid(Target) || Target->IsDowned())
