@@ -62,28 +62,43 @@ The player-facing commitment is that patch notes always distinguish bug fixes fr
 balance changes from content additions, so a player can tell at a glance whether their
 current strategy is affected or a save migration is coming.
 
-## Mods and DLC Are the Same Kind of Content
+## Player-Contributed Mods and Paid DLC
 
-The design intent is that **DLC has no privileged capability over modding** — a DLC pack
-adds content the same way a mod would; the only difference is distribution channel
-(platform store vs. mod repository). Practically, this means:
+Mods and DLC are both additive content layers on top of the base game, but they are **not
+treated as equivalent** — DLC is official, paid content with **preferential treatment over
+mods**: capability, engine-hook access, and support guarantees a community mod isn't
+expected to have. (This supersedes an earlier "DLC has no privileged capability over
+modding" stance, which treated the two as symmetric.)
 
-- Anything DLC adds should be just as replaceable and buildable-on by mods as base content.
-- A player without a given DLC should still be able to join a shared session hosted by
-  someone who has it — DLC content is gracefully hidden or falls back to a base-game
-  equivalent, and the player is told clearly that content was stripped rather than having
-  the load silently refused.
+### Player-contributed mods
+
+- Community-authored content and systems, distributed independently of official
+  storefronts (mod repository / community channels), not through the same pipeline as DLC.
+- Best-effort compatibility: not guaranteed to survive a major-version update, and not
+  held to the same save-compatibility promises official updates carry (see "What Players
+  Should Be Able to Expect From Updates" above).
+
+### Paid DLC
+
+- Official, paid content delivered through **typical storefronts** (Steam, GOG, Epic,
+  etc. — see `input-and-platforms.md`), not a mod repository.
+- Gets preferential treatment over mods: DLC can rely on capabilities, deeper engine
+  integration, or support guarantees that aren't extended to community mods.
+- Candidate DLC content: **new areas** (biomes/regions with distinct resource/faction/
+  hazard profiles), **new races/lineages** (with associated faction content), **new
+  items**, and **expanded gameplay systems** (e.g., mercenary contracts, political
+  intrigue, seafaring) — additive, extending player options rather than changing how
+  existing systems already work.
+- A player without a given DLC pack should still be able to join a shared co-op session
+  hosted by someone who has it — DLC content is gracefully hidden or falls back to a
+  base-game equivalent, and the player is told clearly that content was stripped rather
+  than having the join silently refused.
 - DLC win conditions should be optional add-ons; base-game end-game objectives (see
   `vision-and-pillars.md`) always remain reachable without any DLC.
-
-DLC itself is a **long-term goal, not a launch deliverable** — the base game must stand on
-its own; DLC extends it, never completes it. Each DLC pack is meant to be a
-**self-contained layer** (a new biome, a new lineage, a new optional system) that
-integrates with what exists without requiring any other DLC pack. Candidate categories:
-new biomes (distinct resource/faction/hazard profiles), new lineages (with associated
-faction content), and new optional systems (e.g., mercenary contracts, political intrigue,
-seafaring) that are additive — they extend player options, they don't change how existing
-systems already work.
+- Each DLC pack is meant to be a **self-contained layer** that integrates with what exists
+  without requiring any other DLC pack.
+- DLC itself is a **long-term goal, not a launch deliverable** — the base game must stand
+  on its own; DLC extends it, never completes it.
 
 ## Open Design Questions Worth Tracking
 
@@ -91,7 +106,7 @@ systems already work.
   isn't designed yet.
 - Co-op economy balance is called out as its own tuning pass — multiple players in one
   economy may destabilize markets faster than solo tuning assumes.
-- DLC sequencing, and whether individual packs are paid or free, is explicitly out of
-  scope for now.
+- DLC sequencing (which packs first, timing relative to base-game launch) isn't designed
+  yet. Packs are paid and storefront-delivered (decided); per-pack pricing isn't.
 - If the game ever ships on console, platform certification requirements for
   updates/DLC/saves would add constraints not captured here.
