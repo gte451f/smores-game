@@ -141,6 +141,12 @@ void AStrategyUnit::Interact(AStrategyUnit* Interactor)
 
 void AStrategyUnit::MoveToLocation(const FVector& Location, bool bInteract, const TArray<AStrategyUnit*> IgnoreList)
 {
+	// drives shared AI/movement state (CurrentMovementGoal, the AIController) - only the server may mutate it
+	if (!HasAuthority())
+	{
+		return;
+	}
+
 	// a Downed unit can't move - without this guard, a move command issued while Downed still
 	// kicks off the EQS/AIController move, which visibly slides the ragdoll-posed unit around
 	if (IsDowned())
@@ -286,6 +292,12 @@ bool AStrategyUnit::IsDowned() const
 
 void AStrategyUnit::SetAggressive(bool bAggressive)
 {
+	// drives shared AI state (Disposition, the self-aggro timer) - only the server may mutate it
+	if (!HasAuthority())
+	{
+		return;
+	}
+
 	Disposition = bAggressive ? EStrategyDisposition::Aggressive : EStrategyDisposition::Passive;
 
 	if (bAggressive)
@@ -358,6 +370,12 @@ void AStrategyUnit::TryEngageNearestPlayerPawn()
 
 void AStrategyUnit::AttackTarget(AStrategyUnit* Target)
 {
+	// drives shared combat state (CurrentAttackTarget, the attack montage) - only the server may mutate it
+	if (!HasAuthority())
+	{
+		return;
+	}
+
 	// a Downed unit can't initiate or continue an attack - without this, a Downed unit's own
 	// AggroRetargetTimerHandle (still running - OnHealthDowned doesn't touch it) keeps calling
 	// back in here forever, replaying an attack montage on top of the Downed pose on the same
@@ -421,6 +439,13 @@ void AStrategyUnit::PerformAttack(AStrategyUnit* Target)
 
 void AStrategyUnit::ApplyAttackDamage()
 {
+	// the anim notify fires on every machine simulating this montage (attacker + all observing
+	// clients) - only the server may actually apply damage
+	if (!HasAuthority())
+	{
+		return;
+	}
+
 	AStrategyUnit* Target = CurrentAttackTarget.Get();
 
 	// re-check range at the hit frame, not the swing-start frame, so a target that fled

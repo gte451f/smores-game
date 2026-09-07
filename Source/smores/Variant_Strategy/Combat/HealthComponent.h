@@ -67,7 +67,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Health")
 	FOnHealthDamagedDelegate OnDamaged;
 
-	/** Applies damage. No-ops while already Downed or if Amount isn't positive. DamageInstigator (if known) is passed via OnDamaged for auto-retaliation. */
+	/** Applies damage. Authority-only (no-ops on a non-authority machine); no-ops while already Downed or if Amount isn't positive. DamageInstigator (if known) is passed via OnDamaged for auto-retaliation. */
 	UFUNCTION(BlueprintCallable, Category = "Health")
 	void TakeDamage(float Amount, AActor* DamageInstigator = nullptr);
 
@@ -79,12 +79,28 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Health")
 	float GetHealth() const { return Health; }
 
+protected:
+
+	//~ Begin UObject interface
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	//~ End UObject interface
+
+	/** Reacts on non-authority machines to a replicated health change (damage number, OnDamaged) - authority already handled these synchronously in TakeDamage */
+	UFUNCTION()
+	void OnRep_Health(float OldHealth);
+
+	/** Reacts on non-authority machines to a replicated Downed-state change (OnDowned/OnRecovered) - authority already handled these synchronously in Downed()/Recover() */
+	UFUNCTION()
+	void OnRep_IsDowned(bool bOldIsDowned);
+
 private:
 
-	/** Current health */
+	/** Current health. Replicated so every machine can react to damage/downs (e.g. play the Downed pose). */
+	UPROPERTY(ReplicatedUsing = OnRep_Health)
 	float Health = 100.0f;
 
-	/** True while health is at zero, awaiting the recovery timer */
+	/** True while health is at zero, awaiting the recovery timer. Replicated for the same reason as Health. */
+	UPROPERTY(ReplicatedUsing = OnRep_IsDowned)
 	bool bIsDowned = false;
 
 	/** Handle for the pending Recover() call while Downed */

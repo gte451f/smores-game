@@ -4,12 +4,23 @@
 #include "HealthComponent.h"
 #include "TimerManager.h"
 #include "DamageNumberActor.h"
+#include "Net/UnrealNetwork.h"
 #include "smores.h"
 
 UHealthComponent::UHealthComponent()
 {
 	// health is pure state - it never needs to tick
 	PrimaryComponentTick.bCanEverTick = false;
+
+	SetIsReplicated(true);
+}
+
+void UHealthComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(UHealthComponent, Health);
+	DOREPLIFETIME(UHealthComponent, bIsDowned);
 }
 
 void UHealthComponent::BeginPlay()
@@ -21,6 +32,12 @@ void UHealthComponent::BeginPlay()
 
 void UHealthComponent::TakeDamage(float Amount, AActor* DamageInstigator)
 {
+	// shared gameplay state - only the server may mutate it
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
 	if (bIsDowned || Amount <= 0.0f)
 	{
 		return;
@@ -93,4 +110,46 @@ void UHealthComponent::Recover()
 	bIsDowned = false;
 
 	OnRecovered.Broadcast();
+}
+
+void UHealthComponent::OnRep_Health(float OldHealth)
+{
+	// authority already ran SpawnDamageNumber/OnDamaged synchronously in TakeDamage - this is
+	// only for the non-authority machines that just received the replicated change
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	const float Amount = OldHealth - Health;
+
+	if (Amount > 0.0f)
+	{
+		SpawnDamageNumber(Amount);
+
+		// bIsDowned has already been applied by the time RepNotifies run, even though
+		// OnRep_IsDowned may fire before or after this callback
+		if (!bIsDowned)
+		{
+			OnDamaged.Broadcast(nullptr);
+		}
+	}
+}
+
+void UHealthComponent::OnRep_IsDowned(bool bOldIsDowned)
+{
+	// authority already broadcast these directly from Downed()/Recover()
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	if (bIsDowned && !bOldIsDowned)
+	{
+		OnDowned.Broadcast();
+	}
+	else if (!bIsDowned && bOldIsDowned)
+	{
+		OnRecovered.Broadcast();
+	}
 }
