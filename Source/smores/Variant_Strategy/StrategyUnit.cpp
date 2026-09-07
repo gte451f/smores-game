@@ -92,6 +92,14 @@ void AStrategyUnit::BeginPlay()
 
 void AStrategyUnit::StopMoving()
 {
+	// cancel any active AIController move request - without this, the PathFollowingComponent
+	// keeps driving toward its last goal every tick (including rotating to face it via
+	// bOrientRotationToMovement), which StopMovementImmediately() alone doesn't stop
+	if (AIController)
+	{
+		AIController->StopMovement();
+	}
+
 	// use the character movement component to stop movement
 	GetCharacterMovement()->StopMovementImmediately();
 

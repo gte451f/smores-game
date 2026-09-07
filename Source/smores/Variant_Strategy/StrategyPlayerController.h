@@ -453,6 +453,9 @@ protected:
 	/** Returns the container within click range of the given world location, or nullptr */
 	AStrategyContainer* FindContainerAtLocation(const FVector& Location) const;
 
+	/** Returns the nearest Downed NPC within click range of the given world location, or nullptr. A non-Downed (Passive or Aggressive) NPC never qualifies. Mirrors FindContainerAtLocation's shape. */
+	AStrategyUnit* FindLootableNPCAtLocation(const FVector& Location) const;
+
 	/** Returns whichever player-controlled pawn is closest to the given world location, or nullptr if none exist */
 	AStrategyPlayerUnit* FindClosestPlayerPawn(const FVector& Location);
 

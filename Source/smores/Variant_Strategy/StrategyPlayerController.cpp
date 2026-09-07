@@ -666,6 +666,28 @@ void AStrategyPlayerController::SelectAllDoubleClick(const FInputActionValue& Va
 
 			return;
 		}
+
+		// no container at this location - try a Downed NPC instead, same proximity rule
+		if (AStrategyUnit* Clicked = FindLootableNPCAtLocation(CursorLocation))
+		{
+			// highlight it, same as a single click, regardless of range
+			SetSelectedNPC(Clicked);
+
+			// open it if any player-controlled pawn is close enough. Checked against every player
+			// pawn (not just ControlledUnits), for the same reason as the container branch above.
+			RefreshPlayerPawns();
+
+			for (const TObjectPtr<AStrategyPlayerUnit>& PlayerPawn : PlayerPawns)
+			{
+				if (IsValid(PlayerPawn) && Clicked->IsUnitInRange(PlayerPawn))
+				{
+					OpenLoot(Clicked);
+					break;
+				}
+			}
+
+			return;
+		}
 	}
 
 	DoSelectAllUnitsOnScreenCommand();
@@ -1305,6 +1327,37 @@ AStrategyContainer* AStrategyPlayerController::FindContainerAtLocation(const FVe
 				Nearest = CurrentContainer;
 				NearestDistSq = DistSq;
 			}
+		}
+	}
+
+	return Nearest;
+}
+
+AStrategyUnit* AStrategyPlayerController::FindLootableNPCAtLocation(const FVector& Location) const
+{
+	// mirrors FindContainerAtLocation's shape - gather every unit, keep only Downed NPCs (never
+	// player pawns, and never a Passive/Aggressive NPC still on its feet), pick the nearest in range
+	TArray<AActor*> FoundUnits;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AStrategyUnit::StaticClass(), FoundUnits);
+
+	AStrategyUnit* Nearest = nullptr;
+	float NearestDistSq = FMath::Square(ContainerSelectionRadius);
+
+	for (AActor* CurrentActor : FoundUnits)
+	{
+		AStrategyUnit* CurrentUnit = Cast<AStrategyUnit>(CurrentActor);
+
+		if (!CurrentUnit || Cast<AStrategyPlayerUnit>(CurrentUnit) || !CurrentUnit->IsDowned())
+		{
+			continue;
+		}
+
+		const float DistSq = FVector::DistSquared(CurrentUnit->GetActorLocation(), Location);
+
+		if (DistSq <= NearestDistSq)
+		{
+			Nearest = CurrentUnit;
+			NearestDistSq = DistSq;
 		}
 	}
 
