@@ -221,10 +221,15 @@ protected:
 	/** True while MMB is held and PlayerTick should be sampling mouse delta to rotate the camera */
 	bool bIsRotatingCamera = false;
 
-	/** True for the one tick right after a rotate drag starts - that tick discards its mouse
-	 *  delta instead of rotating, since the just-issued centering warp can otherwise be misread
-	 *  as a real mouse movement before the OS/Slate has caught up */
-	bool bSkipNextRotateSample = false;
+	/** Number of ticks to discard mouse delta for at the start of every rotate drag, instead of
+	 *  rotating, so the camera's perspective holds steady rather than jumping. Covers not just the
+	 *  just-issued centering warp (which can be misread as real mouse movement before the OS/Slate
+	 *  has caught up) but also the extra frame or two mouse-capture engagement itself can take on
+	 *  the very first drag of a PIE session, which otherwise surfaces as one large spurious delta */
+	static constexpr int32 RotateStartupSkipTicks = 3;
+
+	/** Ticks remaining in the current rotate drag's startup skip window; see RotateStartupSkipTicks */
+	int32 RotateStartupSkipTicksRemaining = 0;
 
 	/** Trace channel to use for selection trace checks */
 	UPROPERTY(EditAnywhere, Category = "Selection")

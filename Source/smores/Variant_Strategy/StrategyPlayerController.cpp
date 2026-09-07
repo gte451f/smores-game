@@ -203,11 +203,11 @@ void AStrategyPlayerController::PlayerTick(float DeltaTime)
 	float DeltaX = 0.0f, DeltaY = 0.0f;
 	GetInputMouseDelta(DeltaX, DeltaY);
 
-	if (bSkipNextRotateSample)
+	if (RotateStartupSkipTicksRemaining > 0)
 	{
-		// discard this tick's delta - it can include a spurious readback of the centering warp
-		// InteractHoldStarted just issued, before the OS/Slate has caught up to it
-		bSkipNextRotateSample = false;
+		// discard this tick's delta - it can include a spurious readback of the centering warp,
+		// or of mouse capture itself still engaging, before the OS/Slate has caught up
+		--RotateStartupSkipTicksRemaining;
 	}
 	else
 	{
@@ -272,29 +272,27 @@ bool AStrategyPlayerController::ShouldUseTouchControls() const
 
 void AStrategyPlayerController::MoveCamera(const FInputActionValue& Value)
 {
+	if (!ControlledCameraPawn)
+	{
+		return;
+	}
+
 	FVector2D InputVector = Value.Get<FVector2D>();
 
-	// get the forward input component vector
-	FRotator ForwardRot = GetControlRotation();
+	// derive movement axes from the camera's own current relative rotation rather than
+	// GetControlRotation() - the engine can reset ControlRotation independently of the camera's
+	// actual orientation (see DoCameraRotateCommand's matching note), so movement direction would
+	// silently desync from the visible facing if it were sourced from ControlRotation instead
+	FRotator ForwardRot = ControlledCameraPawn->GetCamera()->GetRelativeRotation();
 	ForwardRot.Pitch = 0.0f;
 
-	// get the right input component vector
-	FRotator RightRot = GetControlRotation();
-	RightRot.Pitch = 0.0f;
+	FRotator RightRot = ForwardRot;
 	RightRot.Roll = 0.0f;
 
-	// add the forward input
-	if (ControlledCameraPawn)
-	{
-		// NOTE: previously combined as (X+Y)/(X-Y), a fixed ~45-degree diagonal correction that
-		// compensated for control rotation always being ~0 while the camera's baked yaw was 45.
-		// Now that OnPossess/DoCameraRotateCommand keep control rotation in sync with the real
-		// camera yaw, that correction would double-apply - use the raw axes directly.
-		ControlledCameraPawn->AddMovementInput(ForwardRot.RotateVector(FVector::ForwardVector), InputVector.X);
+	ControlledCameraPawn->AddMovementInput(ForwardRot.RotateVector(FVector::ForwardVector), InputVector.X);
 
-		// add the right input (negated - this IMC's Y axis reads +1 from A / -1 from D)
-		ControlledCameraPawn->AddMovementInput(RightRot.RotateVector(FVector::RightVector), -InputVector.Y);
-	}
+	// add the right input (negated - this IMC's Y axis reads +1 from A / -1 from D)
+	ControlledCameraPawn->AddMovementInput(RightRot.RotateVector(FVector::RightVector), -InputVector.Y);
 }
 
 void AStrategyPlayerController::ZoomCamera(const FInputActionValue& Value)
@@ -696,7 +694,7 @@ void AStrategyPlayerController::SelectAllDoubleClick(const FInputActionValue& Va
 void AStrategyPlayerController::InteractHoldStarted(const FInputActionValue& Value)
 {
 	bIsRotatingCamera = true;
-	bSkipNextRotateSample = true;
+	RotateStartupSkipTicksRemaining = RotateStartupSkipTicks;
 
 	// hide the cursor while rotating
 	// NOTE: deliberately not calling SetInputMode here - doing so while a mouse button is
@@ -1144,12 +1142,23 @@ void AStrategyPlayerController::DoCameraSetZoomPercentageCommand(float Percentag
 
 void AStrategyPlayerController::DoCameraRotateCommand(const FVector2D& MouseDelta)
 {
+	if (!ControlledCameraPawn)
+	{
+		return;
+	}
+
 	// compose via quaternions (world-space yaw, camera-local-space pitch) rather than editing
 	// Yaw/Pitch as independent Euler fields - a naive Euler update can't pass smoothly through
 	// +/-90 degrees pitch (a real loop needs roll to emerge there) and gimbal-locks near vertical
 	// NOTE: unconstrained (no clamp) for feel-testing - MinCameraPitch/MaxCameraPitch are unused
 	// right now, re-introduce a clamp once a range is settled on
-	const FQuat CurrentQuat = GetControlRotation().Quaternion();
+	//
+	// composed from the camera's own current relative rotation, not GetControlRotation() - the
+	// engine can reset ControlRotation independently of the camera's actual orientation (confirmed
+	// via logging: it read back as an exact zero rotator moments after OnPossess had set it to
+	// match the camera), so rebasing off ControlRotation here is what caused the camera to snap to
+	// a wildly different (sky-facing) orientation the instant a rotate drag started
+	const FQuat CurrentQuat = ControlledCameraPawn->GetCamera()->GetRelativeRotation().Quaternion();
 
 	const FQuat YawDelta(FVector::UpVector, FMath::DegreesToRadians(MouseDelta.X * CameraYawSpeed));
 	const FQuat PitchDelta(CurrentQuat.GetRightVector(), FMath::DegreesToRadians(-MouseDelta.Y * CameraPitchSpeed));
@@ -1157,12 +1166,7 @@ void AStrategyPlayerController::DoCameraRotateCommand(const FVector2D& MouseDelt
 	const FRotator NewRotation = (YawDelta * PitchDelta * CurrentQuat).GetNormalized().Rotator();
 
 	SetControlRotation(NewRotation);
-
-	// mirror the rotation onto the camera pawn
-	if (ControlledCameraPawn)
-	{
-		ControlledCameraPawn->SetCameraRotation(NewRotation);
-	}
+	ControlledCameraPawn->SetCameraRotation(NewRotation);
 }
 
 void AStrategyPlayerController::DoCameraModifyHeightCommand(float HeightDelta)
