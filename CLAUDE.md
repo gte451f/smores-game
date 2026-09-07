@@ -48,6 +48,52 @@ Use Blueprints (via `unreal-mcp` or the editor) for what they are actually good 
 Rule of thumb: if it has meaningful branching, iteration, or lifetime, it belongs in C++.
 When a task needs both, write the C++ first, then use MCP/Blueprints only to bind and configure it.
 
+## Multiplayer discipline
+
+The game is designed for co-op from day one (see the `game-design` skill's
+`multiplayer-and-content.md`) — self-hosted listen-server or dedicated server, up to 8
+players, server-authoritative simulation. The intent is that Unreal's built-in networking
+(replication, RPCs, server authority) supplies the large majority of what multiplayer
+actually needs; the responsibility on the code side is discipline, not building networking
+infrastructure. Multiplayer itself may not be wired up or testable for a while — this
+section is about not painting the codebase into a corner in the meantime, since retrofitting
+these habits later is far more expensive than following them from the start.
+
+When writing gameplay code:
+
+- **No singleton-player assumptions.** Never assume there is exactly one
+  `PlayerController`, one camera, one squad, or one HUD in the world. Key state and lookups
+  off the owning `PlayerController`/`PlayerState`, not a global/singleton reference — this
+  is the single most expensive habit to retrofit later, so it isn't optional just because
+  multiplayer isn't active yet.
+- **Gate shared-state mutation on authority.** Anything that changes world state other than
+  the local player's own cosmetic/UI-only state must check `HasAuthority()` (or run through
+  a `Server`-flagged RPC) before mutating it — health, inventory, faction standing, squad
+  membership, item ownership, etc. Never assume client == server, even in current
+  single-player-only testing.
+- **Replicate through the engine's mechanisms, not ad hoc sync.** State that other players
+  need to see goes through `UPROPERTY(Replicated)` + `GetLifetimeReplicatedProps` (with
+  `RepNotify` where clients need to react to a change); actions go through RPCs
+  (`Server`/`Client`/`NetMulticast`). Don't invent a custom sync path when replication
+  already covers the case.
+- **Decide data ownership before writing a system.** Before adding new gameplay state,
+  decide who authoritatively owns it (usually the server) and who merely holds a replicated
+  copy — this determines whether it needs to be `Replicated` at all and prevents divergent
+  client/server logic later.
+- **Don't add prediction machinery speculatively.** This game's point-and-click command
+  scheme (see `Variant_Strategy`) is latency-tolerant by design, unlike an action game — no
+  need for client-side prediction/reconciliation unless a specific system proves it's
+  needed.
+- **Dedicated server hosting targets Linux**, cross-compiled from the same C++ source as
+  the Windows client — this doesn't require the client itself to run on Linux. Avoid
+  Windows-only APIs/dependencies in gameplay code so the server target stays portable, and
+  watch asset-reference case sensitivity (Linux is case-sensitive, Windows isn't) once a
+  Linux cook is actually attempted.
+
+This is guidance for how to write code now — session/connect flow, dedicated server
+packaging, and the Linux cross-compile toolchain itself are not yet built; see
+`multiplayer-and-content.md` for what's scheduled vs. deferred.
+
 ## Architecture
 
 ### Module layout

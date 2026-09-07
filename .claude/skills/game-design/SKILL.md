@@ -29,7 +29,7 @@ This topic covers intendent game designs that may not exist yet.
 | [`topics/tech-and-crafting.md`](topics/tech-and-crafting.md) | Tech tree structure, research mechanics, crafting quality, faction military tech progression |
 | [`topics/open-world.md`](topics/open-world.md) | Static handcrafted map, regions/biomes, points of interest, travel/visibility, wildlife, time scale |
 | [`topics/save-system.md`](topics/save-system.md) | What must persist, save slots, version/mod compatibility as player-facing promises |
-| [`topics/player-experience.md`](topics/player-experience.md) | Onboarding philosophy, Codex, tooltips, settings, accessibility, localization |
+| [`topics/player-experience.md`](topics/player-experience.md) | Onboarding philosophy, Codex, tooltips, settings, accessibility |
 | [`topics/multiplayer-and-content.md`](topics/multiplayer-and-content.md) | Co-op vision and scope, update/patch philosophy toward players, mod/DLC design relationship |
 | [`topics/main-menu-and-meta-flow.md`](topics/main-menu-and-meta-flow.md) | *(placeholder)* Title screen, new-game setup, continue/load, options structure, announcements |
 | [`topics/difficulty-and-modifiers.md`](topics/difficulty-and-modifiers.md) | *(placeholder)* New-game difficulty modifiers beyond ironman |
@@ -41,8 +41,9 @@ This topic covers intendent game designs that may not exist yet.
 | [`topics/quests-and-objectives.md`](topics/quests-and-objectives.md) | *(placeholder)* What structures player goals, if anything, beyond emergent play |
 | [`topics/end-game-and-win-loss.md`](topics/end-game-and-win-loss.md) | *(placeholder)* Whether any fixed win/loss condition exists |
 | [`topics/character-death-and-permadeath.md`](topics/character-death-and-permadeath.md) | *(placeholder)* Death consequences outside ironman mode |
-| [`topics/audio-design.md`](topics/audio-design.md) | *(placeholder)* Music, ambient sound, mixing philosophy |
-| [`topics/input-and-platforms.md`](topics/input-and-platforms.md) | *(placeholder)* Target input methods and platforms |
+| [`topics/audio-design.md`](topics/audio-design.md) | Music rotation, camera-as-listener spatial perspective, player audio controls |
+| [`topics/input-and-platforms.md`](topics/input-and-platforms.md) | Windows-primary platform scope, Steam Deck via Proton, sell-widely-first storefront priority (Steam/GOG/Epic, achievements/cloud saves deprioritized), controller/touch input targets |
+| [`topics/localization.md`](topics/localization.md) | Day-one string/font/layout localization architecture tied to selling widely, translated-language list grows post-launch |
 
 More topics belong here as the game's design surface grows. Add one file per topic under
 `topics/`, in the same distilled style, and add a row to the table above.

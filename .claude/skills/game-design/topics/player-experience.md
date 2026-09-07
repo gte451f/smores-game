@@ -55,19 +55,16 @@ that needed attention, rather than the game forcing a slowdown on their behalf.
 
 ## Localization
 
-A day-one architectural commitment, not a post-launch addition — retrofitting
-localization onto a large codebase is expensive; building it in from the start isn't.
-Every player-facing string is externalized from day one, fonts must support the character
-sets of any targeted market (including CJK or RTL scripts), and UI layouts must tolerate
-the 30–40% length variance that languages like German or Russian introduce relative to
-English.
+Covered in its own topic, `localization.md` — a day-one architectural commitment (string
+externalization, font/script support, layout tolerance for length variance) tied to the
+"sell as widely as possible" storefront priority in `input-and-platforms.md`.
 
 ## Open Design Questions Worth Tracking
 
 - The tutorial's scenario framing (what situation the player starts in, what the first
   objective is) isn't designed yet.
 - Voice acting, if added, would add localization and subtitle requirements beyond the
-  current text-only assumption.
+  current text-only assumption — see the open question in `localization.md`.
 - Full controller-native UI is a later pass — keyboard and mouse is the initial target.
 - A proper accessibility audit with players who have relevant needs should happen before
   ship; the requirements above are a baseline, not a complete list.
