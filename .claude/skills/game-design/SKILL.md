@@ -33,7 +33,7 @@ This topic covers intendent game designs that may not exist yet.
 | [`topics/multiplayer-and-content.md`](topics/multiplayer-and-content.md) | Co-op vision and scope, update/patch philosophy toward players, mod/DLC design relationship |
 | [`topics/main-menu-and-meta-flow.md`](topics/main-menu-and-meta-flow.md) | *(placeholder)* Title screen, new-game setup, continue/load, options structure, announcements |
 | [`topics/difficulty-and-modifiers.md`](topics/difficulty-and-modifiers.md) | *(placeholder)* New-game difficulty modifiers beyond ironman |
-| [`topics/tutorial-and-scenario-start.md`](topics/tutorial-and-scenario-start.md) | *(placeholder)* Concrete starting scenario, squad, and first objective |
+| [`topics/tutorial-and-scenario-start.md`](topics/tutorial-and-scenario-start.md) | No tutorial — player-chosen starter scenarios with cosmetic-only backstory, player-created starting squad (lineage/cosmetic only, fixed stats/skills baseline) |
 | [`topics/player-interface.md`](topics/player-interface.md) | *(placeholder)* In-session UI intent — always-on vs. contextual info, squad status, diegetic presentation |
 | [`topics/notifications-and-alerts.md`](topics/notifications-and-alerts.md) | *(placeholder)* What triggers a notification, severity, history |
 | [`topics/world-map-and-travel.md`](topics/world-map-and-travel.md) | *(placeholder)* Map presentation and travel, may merge into `open-world.md` |

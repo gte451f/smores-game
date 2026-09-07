@@ -21,6 +21,13 @@ and visible physical characteristics that can draw social attention independent 
 faction standing — a rare or foreign-looking lineage in an intolerant region attracts
 suspicion even from a faction the player is otherwise in good standing with.
 
+Lineage also shifts **growth rate**, distinct from the ceiling shift above: a given lineage
+may advance certain skills or attributes faster than others do (e.g. naturally quicker to
+develop a combat skill, slower on a crafting one), on top of any starting-point difference.
+Like every other lineage effect, this stays subject to the no-lineage-is-strictly-better
+constraint — rate advantages on some skills should come paired with disadvantages on
+others, not a lineage that simply learns everything faster.
+
 Factions range from mono-lineage (may distrust, refuse to trade with, or actively
 persecute other lineages) to cosmopolitan (recruit and trade freely across all of them);
 some high-value recruits are lineage-gated. A faction's lineage stance is static, authored
@@ -49,6 +56,13 @@ prosthetic); poor conditions — malnutrition, exhaustion — cause temporary, r
 suppression instead.
 
 ## Recruitment, Wages, and Morale
+
+Every character joins the squad through recruitment as described here, **except the
+starting squad**, which the player creates directly at new-game setup instead (see
+`tutorial-and-scenario-start.md`'s Starting Squad Creation) — that's the one point in the
+campaign where a character is player-authored rather than found, and even there, creation
+is scoped to lineage/cosmetic choice only, not stats or skills (every fresh squad starts
+from the same common baseline).
 
 Recruits are found in settlements, faction-gated locations, criminal networks, slave
 markets, or out in the field. Joining costs an upfront hire fee with a skill-based floor
@@ -121,8 +135,10 @@ is no hard squad size cap — wages create the real, self-regulating economic ce
 
 - The specific lineage roster, attribute modifiers, and traits are deferred until setting
   is chosen — the framework above is meant to be stable regardless of what fills it in.
-- Whether a player-created starting character (vs. recruited-only) is supported isn't
-  decided.
+  Concrete skill examples floated in discussion (e.g. Blacksmithing, One-Handed Weapons,
+  Marksmanship, Lockpicking) are directional, not a committed roster — a full skill list
+  likely needs to be assembled per-domain (`combat.md`, `tech-and-crafting.md`, and the
+  Stealth section here) rather than enumerated centrally in one place.
 - Personality/trait depth (e.g., a character who flees without orders) isn't fully
   designed.
 - The skill-to-outcome proportions (70/20/10) are a stable design constraint; the actual
