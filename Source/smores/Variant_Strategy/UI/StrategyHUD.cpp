@@ -52,9 +52,11 @@ void AStrategyHUD::DrawHUD()
 			FRotator CamRot;
 			PC->GetPlayerViewPoint(CamLoc, CamRot);
 
-			BoxedPlayerUnits.RemoveAll([&CamLoc, &CamRot](AStrategyPlayerUnit* Unit)
+			BoxedPlayerUnits.RemoveAll([&CamLoc, &CamRot, PC](AStrategyPlayerUnit* Unit)
 			{
-				return !IsValid(Unit) || FVector::DotProduct(CamRot.Vector(), Unit->GetActorLocation() - CamLoc) <= 0.0f;
+				// only this controller's own squad is drag-selectable - see AStrategyPlayerUnit::ClaimForController
+				return !IsValid(Unit) || Unit->GetOwningController() != PC
+					|| FVector::DotProduct(CamRot.Vector(), Unit->GetActorLocation() - CamLoc) <= 0.0f;
 			});
 
 			// widen to the base type expected by the player controller

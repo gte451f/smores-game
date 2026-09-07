@@ -3,6 +3,7 @@
 
 #include "StrategyPlayerUnit.h"
 #include "Inventory/InventoryComponent.h"
+#include "Net/UnrealNetwork.h"
 
 AStrategyPlayerUnit::AStrategyPlayerUnit()
 {
@@ -23,4 +24,22 @@ void AStrategyPlayerUnit::BeginPlay()
 			InventoryComp->AddItem(Item);
 		}
 	}
+}
+
+void AStrategyPlayerUnit::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(AStrategyPlayerUnit, OwningController);
+}
+
+void AStrategyPlayerUnit::ClaimForController(APlayerController* NewOwningController)
+{
+	if (!HasAuthority() || OwningController)
+	{
+		return;
+	}
+
+	OwningController = NewOwningController;
+	SetOwner(NewOwningController);
 }

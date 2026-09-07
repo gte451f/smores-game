@@ -417,10 +417,10 @@ public:
 	/** Scrolls the camera based on a new screen coordinate */
 	void DoCameraDragScrollCommand(const FVector2D& CurrentCursorPosition);
 
-	/** Attempts to move all selected units to the given location */
+	/** Attempts to move all selected units to the given location. Client-side entry point - forwards to Server_MoveUnits. */
 	void DoMoveUnitsCommand(const FVector& GoalLocation);
 
-	/** Flips Target Aggressive (harmless if already Aggressive) and sends every controlled unit to engage it */
+	/** Flips Target Aggressive (harmless if already Aggressive) and sends every controlled unit to engage it. Client-side entry point - forwards to Server_AttackCommand. */
 	void DoAttackCommand(AStrategyUnit* Target);
 
 	/** Applies a zoom change to the camera */
@@ -443,6 +443,18 @@ public:
 
 	/** Resets the camera rotation to default */
 	void DoCameraResetRotationCommand();
+
+private:
+
+	/** Server-side implementation of DoMoveUnitsCommand - ControlledUnits only exists locally on the
+	 *  owning client's PlayerController instance, so the units/goal/closest-unit have to travel
+	 *  explicitly over the RPC rather than being re-read from this instance server-side. */
+	UFUNCTION(Server, Reliable)
+	void Server_MoveUnits(const TArray<AStrategyUnit*>& Units, const FVector& GoalLocation, AStrategyUnit* ClosestUnit);
+
+	/** Server-side implementation of DoAttackCommand - see Server_MoveUnits for why Units travels explicitly */
+	UFUNCTION(Server, Reliable)
+	void Server_AttackCommand(const TArray<AStrategyUnit*>& Units, AStrategyUnit* Target);
 
 protected:
 

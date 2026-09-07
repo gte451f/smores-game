@@ -60,6 +60,23 @@ void AStrategyPlayerController::BeginPlay()
 
 	}
 
+	// claim any not-yet-owned player unit for this controller - placeholder squad-assignment
+	// policy until a real per-connection spawn/login flow exists; see
+	// AStrategyPlayerUnit::ClaimForController
+	if (HasAuthority())
+	{
+		TArray<AActor*> FoundUnits;
+		UGameplayStatics::GetAllActorsOfClass(this, AStrategyPlayerUnit::StaticClass(), FoundUnits);
+
+		for (AActor* CurrentActor : FoundUnits)
+		{
+			if (AStrategyPlayerUnit* CurrentUnit = Cast<AStrategyPlayerUnit>(CurrentActor))
+			{
+				CurrentUnit->ClaimForController(this);
+			}
+		}
+	}
+
 	// warm the player pawn list (CyclePawn refreshes again on use, so this is best-effort)
 	RefreshPlayerPawns();
 
@@ -325,7 +342,11 @@ void AStrategyPlayerController::RefreshPlayerPawns()
 	{
 		if (AStrategyPlayerUnit* CurrentUnit = Cast<AStrategyPlayerUnit>(CurrentActor))
 		{
-			PlayerPawns.Add(CurrentUnit);
+			// only this controller's own squad - see AStrategyPlayerUnit::ClaimForController
+			if (CurrentUnit->GetOwningController() == this)
+			{
+				PlayerPawns.Add(CurrentUnit);
+			}
 		}
 	}
 
@@ -879,6 +900,14 @@ bool AStrategyPlayerController::DoSelectCommand(const FVector& SelectLocation, b
 
 		if (AStrategyPlayerUnit* PlayerUnit = Cast<AStrategyPlayerUnit>(NearestUnit))
 		{
+			// only this controller's own squad is selectable/commandable - another player's unit
+			// is inert to click (still counts as "found a unit" so this doesn't fall through to
+			// the empty-ground branch and clear this player's own selection)
+			if (PlayerUnit->GetOwningController() != this)
+			{
+				return true;
+			}
+
 			// deselect any previously selected units unless this is an additive selection -
 			// scoped to this branch since only a player-pawn click should ever clear the squad
 			if (!bAdditiveSelection)
@@ -966,6 +995,12 @@ void AStrategyPlayerController::DoSelectAllUnitsOnScreenCommand()
 	{
 		if (AStrategyPlayerUnit* CurrentUnit = Cast<AStrategyPlayerUnit>(CurrentActor))
 		{
+			// only this controller's own squad is selectable - see AStrategyPlayerUnit::ClaimForController
+			if (CurrentUnit->GetOwningController() != this)
+			{
+				continue;
+			}
+
 			// is the unit is not already selected, and is on screen?
 			if (!ControlledUnits.Contains(CurrentUnit) && CurrentUnit->WasRecentlyRendered(0.2f))
 			{
@@ -1053,16 +1088,12 @@ void AStrategyPlayerController::DoMoveUnitsCommand(const FVector& GoalLocation)
 		// find the closest unit to the goal
 		AStrategyUnit* ClosestUnit = GetClosestSelectedUnitToLocation(GoalLocation);
 
-		// tell each unit to move to the location
-		for (AStrategyUnit* CurrentUnit : ControlledUnits)
-		{
-			if (IsValid(CurrentUnit))
-			{
-				CurrentUnit->MoveToLocation(GoalLocation, CurrentUnit == ClosestUnit, ControlledUnits);
-			}
-		}
+		// the actual move is shared-world state, owned by the server - ControlledUnits only
+		// exists locally on this (the owning client's) PlayerController instance, so it has to
+		// travel explicitly rather than being re-read server-side
+		Server_MoveUnits(ControlledUnits, GoalLocation, ClosestUnit);
 
-		// show positive cursor feedback
+		// cosmetic/local-only feedback - shown immediately rather than waiting on the round trip
 		BP_CursorFeedback(GoalLocation, true);
 
 	}
@@ -1085,16 +1116,40 @@ void AStrategyPlayerController::DoAttackCommand(AStrategyUnit* Target)
 	UE_LOG(Logsmores, Warning, TEXT("[Combat] DoAttackCommand(%s): ControlledUnits.Num()=%d"),
 		*Target->GetName(), ControlledUnits.Num());
 
+	// see Server_MoveUnits for why ControlledUnits has to travel explicitly rather than being
+	// re-read server-side
+	Server_AttackCommand(ControlledUnits, Target);
+}
+
+void AStrategyPlayerController::Server_MoveUnits_Implementation(const TArray<AStrategyUnit*>& Units, const FVector& GoalLocation, AStrategyUnit* ClosestUnit)
+{
+	// tell each unit to move to the location
+	for (AStrategyUnit* CurrentUnit : Units)
+	{
+		if (IsValid(CurrentUnit))
+		{
+			CurrentUnit->MoveToLocation(GoalLocation, CurrentUnit == ClosestUnit, Units);
+		}
+	}
+}
+
+void AStrategyPlayerController::Server_AttackCommand_Implementation(const TArray<AStrategyUnit*>& Units, AStrategyUnit* Target)
+{
+	if (!IsValid(Target) || Target->IsDowned())
+	{
+		return;
+	}
+
 	// harmless if already Aggressive - this is what flips a Passive NPC on the A-key path
 	Target->SetAggressive(true);
 
 	// a squad-wide engage - every selected unit attacks the same target, unlike
 	// DoMoveUnitsCommand's spread-to-nearby-points formation logic
-	for (AStrategyUnit* CurrentUnit : ControlledUnits)
+	for (AStrategyUnit* CurrentUnit : Units)
 	{
 		if (IsValid(CurrentUnit))
 		{
-			UE_LOG(Logsmores, Warning, TEXT("[Combat] DoAttackCommand: commanding %s to attack %s"),
+			UE_LOG(Logsmores, Warning, TEXT("[Combat] Server_AttackCommand: commanding %s to attack %s"),
 				*CurrentUnit->GetName(), *Target->GetName());
 			CurrentUnit->AttackTarget(Target);
 		}
