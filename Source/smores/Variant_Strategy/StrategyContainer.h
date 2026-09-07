@@ -51,6 +51,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Container")
 	TObjectPtr<UMaterialInterface> SelectedMaterial;
 
+	/** Display name shown in the selection target UI (e.g. "Chest 1") */
+	UPROPERTY(EditAnywhere, Category = "Container")
+	FText ContainerDisplayName;
+
 public:
 
 	/** Constructor */
@@ -66,6 +70,9 @@ public:
 
 	/** Returns this container's inventory component */
 	UInventoryComponent* GetInventory() const { return Inventory; }
+
+	/** Returns this container's display name */
+	FText GetContainerDisplayName() const { return ContainerDisplayName; }
 
 	/** Returns true if the given unit is close enough to open this container */
 	bool IsUnitInRange(const AStrategyUnit* Unit) const;

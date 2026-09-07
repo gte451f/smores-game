@@ -54,15 +54,51 @@ bool UInventoryComponent::AddItem(const FInventoryItem& Item)
 
 bool UInventoryComponent::RemoveItemAt(int32 Index)
 {
+	// clear in place rather than shifting later items down, so slot indices stay stable
+	return SetItemAt(Index, FInventoryItem());
+}
+
+bool UInventoryComponent::SetItemAt(int32 Index, const FInventoryItem& Item)
+{
 	if (!Items.IsValidIndex(Index))
 	{
 		return false;
 	}
 
-	// clear in place rather than shifting later items down, so slot indices stay stable
-	Items[Index] = FInventoryItem();
+	Items[Index] = Item;
 
 	OnInventoryChanged.Broadcast();
+
+	return true;
+}
+
+bool UInventoryComponent::MoveItem(UInventoryComponent* SourceInventory, int32 SourceIndex, UInventoryComponent* DestInventory, int32 DestIndex)
+{
+	if (!SourceInventory || !DestInventory)
+	{
+		return false;
+	}
+
+	if (SourceInventory == DestInventory && SourceIndex == DestIndex)
+	{
+		return false;
+	}
+
+	const FInventoryItem FromItem = SourceInventory->GetItemAt(SourceIndex);
+
+	if (FromItem.IsEmpty())
+	{
+		return false;
+	}
+
+	const FInventoryItem ToItem = DestInventory->GetItemAt(DestIndex);
+
+	if (!DestInventory->SetItemAt(DestIndex, FromItem))
+	{
+		return false;
+	}
+
+	SourceInventory->SetItemAt(SourceIndex, ToItem);
 
 	return true;
 }

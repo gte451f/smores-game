@@ -46,6 +46,17 @@ void AStrategyHUD::DrawHUD()
 			TArray<AStrategyPlayerUnit*> BoxedPlayerUnits;
 			GetActorsInSelectionRectangle(BoxStart, BoxCurrentPosition, BoxedPlayerUnits, true);
 
+			// GetActorsInSelectionRectangle doesn't clip against the near plane, so an actor behind
+			// the camera can still satisfy the 2D screen-rect test once the camera can pitch/rotate freely
+			FVector CamLoc;
+			FRotator CamRot;
+			PC->GetPlayerViewPoint(CamLoc, CamRot);
+
+			BoxedPlayerUnits.RemoveAll([&CamLoc, &CamRot](AStrategyPlayerUnit* Unit)
+			{
+				return !IsValid(Unit) || FVector::DotProduct(CamRot.Vector(), Unit->GetActorLocation() - CamLoc) <= 0.0f;
+			});
+
 			// widen to the base type expected by the player controller
 			TArray<AStrategyUnit*> BoxedUnits;
 			BoxedUnits.Reserve(BoxedPlayerUnits.Num());
@@ -65,6 +76,7 @@ void AStrategyHUD::DrawHUD()
 		if (UIWidget)
 		{
 			UIWidget->SetSelectedUnitsCount(SelectedUnits.Num());
+			UIWidget->SetSelectionTargetLabel(PC->GetSelectionTargetLabel());
 		}
 
 		// process each selected unit

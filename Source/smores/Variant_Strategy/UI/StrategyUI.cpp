@@ -17,3 +17,8 @@ void UStrategyUI::SetSelectedUnitsCount(int32 Count)
 		BP_UpdateUnitsCount();
 	}
 }
+
+void UStrategyUI::SetSelectionTargetLabel(const FText& Label)
+{
+	SelectionTargetLabel = Label;
+}

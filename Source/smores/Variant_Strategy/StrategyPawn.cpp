@@ -21,10 +21,8 @@ AStrategyPawn::AStrategyPawn()
 	FloatingPawnMovement = CreateDefaultSubobject<UFloatingPawnMovement>(TEXT("Floating Pawn Movement"));
 
 	// configure the camera
-	Camera->ProjectionMode = ECameraProjectionMode::Orthographic;
-	Camera->OrthoWidth = 1500.0f;
-	Camera->AutoPlaneShift = 1.0f;
-	Camera->bUpdateOrthoPlanes = false;
+	Camera->ProjectionMode = ECameraProjectionMode::Perspective;
+	Camera->FieldOfView = 60.0f;
 
 	// configure the movement comp
 	FloatingPawnMovement->bConstrainToPlane = true;
@@ -32,8 +30,35 @@ AStrategyPawn::AStrategyPawn()
 	FloatingPawnMovement->SetPlaneConstraintOrigin(FVector::UpVector * 1500.0f);
 }
 
+void AStrategyPawn::UpdateCameraDollyOffset()
+{
+	// keep the camera DollyDistance behind the root, along its current look direction
+	const FRotator CamRot = Camera->GetRelativeRotation();
+	Camera->SetRelativeLocation(-CamRot.Vector() * DollyDistance);
+}
+
 void AStrategyPawn::SetZoomModifier(float Value)
 {
-	// set the ortho width on the camera
-	Camera->SetOrthoWidth(Value);
+	// set the dolly distance and re-apply it along the current look direction
+	DollyDistance = Value;
+	UpdateCameraDollyOffset();
+}
+
+void AStrategyPawn::SetCameraRotation(const FRotator& NewRotation)
+{
+	// roll is intentionally preserved (not forced to zero) - a genuine full vertical loop needs
+	// it, since a pure pitch/yaw pair can't represent "upside down" on its own
+	Camera->SetRelativeRotation(NewRotation);
+	UpdateCameraDollyOffset();
+}
+
+void AStrategyPawn::SetHeight(float NewHeight)
+{
+	// move the pawn to the new height
+	FVector Location = GetActorLocation();
+	Location.Z = NewHeight;
+	SetActorLocation(Location);
+
+	// keep the movement plane constraint at the new height so panning doesn't pull it back down
+	FloatingPawnMovement->SetPlaneConstraintOrigin(FVector::UpVector * NewHeight);
 }

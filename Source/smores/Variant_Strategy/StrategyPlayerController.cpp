@@ -26,6 +26,8 @@
 #include "Blueprint/UserWidget.h"
 #include "smores.h"
 
+#define LOCTEXT_NAMESPACE "StrategyPlayerController"
+
 AStrategyPlayerController::AStrategyPlayerController()
 {
 	// mouse cursor should always be shown
@@ -96,6 +98,12 @@ void AStrategyPlayerController::SetupInputComponent()
 			EnhancedInputComponent->BindAction(ZoomCameraAction, ETriggerEvent::Triggered, this, &AStrategyPlayerController::ZoomCamera);
 			EnhancedInputComponent->BindAction(ResetCameraAction, ETriggerEvent::Triggered, this, &AStrategyPlayerController::ResetCamera);
 
+			// Height (desktop only; not mapped in the touch IMC)
+			if (AdjustHeightAction)
+			{
+				EnhancedInputComponent->BindAction(AdjustHeightAction, ETriggerEvent::Triggered, this, &AStrategyPlayerController::AdjustHeight);
+			}
+
 			// Mouse Interaction
 			EnhancedInputComponent->BindAction(SelectHoldAction, ETriggerEvent::Started, this, &AStrategyPlayerController::SelectHoldStarted);
 			EnhancedInputComponent->BindAction(SelectHoldAction, ETriggerEvent::Triggered, this, &AStrategyPlayerController::SelectHoldTriggered);
@@ -109,7 +117,8 @@ void AStrategyPlayerController::SetupInputComponent()
 			EnhancedInputComponent->BindAction(SelectAllDoubleClickAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::SelectAllDoubleClick);
 
 			EnhancedInputComponent->BindAction(InteractHoldAction, ETriggerEvent::Started, this, &AStrategyPlayerController::InteractHoldStarted);
-			EnhancedInputComponent->BindAction(InteractHoldAction, ETriggerEvent::Triggered, this, &AStrategyPlayerController::InteractHoldTriggered);
+			EnhancedInputComponent->BindAction(InteractHoldAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::InteractHoldCompleted);
+			EnhancedInputComponent->BindAction(InteractHoldAction, ETriggerEvent::Canceled, this, &AStrategyPlayerController::InteractHoldCompleted);
 
 			EnhancedInputComponent->BindAction(InteractClickAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::InteractClick);
 
@@ -129,6 +138,12 @@ void AStrategyPlayerController::SetupInputComponent()
 			if (ToggleContainerAction)
 			{
 				EnhancedInputComponent->BindAction(ToggleContainerAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::ToggleContainer);
+			}
+
+			// Attack (desktop only; not mapped in the touch IMC)
+			if (AttackAction)
+			{
+				EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::AttackKeyPressed);
 			}
 
 			// Touch Interaction
@@ -152,8 +167,16 @@ void AStrategyPlayerController::OnPossess(APawn* InPawn)
 	ControlledCameraPawn = Cast<AStrategyPawn>(InPawn);
 	check(ControlledCameraPawn);
 
-	// set the zoom level from the pawn's camera
-	DefaultZoom = CameraZoom = ControlledCameraPawn->GetCamera()->OrthoWidth;
+	// capture the pawn's resting yaw so a camera reset restores the level's designed facing rather than fighting it
+	DefaultCameraYaw = ControlledCameraPawn->GetCamera()->GetRelativeRotation().Yaw;
+	DoCameraResetRotationCommand();
+
+	// push the default zoom and height onto the pawn
+	CameraZoom = DefaultZoom;
+	ControlledCameraPawn->SetZoomModifier(CameraZoom);
+
+	CameraHeight = DefaultCameraHeight;
+	ControlledCameraPawn->SetHeight(CameraHeight);
 
 	// cast the HUD pointer
 	StrategyHUD = Cast<AStrategyHUD>(GetHUD());
@@ -163,6 +186,38 @@ void AStrategyPlayerController::OnPossess(APawn* InPawn)
 	{
 		MobileControlsWidget->BP_SetZoomPercentage(GetDefaultZoomPercentage());
 	}
+}
+
+void AStrategyPlayerController::PlayerTick(float DeltaTime)
+{
+	Super::PlayerTick(DeltaTime);
+
+	if (!bIsRotatingCamera)
+	{
+		return;
+	}
+
+	// sample the raw mouse delta every tick - Enhanced Input's Triggered callback for a held
+	// digital button isn't guaranteed to fire every single frame, which would silently drop
+	// most of the drag's movement if we sampled from there instead
+	float DeltaX = 0.0f, DeltaY = 0.0f;
+	GetInputMouseDelta(DeltaX, DeltaY);
+
+	if (bSkipNextRotateSample)
+	{
+		// discard this tick's delta - it can include a spurious readback of the centering warp
+		// InteractHoldStarted just issued, before the OS/Slate has caught up to it
+		bSkipNextRotateSample = false;
+	}
+	else
+	{
+		DoCameraRotateCommand(FVector2D(DeltaX, DeltaY));
+	}
+
+	// re-center the cursor every tick so it never reaches a screen edge and saturates
+	int32 ViewportSizeX = 0, ViewportSizeY = 0;
+	GetViewportSize(ViewportSizeX, ViewportSizeY);
+	SetMouseLocation(ViewportSizeX / 2, ViewportSizeY / 2);
 }
 
 void AStrategyPlayerController::DragSelectUnits(const TArray<AStrategyUnit*>& Units)
@@ -183,6 +238,8 @@ void AStrategyPlayerController::DragSelectUnits(const TArray<AStrategyUnit*>& Un
 			CurrentUnit->UnitSelected();
 		}
 
+		// treat the first boxed unit as the most recently targeted, for the selection label
+		LastSelectionTarget = Units[0];
 	}
 	else
 	{
@@ -229,21 +286,33 @@ void AStrategyPlayerController::MoveCamera(const FInputActionValue& Value)
 	// add the forward input
 	if (ControlledCameraPawn)
 	{
-		ControlledCameraPawn->AddMovementInput(ForwardRot.RotateVector(FVector::ForwardVector), InputVector.X + InputVector.Y);
+		// NOTE: previously combined as (X+Y)/(X-Y), a fixed ~45-degree diagonal correction that
+		// compensated for control rotation always being ~0 while the camera's baked yaw was 45.
+		// Now that OnPossess/DoCameraRotateCommand keep control rotation in sync with the real
+		// camera yaw, that correction would double-apply - use the raw axes directly.
+		ControlledCameraPawn->AddMovementInput(ForwardRot.RotateVector(FVector::ForwardVector), InputVector.X);
 
-		// add the right input
-		ControlledCameraPawn->AddMovementInput(RightRot.RotateVector(FVector::RightVector), InputVector.X - InputVector.Y);
+		// add the right input (negated - this IMC's Y axis reads +1 from A / -1 from D)
+		ControlledCameraPawn->AddMovementInput(RightRot.RotateVector(FVector::RightVector), -InputVector.Y);
 	}
 }
 
 void AStrategyPlayerController::ZoomCamera(const FInputActionValue& Value)
 {
-	DoCameraModifyZoomCommand(Value.Get<float>() * ZoomScaling);
+	// negated - scrolling up should move the camera closer (zoom in), not further away
+	DoCameraModifyZoomCommand(-Value.Get<float>() * ZoomScaling);
 }
 
 void AStrategyPlayerController::ResetCamera(const FInputActionValue& Value)
 {
 	DoCameraResetZoomCommand();
+	DoCameraResetHeightCommand();
+	DoCameraResetRotationCommand();
+}
+
+void AStrategyPlayerController::AdjustHeight(const FInputActionValue& Value)
+{
+	DoCameraModifyHeightCommand(Value.Get<float>() * HeightScaling);
 }
 
 void AStrategyPlayerController::RefreshPlayerPawns()
@@ -311,6 +380,9 @@ void AStrategyPlayerController::CyclePawn(const FInputActionValue& Value)
 	ControlledUnits.Add(NextPawn);
 	NextPawn->UnitSelected();
 
+	// the newly cycled-to pawn is now the most recently targeted, for the selection label
+	LastSelectionTarget = NextPawn;
+
 	// NOTE: deliberately does not touch ControlledCameraPawn - the camera must not move on cycle
 
 	// the previous pawn's inventory (if shown) is now stale
@@ -348,6 +420,16 @@ void AStrategyPlayerController::ToggleInventory(const FInputActionValue& Value)
 		return;
 	}
 
+	OpenInventoryForPawn(SinglePlayerUnit);
+}
+
+void AStrategyPlayerController::OpenInventoryForPawn(AStrategyPlayerUnit* PlayerUnit)
+{
+	if (!PlayerUnit)
+	{
+		return;
+	}
+
 	// spawn the widget on first use
 	if (!InventoryWidget)
 	{
@@ -362,7 +444,8 @@ void AStrategyPlayerController::ToggleInventory(const FInputActionValue& Value)
 
 	if (InventoryWidget)
 	{
-		InventoryWidget->SetInventory(SinglePlayerUnit->GetInventory());
+		InventoryWidget->SetWindowTitle(FText::Format(LOCTEXT("PawnInventoryTitle", "{0} Inventory"), PlayerUnit->GetUnitDisplayName()));
+		InventoryWidget->SetInventory(PlayerUnit->GetInventory());
 		InventoryWidget->AddToViewport(0);
 	}
 }
@@ -392,15 +475,20 @@ void AStrategyPlayerController::ToggleContainer(const FInputActionValue& Value)
 	// require a container within range of at least one selected unit
 	AStrategyContainer* NearbyContainer = FindContainerInRange();
 
-	if (!NearbyContainer)
+	if (NearbyContainer)
 	{
+		// opening a container always leaves it highlighted, even via the no-ambiguity auto-fallback
+		SetSelectedContainer(NearbyContainer);
+
+		OpenContainer(NearbyContainer);
 		return;
 	}
 
-	// opening a container always leaves it highlighted, even via the no-ambiguity auto-fallback
-	SetSelectedContainer(NearbyContainer);
-
-	OpenContainer(NearbyContainer);
+	// no container in range - try a Downed NPC instead, reusing the same widget/proximity rules
+	if (AStrategyUnit* LootableNPC = FindLootableNPCInRange())
+	{
+		OpenLoot(LootableNPC);
+	}
 }
 
 void AStrategyPlayerController::CloseContainer()
@@ -437,10 +525,61 @@ void AStrategyPlayerController::OpenContainer(AStrategyContainer* Container)
 
 	if (ContainerWidget)
 	{
+		ContainerWidget->SetWindowTitle(FText::Format(LOCTEXT("ContainerInventoryTitle", "{0} Contents"), Container->GetContainerDisplayName()));
 		ContainerWidget->SetInventory(Container->GetInventory());
 		ContainerWidget->AddToViewport(0);
 
 		Container->NotifyOpened();
+	}
+
+	// also open the inventory of whichever player-controlled pawn is closest to this container,
+	// regardless of current selection, so the two panels can be used together to transfer items
+	if (AStrategyPlayerUnit* ClosestPawn = FindClosestPlayerPawn(Container->GetActorLocation()))
+	{
+		OpenInventoryForPawn(ClosestPawn);
+	}
+}
+
+void AStrategyPlayerController::OpenLoot(AStrategyUnit* LootTarget)
+{
+	if (!LootTarget)
+	{
+		return;
+	}
+
+	// spawn the widget on first use
+	if (!ContainerWidget)
+	{
+		if (!ContainerWidgetClass)
+		{
+			UE_LOG(Logsmores, Warning, TEXT("StrategyPlayerController has no ContainerWidgetClass set; can't open the loot screen."));
+			return;
+		}
+
+		ContainerWidget = CreateWidget<UInventoryWidget>(this, ContainerWidgetClass);
+	}
+
+	if (ContainerWidget)
+	{
+		ContainerWidget->SetWindowTitle(FText::Format(LOCTEXT("LootInventoryTitle", "{0} (Downed)"), LootTarget->GetUnitDisplayName()));
+		ContainerWidget->SetInventory(LootTarget->GetInventory());
+		ContainerWidget->AddToViewport(0);
+	}
+
+	// also open the inventory of whichever player-controlled pawn is closest to this NPC,
+	// regardless of current selection, so the two panels can be used together to transfer items
+	if (AStrategyPlayerUnit* ClosestPawn = FindClosestPlayerPawn(LootTarget->GetActorLocation()))
+	{
+		OpenInventoryForPawn(ClosestPawn);
+	}
+}
+
+void AStrategyPlayerController::AttackKeyPressed(const FInputActionValue& Value)
+{
+	// no effect on a selected container or player pawn - neither ever populates SelectedNPC
+	if (SelectedNPC && !SelectedNPC->IsAggressive())
+	{
+		DoAttackCommand(SelectedNPC);
 	}
 }
 
@@ -534,15 +673,33 @@ void AStrategyPlayerController::SelectAllDoubleClick(const FInputActionValue& Va
 
 void AStrategyPlayerController::InteractHoldStarted(const FInputActionValue& Value)
 {
+	bIsRotatingCamera = true;
+	bSkipNextRotateSample = true;
 
-	// save the starting interaction position
-	StartingDragScrollPosition = GetMouseLocationForPlayer();
+	// hide the cursor while rotating
+	// NOTE: deliberately not calling SetInputMode here - doing so while a mouse button is
+	// actively captured causes Slate to synthesize a release+repress of that same button,
+	// which re-triggers this Hold action in a loop (visible as MouseLockMode thrashing in the log)
+	bShowMouseCursor = false;
+
+	// re-center the cursor so PlayerTick's own re-centering (below) has a consistent starting
+	// point instead of wherever the cursor happened to be when MMB was pressed
+	int32 ViewportSizeX = 0, ViewportSizeY = 0;
+	GetViewportSize(ViewportSizeX, ViewportSizeY);
+	SetMouseLocation(ViewportSizeX / 2, ViewportSizeY / 2);
+
+	// discard the delta generated by that warp, plus any stale leftover from the click itself
+	// giving the viewport input focus, before rotation starts
+	float FlushX = 0.0f, FlushY = 0.0f;
+	GetInputMouseDelta(FlushX, FlushY);
 }
 
-void AStrategyPlayerController::InteractHoldTriggered(const FInputActionValue& Value)
+void AStrategyPlayerController::InteractHoldCompleted(const FInputActionValue& Value)
 {
-	// do a drag scroll 
-	DoCameraDragScrollCommand(GetMouseLocationForPlayer());
+	bIsRotatingCamera = false;
+
+	// restore the cursor
+	bShowMouseCursor = true;
 }
 
 void AStrategyPlayerController::InteractClick(const FInputActionValue& Value)
@@ -626,11 +783,11 @@ void AStrategyPlayerController::TouchSecondaryCompleted(const FInputActionValue&
 
 bool AStrategyPlayerController::DoSelectCommand(const FVector& SelectLocation, bool bAdditiveSelection)
 {
-	// deselect any units unless this is an additive selection
-	if (!bAdditiveSelection)
-	{
-		DoDeselectAllUnitsCommand();
-	}
+	// NOTE: deselecting ControlledUnits happens per-branch below, not unconditionally up front -
+	// targeting an NPC or a container must not clear the squad currently selected to command it
+	// (otherwise the very click that sets SelectedNPC for an attack command would empty
+	// ControlledUnits before DoAttackCommand ever runs). Only a click landing on a player pawn,
+	// or one landing on nothing at all, still clears the squad.
 
 	// do an overlap test at the cursor location
 	TArray<FOverlapResult> OutOverlaps;
@@ -643,46 +800,132 @@ bool AStrategyPlayerController::DoSelectCommand(const FVector& SelectLocation, b
 
 	FCollisionQueryParams QueryParams;
 
-	if (GetWorld()->OverlapMultiByObjectType(OutOverlaps, SelectLocation, FQuat::Identity, ObjectParams, CollisionSphere, QueryParams))
+	GetWorld()->OverlapMultiByObjectType(OutOverlaps, SelectLocation, FQuat::Identity, ObjectParams, CollisionSphere, QueryParams);
+
+	// OverlapMultiByObjectType doesn't return results ordered by distance - when two units
+	// are close enough together that both fall inside the selection sphere, sort by distance
+	// to the click so the nearest one under the cursor is picked, not an arbitrary further one
+	OutOverlaps.Sort([&SelectLocation](const FOverlapResult& A, const FOverlapResult& B)
 	{
-		// find the first player-controlled unit we've overlapped (NPC units are not selectable)
-		for (const FOverlapResult& CurrentOverlap : OutOverlaps)
+		const AActor* ActorA = A.GetActor();
+		const AActor* ActorB = B.GetActor();
+
+		const float DistA = ActorA ? FVector::DistSquared(ActorA->GetActorLocation(), SelectLocation) : TNumericLimits<float>::Max();
+		const float DistB = ActorB ? FVector::DistSquared(ActorB->GetActorLocation(), SelectLocation) : TNumericLimits<float>::Max();
+
+		return DistA < DistB;
+	});
+
+	// nearest overlapping unit, if any (AStrategyPlayerUnit derives from AStrategyUnit, so this
+	// picks up both - which subtype it is gets sorted out below)
+	AStrategyUnit* NearestUnit = nullptr;
+
+	for (const FOverlapResult& CurrentOverlap : OutOverlaps)
+	{
+		if (AStrategyUnit* CurrentUnit = Cast<AStrategyUnit>(CurrentOverlap.GetActor()))
 		{
-			if (AStrategyPlayerUnit* CurrentUnit = Cast<AStrategyPlayerUnit>(CurrentOverlap.GetActor()))
-			{
-				// is this unit already selected?
-				if (ControlledUnits.Contains(CurrentUnit))
-				{
-					// deselect the unit
-					ControlledUnits.Remove(CurrentUnit);
-
-					CurrentUnit->UnitDeselected();
-				}
-				else
-				{
-					// select the unit
-					ControlledUnits.Add(CurrentUnit);
-
-					CurrentUnit->UnitSelected();
-				}
-
-				// found a unit
-				return true;
-			}
+			NearestUnit = CurrentUnit;
+			break;
 		}
 	}
 
-	// no unit under the cursor - check for a container so the player can disambiguate
-	// which one they mean when several are nearby
-	if (AStrategyContainer* Clicked = FindContainerAtLocation(SelectLocation))
+	// nearest container within range, if any, so the player can disambiguate which one they
+	// mean when several are nearby
+	AStrategyContainer* NearestContainer = FindContainerAtLocation(SelectLocation);
+
+	// a unit and a container can both be within range of the same click - a unit was
+	// previously always preferred even when the container was visibly closer to the cursor,
+	// since the container check only ran as a fallback when no unit overlap was found at all.
+	// Compare distances instead so whichever is actually closer to the click wins.
+	if (NearestUnit && NearestContainer)
 	{
-		SetSelectedContainer(Clicked);
+		const float UnitDistSq = FVector::DistSquared(NearestUnit->GetActorLocation(), SelectLocation);
+		const float ContainerDistSq = FVector::DistSquared(NearestContainer->GetActorLocation(), SelectLocation);
+
+		if (ContainerDistSq < UnitDistSq)
+		{
+			NearestUnit = nullptr;
+		}
+		else
+		{
+			NearestContainer = nullptr;
+		}
+	}
+
+	if (NearestUnit)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[Combat] DoSelectCommand: click resolved to %s (%s), ControlledUnits.Num()=%d"),
+			*NearestUnit->GetName(), Cast<AStrategyPlayerUnit>(NearestUnit) ? TEXT("player pawn") : TEXT("NPC"), ControlledUnits.Num());
+
+		if (AStrategyPlayerUnit* PlayerUnit = Cast<AStrategyPlayerUnit>(NearestUnit))
+		{
+			// deselect any previously selected units unless this is an additive selection -
+			// scoped to this branch since only a player-pawn click should ever clear the squad
+			if (!bAdditiveSelection)
+			{
+				DoDeselectAllUnitsCommand();
+			}
+
+			// is this unit already selected?
+			if (ControlledUnits.Contains(PlayerUnit))
+			{
+				// deselect the unit
+				ControlledUnits.Remove(PlayerUnit);
+
+				PlayerUnit->UnitDeselected();
+
+				if (LastSelectionTarget.Get() == PlayerUnit)
+				{
+					LastSelectionTarget = nullptr;
+				}
+			}
+			else
+			{
+				// select the unit
+				ControlledUnits.Add(PlayerUnit);
+
+				PlayerUnit->UnitSelected();
+
+				LastSelectionTarget = PlayerUnit;
+			}
+		}
+		else
+		{
+			// NPCs are targetable (highlighted, shown in the selection label) but never commandable
+			SetSelectedNPC(NearestUnit);
+
+			// an already-aggressive NPC is attacked directly by the same click that targets it
+			if (NearestUnit->IsAggressive())
+			{
+				DoAttackCommand(NearestUnit);
+			}
+		}
+
 		return true;
 	}
-	else if (!bAdditiveSelection && SelectedContainer)
+
+	if (NearestContainer)
 	{
-		// clicking empty ground clears the container pick, same as it clears unit selection
-		SetSelectedContainer(nullptr);
+		// same reasoning as the NPC branch above - picking a container as a target must not
+		// clear the squad currently selected to send there
+		SetSelectedContainer(NearestContainer);
+		return true;
+	}
+	else if (!bAdditiveSelection)
+	{
+		// clicked empty ground - this is the one remaining case that still clears the squad,
+		// same as it clears the container/NPC pick
+		DoDeselectAllUnitsCommand();
+
+		if (SelectedContainer)
+		{
+			SetSelectedContainer(nullptr);
+		}
+
+		if (SelectedNPC)
+		{
+			SetSelectedNPC(nullptr);
+		}
 	}
 
 	// didn't find a unit
@@ -697,6 +940,8 @@ void AStrategyPlayerController::DoSelectAllUnitsOnScreenCommand()
 	UGameplayStatics::GetAllActorsOfClass(this, AStrategyPlayerUnit::StaticClass(), Units);
 
 	// process each unit
+	AStrategyPlayerUnit* LastAdded = nullptr;
+
 	for (AActor* CurrentActor : Units)
 	{
 		if (AStrategyPlayerUnit* CurrentUnit = Cast<AStrategyPlayerUnit>(CurrentActor))
@@ -708,9 +953,17 @@ void AStrategyPlayerController::DoSelectAllUnitsOnScreenCommand()
 				ControlledUnits.Add(CurrentUnit);
 
 				CurrentUnit->UnitSelected();
+
+				LastAdded = CurrentUnit;
 			}
 		}
-		
+
+	}
+
+	// the last unit newly added is the most recently targeted, for the selection label
+	if (LastAdded)
+	{
+		LastSelectionTarget = LastAdded;
 	}
 }
 
@@ -727,6 +980,12 @@ void AStrategyPlayerController::DoDeselectAllUnitsCommand()
 
 	// clear the selection list
 	ControlledUnits.Empty();
+
+	// if a pawn was the most recently targeted, it's no longer selected - clear the label
+	if (Cast<AStrategyPlayerUnit>(LastSelectionTarget.Get()))
+	{
+		LastSelectionTarget = nullptr;
+	}
 
 	// nothing is selected, so any open inventory screen is now stale
 	CloseInventory();
@@ -794,13 +1053,41 @@ void AStrategyPlayerController::DoMoveUnitsCommand(const FVector& GoalLocation)
 	}
 }
 
+void AStrategyPlayerController::DoAttackCommand(AStrategyUnit* Target)
+{
+	if (!IsValid(Target) || Target->IsDowned())
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[Combat] DoAttackCommand bailed early: Target %s"),
+			!IsValid(Target) ? TEXT("invalid") : TEXT("already Downed"));
+		return;
+	}
+
+	UE_LOG(Logsmores, Warning, TEXT("[Combat] DoAttackCommand(%s): ControlledUnits.Num()=%d"),
+		*Target->GetName(), ControlledUnits.Num());
+
+	// harmless if already Aggressive - this is what flips a Passive NPC on the A-key path
+	Target->SetAggressive(true);
+
+	// a squad-wide engage - every selected unit attacks the same target, unlike
+	// DoMoveUnitsCommand's spread-to-nearby-points formation logic
+	for (AStrategyUnit* CurrentUnit : ControlledUnits)
+	{
+		if (IsValid(CurrentUnit))
+		{
+			UE_LOG(Logsmores, Warning, TEXT("[Combat] DoAttackCommand: commanding %s to attack %s"),
+				*CurrentUnit->GetName(), *Target->GetName());
+			CurrentUnit->AttackTarget(Target);
+		}
+	}
+}
+
 void AStrategyPlayerController::DoCameraModifyZoomCommand(float ZoomDelta)
 {
 	// add the delta
+	// NOTE: unclamped (no cap) for feel-testing - MinZoomLevel/MaxZoomLevel are still used by
+	// the touch percentage API (DoCameraSetZoomPercentageCommand/GetDefaultZoomPercentage), just
+	// not by this desktop mouse-wheel path; re-introduce a clamp here if a range is wanted later
 	CameraZoom += ZoomDelta;
-
-	// clamp between min and max
-	CameraZoom = FMath::Clamp(CameraZoom, MinZoomLevel, MaxZoomLevel);
 
 	// set the zoom on the camera pawn
 	if (ControlledCameraPawn)
@@ -830,6 +1117,70 @@ void AStrategyPlayerController::DoCameraSetZoomPercentageCommand(float Percentag
 	if (ControlledCameraPawn)
 	{
 		ControlledCameraPawn->SetZoomModifier(CameraZoom);
+	}
+}
+
+void AStrategyPlayerController::DoCameraRotateCommand(const FVector2D& MouseDelta)
+{
+	// compose via quaternions (world-space yaw, camera-local-space pitch) rather than editing
+	// Yaw/Pitch as independent Euler fields - a naive Euler update can't pass smoothly through
+	// +/-90 degrees pitch (a real loop needs roll to emerge there) and gimbal-locks near vertical
+	// NOTE: unconstrained (no clamp) for feel-testing - MinCameraPitch/MaxCameraPitch are unused
+	// right now, re-introduce a clamp once a range is settled on
+	const FQuat CurrentQuat = GetControlRotation().Quaternion();
+
+	const FQuat YawDelta(FVector::UpVector, FMath::DegreesToRadians(MouseDelta.X * CameraYawSpeed));
+	const FQuat PitchDelta(CurrentQuat.GetRightVector(), FMath::DegreesToRadians(-MouseDelta.Y * CameraPitchSpeed));
+
+	const FRotator NewRotation = (YawDelta * PitchDelta * CurrentQuat).GetNormalized().Rotator();
+
+	SetControlRotation(NewRotation);
+
+	// mirror the rotation onto the camera pawn
+	if (ControlledCameraPawn)
+	{
+		ControlledCameraPawn->SetCameraRotation(NewRotation);
+	}
+}
+
+void AStrategyPlayerController::DoCameraModifyHeightCommand(float HeightDelta)
+{
+	// add the delta
+	CameraHeight += HeightDelta;
+
+	// clamp between min and max
+	CameraHeight = FMath::Clamp(CameraHeight, MinCameraHeight, MaxCameraHeight);
+
+	// set the height on the camera pawn
+	if (ControlledCameraPawn)
+	{
+		ControlledCameraPawn->SetHeight(CameraHeight);
+	}
+}
+
+void AStrategyPlayerController::DoCameraResetHeightCommand()
+{
+	// reset to default height
+	CameraHeight = DefaultCameraHeight;
+
+	// set the height on the camera pawn
+	if (ControlledCameraPawn)
+	{
+		ControlledCameraPawn->SetHeight(CameraHeight);
+	}
+}
+
+void AStrategyPlayerController::DoCameraResetRotationCommand()
+{
+	// reset to the default pitch and the pawn's original resting yaw
+	FRotator NewRotation(DefaultCameraPitch, DefaultCameraYaw, 0.0f);
+
+	SetControlRotation(NewRotation);
+
+	// set the rotation on the camera pawn
+	if (ControlledCameraPawn)
+	{
+		ControlledCameraPawn->SetCameraRotation(NewRotation);
 	}
 }
 
@@ -912,36 +1263,103 @@ AStrategyContainer* AStrategyPlayerController::FindContainerInRange() const
 	return FirstInRange;
 }
 
-AStrategyContainer* AStrategyPlayerController::FindContainerAtLocation(const FVector& Location) const
+AStrategyUnit* AStrategyPlayerController::FindLootableNPCInRange() const
 {
-	// gather every container in the level (picks up every AStrategyContainer subclass)
-	TArray<AActor*> FoundContainers;
-	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AStrategyContainer::StaticClass(), FoundContainers);
-
-	for (AActor* CurrentActor : FoundContainers)
+	// mirrors FindContainerInRange's shape - only SelectedNPC is ever a candidate, since it's the
+	// only NPC the player has actually targeted
+	if (!SelectedNPC || !SelectedNPC->IsDowned())
 	{
-		if (AStrategyContainer* CurrentContainer = Cast<AStrategyContainer>(CurrentActor))
+		return nullptr;
+	}
+
+	for (AStrategyUnit* CurrentUnit : ControlledUnits)
+	{
+		if (SelectedNPC->IsUnitInRange(CurrentUnit))
 		{
-			if (FVector::Dist(CurrentContainer->GetActorLocation(), Location) <= SelectionRadius)
-			{
-				return CurrentContainer;
-			}
+			return SelectedNPC;
 		}
 	}
 
 	return nullptr;
 }
 
+AStrategyContainer* AStrategyPlayerController::FindContainerAtLocation(const FVector& Location) const
+{
+	// gather every container in the level (picks up every AStrategyContainer subclass)
+	TArray<AActor*> FoundContainers;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AStrategyContainer::StaticClass(), FoundContainers);
+
+	// track the nearest in-range container rather than just the first found - actor order
+	// isn't guaranteed, so two containers close together would otherwise pick one arbitrarily
+	AStrategyContainer* Nearest = nullptr;
+	float NearestDistSq = FMath::Square(ContainerSelectionRadius);
+
+	for (AActor* CurrentActor : FoundContainers)
+	{
+		if (AStrategyContainer* CurrentContainer = Cast<AStrategyContainer>(CurrentActor))
+		{
+			const float DistSq = FVector::DistSquared(CurrentContainer->GetActorLocation(), Location);
+
+			if (DistSq <= NearestDistSq)
+			{
+				Nearest = CurrentContainer;
+				NearestDistSq = DistSq;
+			}
+		}
+	}
+
+	return Nearest;
+}
+
+AStrategyPlayerUnit* AStrategyPlayerController::FindClosestPlayerPawn(const FVector& Location)
+{
+	// checks every player-controlled pawn, not just ControlledUnits - a container may be opened
+	// (e.g. via double-click) without the nearest pawn being the one currently selected
+	RefreshPlayerPawns();
+
+	AStrategyPlayerUnit* Closest = nullptr;
+	float ClosestDistSq = 0.0f;
+
+	for (const TObjectPtr<AStrategyPlayerUnit>& PlayerPawn : PlayerPawns)
+	{
+		if (!IsValid(PlayerPawn))
+		{
+			continue;
+		}
+
+		const float DistSq = FVector::DistSquared(PlayerPawn->GetActorLocation(), Location);
+
+		if (!Closest || DistSq < ClosestDistSq)
+		{
+			Closest = PlayerPawn;
+			ClosestDistSq = DistSq;
+		}
+	}
+
+	return Closest;
+}
+
 void AStrategyPlayerController::SetSelectedContainer(AStrategyContainer* NewContainer)
 {
 	if (NewContainer == SelectedContainer)
 	{
+		// re-clicking the same container reclaims "most recent" for the selection label
+		if (SelectedContainer)
+		{
+			LastSelectionTarget = SelectedContainer;
+		}
+
 		return;
 	}
 
 	if (SelectedContainer)
 	{
 		SelectedContainer->SetSelected(false);
+
+		if (LastSelectionTarget.Get() == SelectedContainer)
+		{
+			LastSelectionTarget = nullptr;
+		}
 	}
 
 	SelectedContainer = NewContainer;
@@ -949,7 +1367,70 @@ void AStrategyPlayerController::SetSelectedContainer(AStrategyContainer* NewCont
 	if (SelectedContainer)
 	{
 		SelectedContainer->SetSelected(true);
+
+		LastSelectionTarget = SelectedContainer;
 	}
+}
+
+void AStrategyPlayerController::SetSelectedNPC(AStrategyUnit* NewNPC)
+{
+	if (NewNPC == SelectedNPC)
+	{
+		// re-clicking the same NPC reclaims "most recent" for the selection label
+		if (SelectedNPC)
+		{
+			LastSelectionTarget = SelectedNPC;
+		}
+
+		return;
+	}
+
+	if (SelectedNPC)
+	{
+		SelectedNPC->UnitDeselected();
+
+		if (LastSelectionTarget.Get() == SelectedNPC)
+		{
+			LastSelectionTarget = nullptr;
+		}
+	}
+
+	SelectedNPC = NewNPC;
+
+	if (SelectedNPC)
+	{
+		SelectedNPC->UnitSelected();
+
+		LastSelectionTarget = SelectedNPC;
+	}
+}
+
+FText AStrategyPlayerController::GetSelectionTargetLabel() const
+{
+	AActor* Target = LastSelectionTarget.Get();
+
+	if (!IsValid(Target))
+	{
+		return FText::GetEmpty();
+	}
+
+	if (AStrategyContainer* Container = Cast<AStrategyContainer>(Target))
+	{
+		return FText::FromString(FString::Printf(TEXT("Container: %s"), *Container->GetContainerDisplayName().ToString()));
+	}
+
+	// AStrategyPlayerUnit derives from AStrategyUnit, so it must be checked first
+	if (AStrategyPlayerUnit* TargetPawn = Cast<AStrategyPlayerUnit>(Target))
+	{
+		return FText::FromString(FString::Printf(TEXT("Pawn: %s"), *TargetPawn->GetUnitDisplayName().ToString()));
+	}
+
+	if (AStrategyUnit* NPC = Cast<AStrategyUnit>(Target))
+	{
+		return FText::FromString(FString::Printf(TEXT("NPC: %s"), *NPC->GetUnitDisplayName().ToString()));
+	}
+
+	return FText::GetEmpty();
 }
 
 FVector2D AStrategyPlayerController::GetMouseLocationForPlayer()
@@ -1034,3 +1515,5 @@ FVector AStrategyPlayerController::ProjectTouchPointToWorldSpace()
 	// failed to deproject, return a zero vector
 	return FVector::ZeroVector;
 }
+
+#undef LOCTEXT_NAMESPACE

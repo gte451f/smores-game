@@ -66,6 +66,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* ResetCameraAction;
 
+	/** Input Action for raising/lowering the camera height */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* AdjustHeightAction;
+
 	/** Input Action for select click */
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* SelectClickAction;
@@ -106,6 +110,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* ToggleContainerAction;
 
+	/** Input Action for attacking the currently-selected NPC */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* AttackAction;
+
 	/** Input Action for primary touch hold */
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* TouchPrimaryHoldAction;
@@ -128,6 +136,10 @@ protected:
 	/** Max distance to look for nearby units when doing a click or touch interaction */
 	UPROPERTY(EditAnywhere, Category="Input", meta = (ClampMin = 0, ClampMax = 10000, Units = "cm"))
 	float SelectionRadius = 250.0f;
+
+	/** Max distance to look for a nearby container when doing a click or touch interaction */
+	UPROPERTY(EditAnywhere, Category="Input", meta = (ClampMin = 0, ClampMax = 10000, Units = "cm"))
+	float ContainerSelectionRadius = 250.0f;
 
 	/** Cached starting position for camera drag scrolling */
 	FVector2D StartingDragScrollPosition;
@@ -164,6 +176,56 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Camera", meta = (ClampMin = 0, ClampMax = 10000))
 	float DragMultiplier = 0.1f;
 
+	/** Minimum allowed camera pitch (steepest / closest to top-down) */
+	UPROPERTY(EditAnywhere, Category = "Camera", meta = (ClampMin = -90, ClampMax = 0))
+	float MinCameraPitch = -89.0f;
+
+	/** Maximum allowed camera pitch (flattest / closest to horizontal) */
+	UPROPERTY(EditAnywhere, Category = "Camera", meta = (ClampMin = -90, ClampMax = 0))
+	float MaxCameraPitch = -5.0f;
+
+	/** Default camera pitch, used on possess and by the camera reset command */
+	UPROPERTY(EditAnywhere, Category = "Camera", meta = (ClampMin = -90, ClampMax = 0))
+	float DefaultCameraPitch = -50.0f;
+
+	/** Degrees of yaw applied per pixel of mouse delta while rotating the camera */
+	UPROPERTY(EditAnywhere, Category = "Camera", meta = (ClampMin = 0, ClampMax = 10))
+	float CameraYawSpeed = 0.8f;
+
+	/** Degrees of pitch applied per pixel of mouse delta while rotating the camera */
+	UPROPERTY(EditAnywhere, Category = "Camera", meta = (ClampMin = 0, ClampMax = 10))
+	float CameraPitchSpeed = 0.8f;
+
+	/** Default camera height, used on possess and by the camera reset command */
+	UPROPERTY(EditAnywhere, Category = "Camera", meta = (ClampMin = 0, ClampMax = 10000))
+	float DefaultCameraHeight = 1500.0f;
+
+	/** Minimum allowed camera height */
+	UPROPERTY(EditAnywhere, Category = "Camera", meta = (ClampMin = 0, ClampMax = 10000))
+	float MinCameraHeight = 800.0f;
+
+	/** Maximum allowed camera height */
+	UPROPERTY(EditAnywhere, Category = "Camera", meta = (ClampMin = 0, ClampMax = 10000))
+	float MaxCameraHeight = 3000.0f;
+
+	/** Scales height adjustment inputs by this value */
+	UPROPERTY(EditAnywhere, Category = "Camera", meta = (ClampMin = 0, ClampMax = 1000))
+	float HeightScaling = 50.0f;
+
+	/** Default camera yaw, captured from the pawn's resting orientation on possess and used by the camera reset command */
+	float DefaultCameraYaw = 0.0f;
+
+	/** Current camera height */
+	float CameraHeight = 0.0f;
+
+	/** True while MMB is held and PlayerTick should be sampling mouse delta to rotate the camera */
+	bool bIsRotatingCamera = false;
+
+	/** True for the one tick right after a rotate drag starts - that tick discards its mouse
+	 *  delta instead of rotating, since the just-issued centering warp can otherwise be misread
+	 *  as a real mouse movement before the OS/Slate has caught up */
+	bool bSkipNextRotateSample = false;
+
 	/** Trace channel to use for selection trace checks */
 	UPROPERTY(EditAnywhere, Category = "Selection")
 	TEnumAsByte<ETraceTypeQuery> SelectionTraceChannel;
@@ -174,6 +236,13 @@ protected:
 	/** The container the player has explicitly picked, used to disambiguate when several are in range */
 	UPROPERTY()
 	TObjectPtr<AStrategyContainer> SelectedContainer;
+
+	/** The NPC the player has clicked to target. Highlight-only, like SelectedContainer - never added to ControlledUnits */
+	UPROPERTY()
+	TObjectPtr<AStrategyUnit> SelectedNPC;
+
+	/** Whichever pawn, NPC, or container was most recently selected/targeted. Drives the selection target UI label */
+	TWeakObjectPtr<AActor> LastSelectionTarget;
 
 	/** Inventory screen widget class to spawn when the player opens an inventory */
 	UPROPERTY(EditAnywhere, Category="UI")
@@ -212,6 +281,11 @@ public:
 	/** Pawn initialization */
 	virtual void OnPossess(APawn* InPawn);
 
+	/** Per-frame update - drives camera rotation directly rather than relying on Enhanced
+	 *  Input's own per-frame callback cadence for a held button, which isn't guaranteed to
+	 *  fire every single tick */
+	virtual void PlayerTick(float DeltaTime) override;
+
 public:
 
 	/** Updates selected units from the HUD's drag select box */
@@ -219,6 +293,9 @@ public:
 
 	/** Passes the list of selected units */
 	const TArray<AStrategyUnit*>& GetSelectedUnits();
+
+	/** Returns the label text for whichever pawn, NPC, or container was most recently selected, or empty if none */
+	FText GetSelectionTargetLabel() const;
 
 	/** Returns the default camera zoom percentage value */
 	float GetDefaultZoomPercentage() const;
@@ -241,6 +318,9 @@ protected:
 	/** Resets the camera to its initial value */
 	void ResetCamera(const FInputActionValue& Value);
 
+	/** Raises or lowers the camera by the given input */
+	void AdjustHeight(const FInputActionValue& Value);
+
 	/** Rebuilds PlayerPawns from the world with deterministic ordering */
 	void RefreshPlayerPawns();
 
@@ -253,6 +333,9 @@ protected:
 	/** Closes the inventory screen if one is open */
 	void CloseInventory();
 
+	/** Opens (or rebinds) the pawn inventory screen for the given pawn, spawning the widget on first use */
+	void OpenInventoryForPawn(AStrategyPlayerUnit* PlayerUnit);
+
 	/** Opens the inventory screen for a nearby container, or closes it if already open */
 	void ToggleContainer(const FInputActionValue& Value);
 
@@ -261,6 +344,12 @@ protected:
 
 	/** Opens the given container's inventory screen, spawning the widget on first use */
 	void OpenContainer(AStrategyContainer* Container);
+
+	/** Opens the given Downed NPC's inventory screen for looting, spawning the widget on first use */
+	void OpenLoot(AStrategyUnit* LootTarget);
+
+	/** Attacks the currently-selected NPC if it's Passive (flips it to Aggressive); no-op otherwise */
+	void AttackKeyPressed(const FInputActionValue& Value);
 
 	/** Start a select and hold input */
 	void SelectHoldStarted(const FInputActionValue& Value);
@@ -283,8 +372,8 @@ protected:
 	/** Starts an interaction hold input */
 	void InteractHoldStarted(const FInputActionValue& Value);
 
-	/** Interaction hold input triggered */
-	void InteractHoldTriggered(const FInputActionValue& Value);
+	/** Interaction hold input completed or canceled */
+	void InteractHoldCompleted(const FInputActionValue& Value);
 
 	/** Interaction click input started */
 	void InteractClick(const FInputActionValue& Value);
@@ -326,6 +415,9 @@ public:
 	/** Attempts to move all selected units to the given location */
 	void DoMoveUnitsCommand(const FVector& GoalLocation);
 
+	/** Flips Target Aggressive (harmless if already Aggressive) and sends every controlled unit to engage it */
+	void DoAttackCommand(AStrategyUnit* Target);
+
 	/** Applies a zoom change to the camera */
 	void DoCameraModifyZoomCommand(float ZoomDelta);
 
@@ -335,6 +427,18 @@ public:
 	/** Sets the camera zoom to a percentage between min and max zoom */
 	void DoCameraSetZoomPercentageCommand(float Percentage);
 
+	/** Rotates the camera by the given mouse delta, clamping pitch */
+	void DoCameraRotateCommand(const FVector2D& MouseDelta);
+
+	/** Applies a height change to the camera */
+	void DoCameraModifyHeightCommand(float HeightDelta);
+
+	/** Resets the camera height to default */
+	void DoCameraResetHeightCommand();
+
+	/** Resets the camera rotation to default */
+	void DoCameraResetRotationCommand();
+
 protected:
 
 	/** Sorts all controlled units based on their distance to the provided world location */
@@ -343,11 +447,20 @@ protected:
 	/** Returns the first container in the level with a selected unit within its InteractionRange, preferring SelectedContainer if it qualifies, or nullptr */
 	AStrategyContainer* FindContainerInRange() const;
 
+	/** Returns SelectedNPC if it's Downed and within range of a controlled unit (lootable), or nullptr. Mirrors FindContainerInRange's shape. */
+	AStrategyUnit* FindLootableNPCInRange() const;
+
 	/** Returns the container within click range of the given world location, or nullptr */
 	AStrategyContainer* FindContainerAtLocation(const FVector& Location) const;
 
+	/** Returns whichever player-controlled pawn is closest to the given world location, or nullptr if none exist */
+	AStrategyPlayerUnit* FindClosestPlayerPawn(const FVector& Location);
+
 	/** Updates SelectedContainer, toggling the old and new container's highlight material to match */
 	void SetSelectedContainer(AStrategyContainer* NewContainer);
+
+	/** Updates SelectedNPC, toggling the old and new NPC's selection state to match */
+	void SetSelectedNPC(AStrategyUnit* NewNPC);
 
 	/** Calculates and returns the current mouse location */
 	FVector2D GetMouseLocationForPlayer();

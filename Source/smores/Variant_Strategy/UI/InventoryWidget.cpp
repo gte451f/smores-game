@@ -101,7 +101,7 @@ void UInventoryWidget::RefreshDisplay()
 			}
 
 			const FInventoryItem SlotItem = CurrentItems.IsValidIndex(Index) ? CurrentItems[Index] : FInventoryItem();
-			SlotWidget->SetSlot(Index, SlotItem);
+			SlotWidget->SetSlot(BoundInventory.Get(), Index, SlotItem);
 
 			if (GridPanel)
 			{

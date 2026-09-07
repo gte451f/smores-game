@@ -65,7 +65,7 @@ public:
 
 	/** Number of item slots available on this inventory */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory", meta = (ClampMin = 0, ClampMax = 64))
-	int32 NumSlots = 4;
+	int32 NumSlots = 64;
 
 protected:
 
@@ -90,6 +90,20 @@ public:
 	/** Removes the item at the given index. Returns false if the index is invalid. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool RemoveItemAt(int32 Index);
+
+	/** Sets the item at the given index (an empty FInventoryItem clears the slot). Returns false if the index is invalid. */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	bool SetItemAt(int32 Index, const FInventoryItem& Item);
+
+	/**
+	 *  Moves the item at SourceIndex (on SourceInventory) to DestIndex (on DestInventory), swapping
+	 *  with whatever already occupies DestIndex. Works for reordering within one inventory
+	 *  (SourceInventory == DestInventory) and for transferring between two different inventories.
+	 *  No-ops (returns false) if either component is null, either index is invalid, the source slot
+	 *  is empty, or the source and destination are the same slot.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	static bool MoveItem(UInventoryComponent* SourceInventory, int32 SourceIndex, UInventoryComponent* DestInventory, int32 DestIndex);
 
 	/** Number of empty slots remaining */
 	UFUNCTION(BlueprintPure, Category = "Inventory")

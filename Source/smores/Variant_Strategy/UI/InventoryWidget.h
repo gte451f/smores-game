@@ -46,7 +46,7 @@ protected:
 
 	/** Number of columns to wrap at when SlotContainer is a UUniformGridPanel. Ignored otherwise. */
 	UPROPERTY(EditAnywhere, Category = "Inventory", meta = (ClampMin = 1))
-	int32 GridColumns = 4;
+	int32 GridColumns = 8;
 
 	/** Slot widgets spawned by the last RefreshDisplay */
 	UPROPERTY(Transient)
