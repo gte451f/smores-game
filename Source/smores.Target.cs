@@ -11,5 +11,7 @@ public class smoresTarget : TargetRules
 		DefaultBuildSettings = BuildSettingsVersion.V7;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_8;
 		ExtraModuleNames.Add("smores");
+		ExtraModuleNames.Add("SmoresCore");
+		ExtraModuleNames.Add("SmoresCombat");
 	}
 }

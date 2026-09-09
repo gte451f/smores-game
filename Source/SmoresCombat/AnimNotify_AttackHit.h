@@ -12,7 +12,7 @@
  *  connects" from "when damage actually applies".
  */
 UCLASS()
-class UAnimNotify_AttackHit : public UAnimNotify
+class SMORESCOMBAT_API UAnimNotify_AttackHit : public UAnimNotify
 {
 	GENERATED_BODY()
 

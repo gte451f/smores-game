@@ -12,6 +12,16 @@
 				"UMG",
 				"AIModule"
 			]
+		},
+		{
+			"Name": "SmoresCore",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "SmoresCombat",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [

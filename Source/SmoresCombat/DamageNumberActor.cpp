@@ -7,7 +7,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Math/RotationMatrix.h"
-#include "smores.h"
+#include "SmoresCombat.h"
 
 ADamageNumberActor::ADamageNumberActor()
 {
@@ -27,7 +27,7 @@ void ADamageNumberActor::Initialize(float DamageAmount)
 	UUserWidget* ResolvedWidget = WidgetComponent->GetUserWidgetObject();
 	CachedWidget = Cast<UDamageNumberWidget>(ResolvedWidget);
 
-	UE_LOG(Logsmores, Warning, TEXT("[Combat] %s Initialize(%.0f): GetUserWidgetObject()=%s, CachedWidget valid=%s"),
+	UE_LOG(LogSmoresCombat, Warning, TEXT("[Combat] %s Initialize(%.0f): GetUserWidgetObject()=%s, CachedWidget valid=%s"),
 		*GetName(), DamageAmount,
 		ResolvedWidget ? *ResolvedWidget->GetClass()->GetName() : TEXT("null"),
 		CachedWidget.IsValid() ? TEXT("true") : TEXT("false"));

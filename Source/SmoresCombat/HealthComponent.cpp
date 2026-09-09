@@ -5,14 +5,14 @@
 #include "TimerManager.h"
 #include "DamageNumberActor.h"
 #include "Net/UnrealNetwork.h"
-#include "smores.h"
+#include "SmoresCombat.h"
 
 UHealthComponent::UHealthComponent()
 {
 	// health is pure state - it never needs to tick
 	PrimaryComponentTick.bCanEverTick = false;
 
-	SetIsReplicated(true);
+	SetIsReplicatedByDefault(true);
 }
 
 void UHealthComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -65,7 +65,7 @@ void UHealthComponent::SpawnDamageNumber(float Amount) const
 {
 	if (!DamageNumberActorClass)
 	{
-		UE_LOG(Logsmores, Warning, TEXT("[Combat] SpawnDamageNumber: DamageNumberActorClass unset on %s's Health - skipping"),
+		UE_LOG(LogSmoresCombat, Warning, TEXT("[Combat] SpawnDamageNumber: DamageNumberActorClass unset on %s's Health - skipping"),
 			GetOwner() ? *GetOwner()->GetName() : TEXT("(no owner)"));
 		return;
 	}
@@ -75,7 +75,7 @@ void UHealthComponent::SpawnDamageNumber(float Amount) const
 
 	if (!Owner || !World)
 	{
-		UE_LOG(Logsmores, Warning, TEXT("[Combat] SpawnDamageNumber: missing Owner or World - skipping"));
+		UE_LOG(LogSmoresCombat, Warning, TEXT("[Combat] SpawnDamageNumber: missing Owner or World - skipping"));
 		return;
 	}
 
@@ -85,13 +85,13 @@ void UHealthComponent::SpawnDamageNumber(float Amount) const
 
 	if (NumberActor)
 	{
-		UE_LOG(Logsmores, Warning, TEXT("[Combat] SpawnDamageNumber: spawned %s above %s at %s for %.0f damage"),
+		UE_LOG(LogSmoresCombat, Warning, TEXT("[Combat] SpawnDamageNumber: spawned %s above %s at %s for %.0f damage"),
 			*NumberActor->GetName(), *Owner->GetName(), *SpawnLocation.ToString(), Amount);
 		NumberActor->Initialize(Amount);
 	}
 	else
 	{
-		UE_LOG(Logsmores, Warning, TEXT("[Combat] SpawnDamageNumber: SpawnActor FAILED for class %s"), *DamageNumberActorClass->GetName());
+		UE_LOG(LogSmoresCombat, Warning, TEXT("[Combat] SpawnDamageNumber: SpawnActor FAILED for class %s"), *DamageNumberActorClass->GetName());
 	}
 }
 

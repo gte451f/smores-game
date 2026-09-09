@@ -11,7 +11,7 @@
 #include "EnvironmentQuery/EnvQueryManager.h"
 #include "EnvironmentQuery/EnvQueryInstanceBlueprintWrapper.h"
 #include "Engine/OverlapResult.h"
-#include "Combat/HealthComponent.h"
+#include "HealthComponent.h"
 #include "StrategyPlayerUnit.h"
 #include "Kismet/GameplayStatics.h"
 #include "Animation/AnimInstance.h"

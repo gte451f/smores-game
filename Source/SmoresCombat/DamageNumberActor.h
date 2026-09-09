@@ -17,7 +17,7 @@ class UDamageNumberWidget;
  *  each rises independently from its own spawn time - no extra bookkeeping needed.
  */
 UCLASS(abstract)
-class ADamageNumberActor : public AActor
+class SMORESCOMBAT_API ADamageNumberActor : public AActor
 {
 	GENERATED_BODY()
 

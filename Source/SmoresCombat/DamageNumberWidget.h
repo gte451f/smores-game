@@ -14,7 +14,7 @@ class UTextBlock;
  *  widget only ever displays the amount.
  */
 UCLASS(abstract)
-class UDamageNumberWidget : public UUserWidget
+class SMORESCOMBAT_API UDamageNumberWidget : public UUserWidget
 {
 	GENERATED_BODY()
 

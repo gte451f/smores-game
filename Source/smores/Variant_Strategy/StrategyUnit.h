@@ -6,6 +6,7 @@
 #include "GameFramework/Character.h"
 #include "AIController.h"
 #include "EnvironmentQuery/EnvQueryTypes.h"
+#include "AttackDamageDealer.h"
 #include "StrategyUnit.generated.h"
 
 class USphereComponent;
@@ -31,7 +32,7 @@ enum class EStrategyDisposition : uint8
  *  Rather than react to inputs, it's controlled indirectly by the Strategy Player Controller
  */
 UCLASS(abstract)
-class AStrategyUnit : public ACharacter
+class AStrategyUnit : public ACharacter, public IAttackDamageDealer
 {
 	GENERATED_BODY()
 
@@ -115,8 +116,10 @@ public:
 	/** Engages the given target: attacks immediately if already in range, otherwise moves into range first */
 	void AttackTarget(AStrategyUnit* Target);
 
+	//~ Begin IAttackDamageDealer interface
 	/** Applies this unit's attack damage to its current attack target. Called by UAnimNotify_AttackHit at the montage's hit frame. */
-	void ApplyAttackDamage();
+	virtual void ApplyAttackDamage() override;
+	//~ End IAttackDamageDealer interface
 
 protected:
 

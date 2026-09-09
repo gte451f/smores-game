@@ -22,7 +22,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnHealthDamagedDelegate, AActor*, D
  *  Goes Downed at zero health and auto-recovers to full after a delay.
  */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
-class UHealthComponent : public UActorComponent
+class SMORESCOMBAT_API UHealthComponent : public UActorComponent
 {
 	GENERATED_BODY()
 

@@ -19,7 +19,9 @@ public class smores : ModuleRules
 			"Niagara",
 			"UMG",
 			"Slate",
-			"SlateCore"
+			"SlateCore",
+			"SmoresCore",
+			"SmoresCombat"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
@@ -29,7 +31,6 @@ public class smores : ModuleRules
 			"smores/Variant_Strategy",
 			"smores/Variant_Strategy/UI",
 			"smores/Variant_Strategy/Inventory",
-			"smores/Variant_Strategy/Combat",
 			"smores/MainMenu",
 			"smores/MainMenu/UI"
 		});
