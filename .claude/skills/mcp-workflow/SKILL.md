@@ -64,6 +64,22 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   flag + compiles) over raw CDO writes. If you do write a CDO property directly, ask the
   user to open the Blueprint, verify/fix the value in Class Defaults, and save (Ctrl+S) —
   and use `only_modified: false` when inspecting a property you know was set this way.
+  Two further consequences discovered the hard way, both worse than "shows a stale value":
+  - `ObjectTools.reset_properties` on a level-placed *instance* of that Blueprint doesn't
+    fall back to the Blueprint's (unflagged) CDO value — it walks past it to the *native
+    C++ class default* instead, and still returns `true`. If the native default is empty
+    and the Blueprint default isn't, this silently reintroduces the empty value while
+    looking like a successful reset. Don't trust `reset_properties` to recover a value that
+    was itself set via a raw CDO write; verify the result with `get_properties` before
+    moving on.
+  - A genuine Blueprint recompile (a real edit through the editor UI, not another raw MCP
+    write) re-instances every placed actor of that class in the open level from the fresh
+    CDO, and **discards any per-instance override that was itself set via a raw MCP write**
+    (same missing-flag problem, just on the instance instead of the CDO). This is actually
+    a reliable way to clean up unflagged per-instance overrides — make one real edit to the
+    Blueprint's class defaults (even a no-op re-drag of the same asset) and let the
+    resulting compile re-instance everything — but it means a raw per-instance write should
+    never be treated as durable; a routine Blueprint compile can wipe it without warning.
 - **`UInputMappingContext` key mappings can't be round-tripped.**
   `ObjectTools.get_properties(IMC, ["mappings"])` returns `[]` — the real data is
   `defaultKeyMappings.mappings[]`. Read/write formats disagree: the reader flattens `key`

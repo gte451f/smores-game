@@ -6,7 +6,6 @@
 #include "GameFramework/Character.h"
 #include "AIController.h"
 #include "EnvironmentQuery/EnvQueryTypes.h"
-#include "AttackDamageDealer.h"
 #include "StrategyUnit.generated.h"
 
 class USphereComponent;
@@ -14,7 +13,7 @@ class UEnvQuery;
 class UEnvQueryInstanceBlueprintWrapper;
 class UInventoryComponent;
 class UHealthComponent;
-class UAnimMontage;
+class UCombatComponent;
 
 /** Delegate to report that this unit has finished moving */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnUnitMoveCompletedDelegate, AStrategyUnit*, Unit);
@@ -32,7 +31,7 @@ enum class EStrategyDisposition : uint8
  *  Rather than react to inputs, it's controlled indirectly by the Strategy Player Controller
  */
 UCLASS(abstract)
-class AStrategyUnit : public ACharacter, public IAttackDamageDealer
+class AStrategyUnit : public ACharacter
 {
 	GENERATED_BODY()
 
@@ -49,6 +48,11 @@ private:
 	/** Health carried by this unit. Present on NPC and player units alike. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UHealthComponent> Health;
+
+	/** Attack-swing resolution (montage selection/playback, hit-frame damage) carried by this unit.
+	 *  Present on NPC and player units alike - see SmoresCombat's UCombatComponent. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UCombatComponent> Combat;
 
 	/** Display name shown in the selection target UI (e.g. "Pawn 1", "NPC 3") */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Unit", meta = (AllowPrivateAccess = "true"))
@@ -116,10 +120,8 @@ public:
 	/** Engages the given target: attacks immediately if already in range, otherwise moves into range first */
 	void AttackTarget(AStrategyUnit* Target);
 
-	//~ Begin IAttackDamageDealer interface
-	/** Applies this unit's attack damage to its current attack target. Called by UAnimNotify_AttackHit at the montage's hit frame. */
-	virtual void ApplyAttackDamage() override;
-	//~ End IAttackDamageDealer interface
+	/** Returns this unit's combat component */
+	UCombatComponent* GetCombat() const { return Combat; }
 
 protected:
 
@@ -148,21 +150,9 @@ protected:
 	UFUNCTION()
 	void OnHealthDamaged(AActor* DamageInstigator);
 
-	/** Bound to the anim instance's OnMontageEnded; continues the auto-attack loop */
+	/** Bound to Combat->OnTargetOutOfRange; moves into range and re-issues the attack on arrival */
 	UFUNCTION()
-	void OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted);
-
-private:
-
-	/** Faces and swings at Target, playing a random attack montage */
-	void PerformAttack(AStrategyUnit* Target);
-
-	/** Plays Montage locally and (re)binds OnAttackMontageEnded. Multicast so the swing (and its
-	 *  hit-frame AnimNotify) plays for every machine, not just the server - PerformAttack chooses
-	 *  the montage once, authoritatively, and passes it here rather than each machine picking its
-	 *  own (which would desync the swing shown to different observers). */
-	UFUNCTION(NetMulticast, Reliable)
-	void Multicast_PlayAttackMontage(UAnimMontage* Montage);
+	void OnCombatTargetOutOfRange(AActor* Target);
 
 protected:
 
@@ -212,23 +202,8 @@ protected:
 	/** List of actors to ignore when searching for units to interact with */
 	TArray<AStrategyUnit*> InteractIgnoreList;
 
-	/** Montages to play (one chosen at random) when attacking. Expects the 3 wrapped MM_Attack_0X montages. */
-	UPROPERTY(EditAnywhere, Category="Combat")
-	TArray<TObjectPtr<UAnimMontage>> AttackMontages;
-
-	/** Montage played while Downed: falls once, then holds a looping grounded pose until Recover() stops it */
-	UPROPERTY(EditAnywhere, Category="Combat")
-	TObjectPtr<UAnimMontage> DownedMontage;
-
-	/** Max distance to a target for an attack to land without needing to move closer first */
-	UPROPERTY(EditAnywhere, Category="Combat", meta = (ClampMin = 0, ClampMax = 10000, Units = "cm"))
-	float AttackRange = 150.0f;
-
 	/** This unit's current behavior/targeting state */
 	EStrategyDisposition Disposition = EStrategyDisposition::Passive;
-
-	/** The unit currently being swung at. Set once in range; drives ApplyAttackDamage and the auto-attack loop. */
-	TWeakObjectPtr<AStrategyUnit> CurrentAttackTarget;
 
 	/** If true, this unit will attack PendingAttackTarget upon finishing movement */
 	bool bAttackOnArrival = false;

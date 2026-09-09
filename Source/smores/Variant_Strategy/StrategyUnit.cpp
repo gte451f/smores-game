@@ -12,10 +12,9 @@
 #include "EnvironmentQuery/EnvQueryInstanceBlueprintWrapper.h"
 #include "Engine/OverlapResult.h"
 #include "HealthComponent.h"
+#include "CombatComponent.h"
 #include "StrategyPlayerUnit.h"
 #include "Kismet/GameplayStatics.h"
-#include "Animation/AnimInstance.h"
-#include "Animation/AnimMontage.h"
 #include "TimerManager.h"
 #include "smores.h"
 
@@ -38,6 +37,9 @@ AStrategyUnit::AStrategyUnit()
 
 	// create the health component
 	Health = CreateDefaultSubobject<UHealthComponent>(TEXT("Health"));
+
+	// create the combat component
+	Combat = CreateDefaultSubobject<UCombatComponent>(TEXT("Combat"));
 
 	// configure movement
 	GetCharacterMovement()->GravityScale = 1.5f;
@@ -81,13 +83,17 @@ void AStrategyUnit::BeginPlay()
 	Health->OnRecovered.AddDynamic(this, &AStrategyUnit::OnHealthRecovered);
 	Health->OnDamaged.AddDynamic(this, &AStrategyUnit::OnHealthDamaged);
 
-	// NOTE: the auto-attack continuation is deliberately NOT bound here to a persistent
+	// react to our own attack requests that turned out to be out of range
+	Combat->OnTargetOutOfRange.AddDynamic(this, &AStrategyUnit::OnCombatTargetOutOfRange);
+
+	// NOTE: Combat's auto-attack continuation is deliberately NOT bound here to a persistent
 	// AnimInstance::OnMontageEnded subscription. Switching the mesh's Animation Mode (e.g. the
 	// old EventInteractionBehavior's PlayAnimation/SetAnimationMode pair) destroys and recreates
 	// the AnimInstance, which would silently orphan a BeginPlay-time binding - every attack after
 	// that would still play once (Montage_Play always re-fetches the current AnimInstance) but
-	// nothing would ever fire the continuation. PerformAttack binds fresh per swing instead, via
-	// Montage_SetEndDelegate, which works no matter how many times the AnimInstance is replaced.
+	// nothing would ever fire the continuation. UCombatComponent::PerformAttack binds fresh per
+	// swing instead, via Montage_SetEndDelegate, which works no matter how many times the
+	// AnimInstance is replaced.
 }
 
 void AStrategyUnit::StopMoving()
@@ -163,7 +169,7 @@ void AStrategyUnit::MoveToLocation(const FVector& Location, bool bInteract, cons
 	// a new movement command always interrupts any live or pending attack engagement
 	bAttackOnArrival = false;
 	PendingAttackTarget = nullptr;
-	CurrentAttackTarget = nullptr;
+	Combat->ClearCurrentAttackTarget();
 
 	// stop movement and animation
 	StopMoving();
@@ -311,7 +317,7 @@ void AStrategyUnit::SetAggressive(bool bAggressive)
 	{
 		GetWorldTimerManager().ClearTimer(AggroRetargetTimerHandle);
 
-		CurrentAttackTarget = nullptr;
+		Combat->ClearCurrentAttackTarget();
 		PendingAttackTarget = nullptr;
 	}
 }
@@ -357,10 +363,10 @@ void AStrategyUnit::TryEngageNearestPlayerPawn()
 	}
 
 	// already engaged with this target (fighting in range, or moving in to engage it) - the
-	// ongoing auto-attack loop (OnAttackMontageEnded) keeps that going on its own; re-issuing
+	// ongoing auto-attack loop (owned by Combat now) keeps that going on its own; re-issuing
 	// the attack command here on every retarget tick would restart the swing mid-play and the
 	// hit-frame notify would never be reached
-	if (Nearest == CurrentAttackTarget.Get() || Nearest == PendingAttackTarget.Get())
+	if (Nearest == Combat->GetCurrentAttackTarget() || Nearest == PendingAttackTarget.Get())
 	{
 		return;
 	}
@@ -370,113 +376,27 @@ void AStrategyUnit::TryEngageNearestPlayerPawn()
 
 void AStrategyUnit::AttackTarget(AStrategyUnit* Target)
 {
-	// drives shared combat state (CurrentAttackTarget, the attack montage) - only the server may mutate it
-	if (!HasAuthority())
+	if (Combat)
+	{
+		Combat->AttackTarget(Target);
+	}
+}
+
+void AStrategyUnit::OnCombatTargetOutOfRange(AActor* Target)
+{
+	AStrategyUnit* TargetUnit = Cast<AStrategyUnit>(Target);
+
+	if (!IsValid(TargetUnit))
 	{
 		return;
 	}
 
-	// a Downed unit can't initiate or continue an attack - without this, a Downed unit's own
-	// AggroRetargetTimerHandle (still running - OnHealthDowned doesn't touch it) keeps calling
-	// back in here forever, replaying an attack montage on top of the Downed pose on the same
-	// anim slot, which looks like a broken/glitched animation regardless of which montage plays
-	if (IsDowned() || !IsValid(Target) || Target->IsDowned())
-	{
-		UE_LOG(Logsmores, Warning, TEXT("[Combat] %s AttackTarget(%s) bailed early: %s"),
-			*GetName(), Target ? *Target->GetName() : TEXT("null"),
-			IsDowned() ? TEXT("attacker is Downed") : (!IsValid(Target) ? TEXT("Target invalid") : TEXT("Target already Downed")));
-		return;
-	}
-
-	const float Dist = FVector::Dist(GetActorLocation(), Target->GetActorLocation());
-
-	if (Dist <= AttackRange)
-	{
-		UE_LOG(Logsmores, Warning, TEXT("[Combat] %s AttackTarget(%s): in range (%.0f <= %.0f), swinging now"),
-			*GetName(), *Target->GetName(), Dist, AttackRange);
-		PerformAttack(Target);
-		return;
-	}
-
-	UE_LOG(Logsmores, Warning, TEXT("[Combat] %s AttackTarget(%s): out of range (%.0f > %.0f), moving in"),
-		*GetName(), *Target->GetName(), Dist, AttackRange);
-
-	// out of range - move into range, then attack again on arrival. MoveToLocation resets
+	// move into range, then attack again on arrival. MoveToLocation resets
 	// bAttackOnArrival/PendingAttackTarget itself, so set them after calling it, not before.
-	MoveToLocation(Target->GetActorLocation(), false, {});
+	MoveToLocation(TargetUnit->GetActorLocation(), false, {});
 
 	bAttackOnArrival = true;
-	PendingAttackTarget = Target;
-}
-
-void AStrategyUnit::PerformAttack(AStrategyUnit* Target)
-{
-	// rotate towards the target, same helper Interact() uses
-	SetActorRotation(UKismetMathLibrary::FindLookAtRotation(GetActorLocation(), Target->GetActorLocation()));
-
-	CurrentAttackTarget = Target;
-
-	if (AttackMontages.Num() == 0)
-	{
-		return;
-	}
-
-	// chosen once, authoritatively (PerformAttack only ever runs server-side - see AttackTarget's
-	// HasAuthority guard), and replicated to every machine so the swing plays in lock-step
-	// everywhere rather than each machine picking its own random montage
-	if (UAnimMontage* ChosenMontage = AttackMontages[FMath::RandHelper(AttackMontages.Num())])
-	{
-		Multicast_PlayAttackMontage(ChosenMontage);
-	}
-}
-
-void AStrategyUnit::Multicast_PlayAttackMontage_Implementation(UAnimMontage* Montage)
-{
-	if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
-	{
-		AnimInstance->Montage_Play(Montage);
-
-		// bind fresh every swing (see the NOTE in BeginPlay) rather than relying on a
-		// persistent AnimInstance::OnMontageEnded subscription, which an AnimInstance
-		// recreation (e.g. an Animation Mode switch elsewhere) would silently orphan
-		FOnMontageEnded EndDelegate;
-		EndDelegate.BindUObject(this, &AStrategyUnit::OnAttackMontageEnded);
-		AnimInstance->Montage_SetEndDelegate(EndDelegate, Montage);
-	}
-}
-
-void AStrategyUnit::ApplyAttackDamage()
-{
-	// the anim notify fires on every machine simulating this montage (attacker + all observing
-	// clients) - only the server may actually apply damage
-	if (!HasAuthority())
-	{
-		return;
-	}
-
-	AStrategyUnit* Target = CurrentAttackTarget.Get();
-
-	// re-check range at the hit frame, not the swing-start frame, so a target that fled
-	// mid-swing doesn't take a phantom hit
-	if (!IsValid(Target))
-	{
-		UE_LOG(Logsmores, Warning, TEXT("[Combat] %s ApplyAttackDamage: no valid CurrentAttackTarget - hit whiffed"), *GetName());
-		return;
-	}
-
-	const float Dist = FVector::Dist(GetActorLocation(), Target->GetActorLocation());
-
-	if (Dist > AttackRange)
-	{
-		UE_LOG(Logsmores, Warning, TEXT("[Combat] %s ApplyAttackDamage: %s moved out of range at hit frame (%.0f > %.0f) - hit whiffed"),
-			*GetName(), *Target->GetName(), Dist, AttackRange);
-		return;
-	}
-
-	Target->GetHealth()->TakeDamage(25.0f, this);
-
-	UE_LOG(Logsmores, Warning, TEXT("[Combat] %s ApplyAttackDamage: hit %s for 25, health now %.0f, IsDowned=%s"),
-		*GetName(), *Target->GetName(), Target->GetHealth()->GetHealth(), Target->IsDowned() ? TEXT("true") : TEXT("false"));
+	PendingAttackTarget = TargetUnit;
 }
 
 void AStrategyUnit::OnHealthDowned()
@@ -486,32 +406,20 @@ void AStrategyUnit::OnHealthDowned()
 	StopMoving();
 
 	// stop being anyone's live attack target and stop this unit's own attack loop
-	CurrentAttackTarget = nullptr;
 	PendingAttackTarget = nullptr;
 	bAttackOnArrival = false;
+	Combat->NotifyOwnerDowned();
 
 	// stop self-hunting while Downed - AttackTarget() also refuses to act while Downed, but
 	// clearing this too avoids a pointless TryEngageNearestPlayerPawn call every 0.5s until recovery
 	GetWorldTimerManager().ClearTimer(AggroRetargetTimerHandle);
-
-	if (DownedMontage)
-	{
-		if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
-		{
-			AnimInstance->Montage_Play(DownedMontage);
-		}
-	}
 }
 
 void AStrategyUnit::OnHealthRecovered()
 {
 	UE_LOG(Logsmores, Warning, TEXT("[Combat] %s OnHealthRecovered"), *GetName());
 
-	// blend back to locomotion - accepted small pop, no "get up" anim exists
-	if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
-	{
-		AnimInstance->Montage_Stop(0.25f, DownedMontage);
-	}
+	Combat->NotifyOwnerRecovered();
 
 	if (Disposition == EStrategyDisposition::Aggressive)
 	{
@@ -524,7 +432,7 @@ void AStrategyUnit::OnHealthDamaged(AActor* DamageInstigator)
 {
 	// already mid-engagement (fighting in range, or moving in to engage) - don't hijack an
 	// existing attack order onto whoever just landed a hit
-	if (CurrentAttackTarget.IsValid() || bAttackOnArrival)
+	if (Combat->GetCurrentAttackTarget() || bAttackOnArrival)
 	{
 		return;
 	}
@@ -539,28 +447,4 @@ void AStrategyUnit::OnHealthDamaged(AActor* DamageInstigator)
 	UE_LOG(Logsmores, Warning, TEXT("[Combat] %s OnHealthDamaged: auto-retaliating against %s"), *GetName(), *Attacker->GetName());
 
 	AttackTarget(Attacker);
-}
-
-void AStrategyUnit::OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted)
-{
-	// ignore montages that aren't one of ours (e.g. DownedMontage ending)
-	if (!AttackMontages.Contains(Montage))
-	{
-		return;
-	}
-
-	// keep re-swinging the same target automatically until it goes Downed, this attacker is
-	// invalid (CurrentAttackTarget is cleared by OnHealthDowned/MoveToLocation), or this attacker
-	// is given a new command - symmetric for player-issued attacks and NPC self-attacks alike
-	AStrategyUnit* Target = CurrentAttackTarget.Get();
-
-	if (IsValid(Target) && !Target->IsDowned())
-	{
-		AttackTarget(Target);
-	}
-	else
-	{
-		UE_LOG(Logsmores, Warning, TEXT("[Combat] %s OnAttackMontageEnded: stopping the auto-attack loop (Target %s)"),
-			*GetName(), !IsValid(Target) ? TEXT("invalid") : TEXT("Downed"));
-	}
 }

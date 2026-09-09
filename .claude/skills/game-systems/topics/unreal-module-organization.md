@@ -262,6 +262,19 @@ first:
   ```
   Add one per moved class before opening the editor, not after discovering broken
   Blueprints.
+- **Moving a `UPROPERTY` off an actor onto a new component has the same content-compatibility
+  risk as moving a class, but for properties, and there's no `CoreRedirects`-style fix.** Any
+  actor already **placed in a level** (not just Blueprint class defaults) can carry a stale
+  per-instance override of that property from before the component existed — e.g. splitting
+  `SmoresCombat`'s attack-resolution logic out of `AStrategyUnit` into a `UCombatComponent`
+  left every unit pre-placed in `LVL_Strategy` with an empty per-instance override of the
+  relocated `AttackMontages`/`DownedMontage`, which silently shadowed a correctly-populated
+  Blueprint class default and made combat look broken even after the class default was fixed.
+  Fixing only the Blueprint's class defaults is not enough — enumerate placed instances of
+  the affected class with `SceneTools.find_actors(actor_type=...)` and check/fix their
+  component's properties directly too. See the `mcp-workflow` skill's CDO-override-flag
+  caveat for why a raw MCP write to fix this can itself silently fail in a second, compounding
+  way.
 - **This is a structural change** — new module boundaries, not existing-function edits —
   so it needs the cold Visual Studio build CLAUDE.md already calls for, never Live Coding.
   Close the editor first.
