@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**smores** is an Unreal Engine 5.8 game project with a single C++ module (`smores`). The intended game is a **squad-based survival RPG in the vein of Kenshi** — the player commands a squad of individuals, not a single hero, but this is an RPG borrowing squad-command concepts, not an RTS or 4X. See the `game-design` skill for the full design intent (vision, pillars, and every major system) and the `game-systems` skill for the current player-facing behavior and implementation.
+**smores** is an Unreal Engine 5.8 game project. C++ is split across a primary module (`smores`) plus a growing set of `Smores*`-prefixed feature modules (currently `SmoresCore`, `SmoresCombat`) per the `game-systems` skill's `unreal-module-organization` topic. The intended game is a **squad-based survival RPG in the vein of Kenshi** — the player commands a squad of individuals, not a single hero, but this is an RPG borrowing squad-command concepts, not an RTS or 4X. See the `game-design` skill for the full design intent (vision, pillars, and every major system) and the `game-systems` skill for the current player-facing behavior and implementation.
 
 The current prototype's control scheme is built on the **Strategy** variant of Epic's Top Down template and is currently RTS-style (floating camera, click/drag-box selection, move commands) — that's an implementation detail of the current input/camera layer, not the intended genre. The template's TwinStick variant has been removed; abstract top-down base classes (`smoresCharacter` / `smoresGameMode` / `smoresPlayerController`) remain in `Source/smores/` for potential reuse, but the template's default `Lvl_TopDown` map and its Content/TopDown/ Blueprints have been removed — `LVL_Strategy` and `Lvl_MainMenu` are the only two maps in the project now.
 
@@ -91,15 +91,22 @@ deferred.
 
 ### Module layout
 
-All C++ lives under `Source/smores/`. There is one runtime module.
+Three runtime modules today: the primary `smores` module, plus `SmoresCore` (empty
+proving module) and `SmoresCombat` (health/damage, floating damage numbers, the
+attack-hit anim notify) — each a sibling folder directly under `Source/`, per the
+`game-systems` skill's `unreal-module-organization` topic, which tracks the target
+module map and migration order. Everything else still compiles into `smores`.
 
 ```
-Source/smores/
-  smoresCharacter.*          – Abstract base: top-down character with SpringArm + Camera
-  smoresGameMode.*           – Abstract base game mode
-  smoresPlayerController.*   – Abstract base: point-and-click nav movement via PathFollowingComponent
+Source/
+  smores/
+    smoresCharacter.*          – Abstract base: top-down character with SpringArm + Camera
+    smoresGameMode.*           – Abstract base game mode
+    smoresPlayerController.*   – Abstract base: point-and-click nav movement via PathFollowingComponent
 
-  Variant_Strategy/          – Squad gameplay, the active variant (RTS-style camera/selection/command controls)
+    Variant_Strategy/          – Squad gameplay, the active variant (RTS-style camera/selection/command controls)
+  SmoresCore/                  – Empty proving module; no classes yet
+  SmoresCombat/                – HealthComponent, DamageNumberActor/Widget, AnimNotify_AttackHit, IAttackDamageDealer
 ```
 
 ### Class hierarchy pattern

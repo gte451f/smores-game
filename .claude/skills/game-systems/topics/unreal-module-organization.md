@@ -13,13 +13,17 @@ see "When to Actually Split" below.
 
 ## Current State
 
-One runtime module, `smores` (`Source/smores/smores.Build.cs`), one game `Target.cs` and
-one Editor `Target.cs`. Organized by feature folder, not by module — see CLAUDE.md's
-"Module layout" for the authoritative current tree (`Variant_Strategy/` with `Combat/`,
-`Inventory/`, `UI/` subfolders; `MainMenu/` with its own `UI/`). There is no `Plugins/`
-folder for game-specific code yet — everything gameplay-related compiles into the one
-primary module. The engine-side plugins already enabled (`ModelContextProtocol`,
-`AllToolsets`, `StateTree`) are editor/MCP tooling, unrelated to this topic.
+Three runtime modules: `smores` (`Source/smores/smores.Build.cs`, the primary/game
+module), `SmoresCore` (empty proving module, stood up alongside the first real split),
+and `SmoresCombat` (`HealthComponent`, `DamageNumberActor`/`DamageNumberWidget`,
+`AnimNotify_AttackHit`, plus a small `IAttackDamageDealer` interface — see "Migrating
+Today's Prototype Code" below). One game `Target.cs` and one Editor `Target.cs`, both
+referencing all three modules. `smores/Variant_Strategy/` no longer has a `Combat/`
+subfolder — remaining feature folders (`Inventory/`, `UI/`) are still organized by
+feature, not by module; `MainMenu/` still has its own `UI/`. There is no `Plugins/`
+folder for game-specific code yet. The engine-side plugins already enabled
+(`ModelContextProtocol`, `AllToolsets`, `StateTree`) are editor/MCP tooling, unrelated to
+this topic.
 
 ## Concrete Folder Structure
 
@@ -207,18 +211,22 @@ The existing prototype (`Variant_Strategy/Combat`, `Variant_Strategy/Inventory`,
 sequenced project, not a single mechanical pass. Recommended order, cheapest and lowest-risk
 first:
 
-1. **Prove the wiring with an empty module first.** Stand up one new module (e.g.
-   `SmoresCore`) with zero classes moved into it — just the `Build.cs` + root
-   `.cpp`/`.h` + `.uproject`/`Target.cs` registration from the checklist above — and get a
-   clean cold build. This validates the registration steps once, cheaply, before any real
-   class carries the risk.
-2. **Move the cleanest one-directional dependencies next.** `HealthComponent`,
-   `UAnimNotify_AttackHit`, `DamageNumberActor`/`DamageNumberWidget` → `SmoresCombat`; and
-   `InventoryComponent` (and probably `StrategyChest`/`StrategyContainer`) → `SmoresItems`.
-   These are good first real moves specifically because today's `AStrategyUnit` depends on
-   them, not the other way around — moving them doesn't require touching `AStrategyUnit`
-   beyond updating its `#include` paths and adding `SmoresCombat`/`SmoresItems` to
-   `smores.Build.cs`'s dependencies.
+1. **DONE — proved the wiring with an empty module first.** `SmoresCore` was stood up with
+   zero classes, just the `Build.cs` + root `.cpp`/`.h` + `.uproject`/`Target.cs`
+   registration, validating the registration steps before any real class carried the risk.
+2. **DONE for Combat, not yet for Inventory.** `HealthComponent`, `UAnimNotify_AttackHit`,
+   `DamageNumberActor`/`DamageNumberWidget` have moved into `SmoresCombat`.
+   `AnimNotify_AttackHit` turned out to be the one exception to "`AStrategyUnit` depends on
+   them, not the other way around" — it cast directly to `AStrategyUnit` to call
+   `ApplyAttackDamage()`, which would have created a module cycle. Resolved with a small
+   `IAttackDamageDealer` interface (declared in `SmoresCombat`, implemented by
+   `AStrategyUnit`) rather than doing the full character/combat extraction early — watch
+   for the same shape of problem before assuming any other "obviously one-directional"
+   class actually is. `SmoresCombat` also got its own `LogSmoresCombat` category instead of
+   reaching into `smores.h`'s `Logsmores`, for the same cycle-avoidance reason — expect
+   every future module to need its own log category rather than sharing the primary
+   module's. **Still open:** `InventoryComponent` (and probably
+   `StrategyChest`/`StrategyContainer`) → `SmoresItems`.
 3. **`AStrategyUnit`/`AStrategyPlayerUnit` into `SmoresCharacters` is the big one, and it's
    not a pure file move.** Per "When to Actually Split" above, these classes currently
    implement combat swing logic inline (`AttackTarget`/`PerformAttack`/`ApplyAttackDamage`)
@@ -269,6 +277,6 @@ first:
   guess, not a settled interface.
 - Whether an automation/test module should exist to match `Automation_smores.slnx` isn't
   decided — no such module exists today despite that solution file's name.
-- No migration has started yet — the order in "Migrating Today's Prototype Code" is a
-  recommendation to follow once work begins, not a record of what's already been done.
-  Update that section's status as each step actually happens.
+- Migration is underway — `SmoresCore` and `SmoresCombat` are done (see "Migrating Today's
+  Prototype Code" for what moved and the one dependency-direction surprise it turned up).
+  Inventory is next. Keep updating that section's status as each further step happens.
