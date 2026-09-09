@@ -2,7 +2,7 @@
 
 
 #include "StrategyPlayerUnit.h"
-#include "Inventory/InventoryComponent.h"
+#include "InventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 
 AStrategyPlayerUnit::AStrategyPlayerUnit()

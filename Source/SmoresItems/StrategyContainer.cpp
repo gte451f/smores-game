@@ -4,7 +4,6 @@
 #include "StrategyContainer.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
-#include "StrategyUnit.h"
 
 AStrategyContainer::AStrategyContainer()
 {
@@ -42,7 +41,7 @@ void AStrategyContainer::BeginPlay()
 	}
 }
 
-bool AStrategyContainer::IsUnitInRange(const AStrategyUnit* Unit) const
+bool AStrategyContainer::IsUnitInRange(const AActor* Unit) const
 {
 	return Unit && FVector::Dist(GetActorLocation(), Unit->GetActorLocation()) <= InteractionRange->GetScaledSphereRadius();
 }

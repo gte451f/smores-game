@@ -54,7 +54,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryChangedDelegate);
  *  Holds a dynamic number of slots (default 4) and the items filling them.
  */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
-class UInventoryComponent : public UActorComponent
+class SMORESITEMS_API UInventoryComponent : public UActorComponent
 {
 	GENERATED_BODY()
 

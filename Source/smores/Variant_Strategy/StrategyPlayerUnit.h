@@ -4,7 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "StrategyUnit.h"
-#include "Inventory/InventoryComponent.h"
+#include "InventoryComponent.h"
 #include "StrategyPlayerUnit.generated.h"
 
 /**

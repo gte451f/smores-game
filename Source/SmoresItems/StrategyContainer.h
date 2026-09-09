@@ -4,13 +4,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "Inventory/InventoryComponent.h"
+#include "InventoryComponent.h"
 #include "StrategyContainer.generated.h"
 
 class USphereComponent;
 class UStaticMeshComponent;
 class UMaterialInterface;
-class AStrategyUnit;
 
 /**
  *  Base class for a world container holding its own inventory (a chest, barrel, bag, etc.).
@@ -19,7 +18,7 @@ class AStrategyUnit;
  *  any type-specific behavior; this class only holds what every container type needs.
  */
 UCLASS(abstract)
-class AStrategyContainer : public AActor
+class SMORESITEMS_API AStrategyContainer : public AActor
 {
 	GENERATED_BODY()
 
@@ -75,7 +74,7 @@ public:
 	FText GetContainerDisplayName() const { return ContainerDisplayName; }
 
 	/** Returns true if the given unit is close enough to open this container */
-	bool IsUnitInRange(const AStrategyUnit* Unit) const;
+	bool IsUnitInRange(const AActor* Unit) const;
 
 	/** Notifies this container that it has been opened, so Blueprint can play cosmetic feedback */
 	void NotifyOpened();

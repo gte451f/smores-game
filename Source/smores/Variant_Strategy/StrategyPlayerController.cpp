@@ -21,7 +21,7 @@
 #include "StrategyTouchControls.h"
 #include "Widgets/Input/SVirtualJoystick.h"
 #include "InventoryWidget.h"
-#include "Inventory/InventoryComponent.h"
+#include "InventoryComponent.h"
 #include "StrategyContainer.h"
 #include "Blueprint/UserWidget.h"
 #include "smores.h"

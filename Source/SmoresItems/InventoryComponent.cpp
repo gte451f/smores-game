@@ -3,7 +3,7 @@
 
 #include "InventoryComponent.h"
 #include "Net/UnrealNetwork.h"
-#include "smores.h"
+#include "SmoresItems.h"
 
 UInventoryComponent::UInventoryComponent()
 {
@@ -56,7 +56,7 @@ bool UInventoryComponent::AddItem(const FInventoryItem& Item)
 
 	if (FreeIndex == INDEX_NONE)
 	{
-		UE_LOG(Logsmores, Warning, TEXT("InventoryComponent on %s is full (%d/%d); can't add '%s'."),
+		UE_LOG(LogSmoresItems, Warning, TEXT("InventoryComponent on %s is full (%d/%d); can't add '%s'."),
 			*GetNameSafe(GetOwner()), NumSlots - GetFreeSlotCount(), NumSlots, *Item.ItemId.ToString());
 
 		return false;

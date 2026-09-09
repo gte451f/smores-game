@@ -13,7 +13,7 @@
  *  touching AStrategyContainer or other container types (barrels, bags, ...).
  */
 UCLASS(abstract)
-class AStrategyChest : public AStrategyContainer
+class SMORESITEMS_API AStrategyChest : public AStrategyContainer
 {
 	GENERATED_BODY()
 
