@@ -44,8 +44,9 @@ C++: `Source/smores/MainMenu/` (`MainMenuGameMode`, `MainMenuHUD`) and
 `Source/smores/MainMenu/UI/` (`MainMenuWidget`, `OptionsWidget`). Blueprint assets:
 `Content/MainMenu/Blueprints/` (`BP_MainMenuGameMode`, `BP_MainMenuHUD`) and
 `Content/MainMenu/UI/` (`WBP_MainMenu`, `WBP_Options`). `Lvl_MainMenu` is the project's
-`GameDefaultMap` (packaged/game launch); the editor's `EditorStartupMap` is left on
-`Lvl_TopDown` for faster PIE iteration.
+`GameDefaultMap` (packaged/game launch); the editor's `EditorStartupMap` is `LVL_Strategy`
+(the `Lvl_TopDown` map that used to serve as a faster-loading PIE-iteration level has been
+removed along with the rest of `Content/TopDown/`).
 
 **Known Gaps:** no save system, so Continue/Load Game/Start New Game are functionally
 identical; Load Game has no save-slot list UI since there's nothing to list yet; the four

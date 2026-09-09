@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **smores** is an Unreal Engine 5.8 game project with a single C++ module (`smores`). The intended game is a **squad-based survival RPG in the vein of Kenshi** — the player commands a squad of individuals, not a single hero, but this is an RPG borrowing squad-command concepts, not an RTS or 4X. See the `game-design` skill for the full design intent (vision, pillars, and every major system) and the `game-systems` skill for the current player-facing behavior and implementation.
 
-The current prototype's control scheme is built on the **Strategy** variant of Epic's Top Down template and is currently RTS-style (floating camera, click/drag-box selection, move commands) — that's an implementation detail of the current input/camera layer, not the intended genre. The template's TwinStick variant has been removed; a plain top-down base (`smoresCharacter` / `smoresGameMode` / `smoresPlayerController`) and the default `Lvl_TopDown` map remain.
+The current prototype's control scheme is built on the **Strategy** variant of Epic's Top Down template and is currently RTS-style (floating camera, click/drag-box selection, move commands) — that's an implementation detail of the current input/camera layer, not the intended genre. The template's TwinStick variant has been removed; abstract top-down base classes (`smoresCharacter` / `smoresGameMode` / `smoresPlayerController`) remain in `Source/smores/` for potential reuse, but the template's default `Lvl_TopDown` map and its Content/TopDown/ Blueprints have been removed — `LVL_Strategy` and `Lvl_MainMenu` are the only two maps in the project now.
 
 ## Starting the editor
 
@@ -139,8 +139,8 @@ All input uses **Enhanced Input** (`UInputAction` / `UInputMappingContext`). Inp
 
 ```
 Content/
-  TopDown/            – Default map (Lvl_TopDown) and BP_TopDownGameMode (set as GlobalDefaultGameMode)
-  Variant_Strategy/   – Squad gameplay assets, the active variant (RTS-style controls)
+  MainMenu/           – Title screen (Lvl_MainMenu), the project's GameDefaultMap
+  Variant_Strategy/   – Squad gameplay assets, the active variant (RTS-style controls); LVL_Strategy is the editor's EditorStartupMap and GlobalDefaultGameMode
   Characters/         – Shared character assets
   LevelPrototyping/   – Scratch levels
 ```
