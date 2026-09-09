@@ -10,7 +10,7 @@ UInventoryComponent::UInventoryComponent()
 	// inventory is pure state - it never needs to tick
 	PrimaryComponentTick.bCanEverTick = false;
 
-	SetIsReplicated(true);
+	SetIsReplicatedByDefault(true);
 
 	Items.SetNum(NumSlots);
 }
