@@ -131,6 +131,21 @@ each member for their role, broad formation/behavior orders, and role specializa
 is no hard squad size cap — wages create the real, self-regulating economic ceiling (see
 `economy.md`).
 
+## Squad Divisions
+
+The roster isn't managed or moved as one indivisible block. The player can organize
+characters into multiple named divisions — a scouting party, a trade caravan, a base
+garrison, a raiding force — each capable of acting independently and simultaneously in
+different parts of the world, Kenshi-style. Division membership is fluid: characters can
+be reassigned between divisions freely (subject to travel time to physically regroup if
+they aren't already together), and a division can be as small as one character.
+
+Divisions are an organization/control layer, not a second economic system — wages, hire
+fees, and morale (see **Recruitment, Wages, and Morale** above) still apply at the level
+of the individual character and the roster as a whole; splitting into divisions doesn't
+create separate budgets or separate morale pools. See `player-interface.md` for how the
+player views and switches between divisions on screen.
+
 ## Open Design Questions Worth Tracking
 
 - The specific lineage roster, attribute modifiers, and traits are deferred until setting
@@ -144,3 +159,7 @@ is no hard squad size cap — wages create the real, self-regulating economic ce
 - The skill-to-outcome proportions (70/20/10) are a stable design constraint; the actual
   roll resolution math and coefficients are iterative implementation work, not fixed by
   this document.
+- Whether physically separated divisions still count as one roster for morale purposes
+  even when far apart with no in-person contact isn't tested — current stance is yes (see
+  **Squad Divisions**), but this may need revisiting once long-distance division play and
+  co-op are actually testable.

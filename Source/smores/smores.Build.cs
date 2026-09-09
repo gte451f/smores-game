@@ -29,7 +29,9 @@ public class smores : ModuleRules
 			"smores/Variant_Strategy",
 			"smores/Variant_Strategy/UI",
 			"smores/Variant_Strategy/Inventory",
-			"smores/Variant_Strategy/Combat"
+			"smores/Variant_Strategy/Combat",
+			"smores/MainMenu",
+			"smores/MainMenu/UI"
 		});
 
 		// Uncomment if you are using Slate UI

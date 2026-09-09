@@ -23,11 +23,14 @@ documented as part of each system topic, in its "Player Surface" section, plus t
 | [`topics/combat.md`](topics/combat.md) | `UHealthComponent` health/damage/Downed-recovery, NPC self-hunting, player-issued squad attacks, auto-retaliation |
 | [`topics/game-modes.md`](topics/game-modes.md) | Visible game modes and what they let the player do |
 | [`topics/terminology.md`](topics/terminology.md) | Player-surface terms used across topics (Controlled Units, Drag Selection, Interaction Radius, Lead Unit, Player Surface) |
+| [`topics/unreal-module-organization.md`](topics/unreal-module-organization.md) | *(forward-looking)* Current single-module state, a proposed target module map sized against the full `game-design` scope, DLC/mod-as-Plugin guidance, and concrete triggers for when to actually split |
 
 ## Working in this skill
 
 - **Describe current implementation, not aspiration.** Put future ideas under a "Known
-  Gaps" section in the relevant topic, not into the main description.
+  Gaps" section in the relevant topic, not into the main description. The one deliberate
+  exception is `topics/unreal-module-organization.md`, which is explicitly a forward-looking
+  architecture reference rather than a record of built behavior — it says so up front.
 - **Update when behavior changes.** Any change to gameplay behavior, controls, camera
   behavior, selection rules, or UI-visible rules should be reflected here in the same
   change, alongside the code.

@@ -43,6 +43,10 @@ The map view is annotated with, at minimum:
 - **Player-placed pins** — manual markers the player drops for their own route planning.
 - **Player-constructed bases** — the player's own outpost(s)/base(s) (see
   `base-building.md`).
+- **Squad division locations** — the current (or last-known, if out of contact) position
+  of each player-defined division (see `characters-and-squads.md`'s Squad Divisions and
+  `player-interface.md`'s division switcher), so a division working somewhere off-screen
+  stays checkable from the map without hunting for it.
 
 "Among other things" — this list is a floor, not a ceiling; more annotation layers are
 expected as other systems mature.

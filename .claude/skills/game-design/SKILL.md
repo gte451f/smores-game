@@ -34,10 +34,10 @@ This topic covers intendent game designs that may not exist yet.
 | [`topics/main-menu-and-meta-flow.md`](topics/main-menu-and-meta-flow.md) | *(placeholder)* Title screen, new-game setup, continue/load, options structure, announcements |
 | [`topics/difficulty-and-modifiers.md`](topics/difficulty-and-modifiers.md) | *(placeholder)* New-game difficulty modifiers beyond ironman |
 | [`topics/tutorial-and-scenario-start.md`](topics/tutorial-and-scenario-start.md) | No tutorial — player-chosen starter scenarios with cosmetic-only backstory, player-created starting squad (lineage/cosmetic only, fixed stats/skills baseline) |
-| [`topics/player-interface.md`](topics/player-interface.md) | *(placeholder)* In-session UI intent — always-on vs. contextual info, squad status, diegetic presentation |
+| [`topics/player-interface.md`](topics/player-interface.md) | In-session UI intent — squad roster/divisions, mini-map, time-of-day and pace controls, activity/alerts panel, meta menu, deliberate exclusions (no quest tracker, no danger overlays) |
 | [`topics/notifications-and-alerts.md`](topics/notifications-and-alerts.md) | *(placeholder)* What triggers a notification, severity, history |
 | [`topics/world-map-and-travel.md`](topics/world-map-and-travel.md) | No fast travel, map view of explored area, map annotations (events/POIs/trade routes/faction territory), mini-map widget, candidate QoL nav commands ("run to destination," "follow the leader") |
-| [`topics/narrative-and-lore.md`](topics/narrative-and-lore.md) | *(placeholder)* Worldbuilding, backstory delivery, in-fiction system justification |
+| [`topics/narrative-and-lore.md`](topics/narrative-and-lore.md) | Worldbuilding philosophy (plausibility default, austere tone), three threat categories, the planet's deep history — precursor terraforming, radiation-driven underground retreat, the karst underworld (future DLC), present-day penal-colony/dumping-ground use, the prisoners' civilization — and what it explains about other systems |
 | [`topics/quests-and-objectives.md`](topics/quests-and-objectives.md) | *(placeholder)* What structures player goals, if anything, beyond emergent play |
 | [`topics/end-game-and-win-loss.md`](topics/end-game-and-win-loss.md) | *(placeholder)* Whether any fixed win/loss condition exists |
 | [`topics/character-death-and-permadeath.md`](topics/character-death-and-permadeath.md) | *(placeholder)* Death consequences outside ironman mode |
