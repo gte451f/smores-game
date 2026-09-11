@@ -13,18 +13,21 @@ see "When to Actually Split" below.
 
 ## Current State
 
-Five runtime modules: `smores` (`Source/smores/smores.Build.cs`, the primary/game
+Six runtime modules: `smores` (`Source/smores/smores.Build.cs`, the primary/game
 module), `SmoresCore` (empty proving module, stood up alongside the first real split),
 `SmoresCombat` (`HealthComponent`, `DamageNumberActor`/`DamageNumberWidget`,
 `AnimNotify_AttackHit`, plus a small `IAttackDamageDealer` interface), `SmoresItems`
-(`FInventoryItem`/`UInventoryComponent`, `AStrategyContainer`, `AStrategyChest`), and
-`SmoresCharacters` (`AStrategyUnit`, `AStrategyPlayerUnit` — see "Migrating Today's
-Prototype Code" below). One game `Target.cs` and one Editor `Target.cs`, both referencing
-all five modules. `smores/Variant_Strategy/` no longer has `Combat/`, `Inventory/`, or
-the unit character classes — the remaining `UI/` subfolder is still organized by feature,
-not by module; `MainMenu/` still has its own `UI/`. There is no `Plugins/` folder for
-game-specific code yet. The engine-side plugins already enabled (`ModelContextProtocol`,
-`AllToolsets`, `StateTree`) are editor/MCP tooling, unrelated to this topic.
+(`FInventoryItem`/`UInventoryComponent`, `AStrategyContainer`, `AStrategyChest`),
+`SmoresCharacters` (`AStrategyUnit`, `AStrategyPlayerUnit`), and `SmoresUI`
+(`AStrategyHUD`, `UStrategyUI`, `UStrategyTouchControls`, `UWindowWidget`,
+`UInventoryWidget`, `UInventorySlotWidget`, `UInventoryDragDropOperation`, plus
+`IStrategySelectionHost`/`IStrategyCameraCommands`/`IInventoryMoveHost` — see "Migrating
+Today's Prototype Code" below). One game `Target.cs` and one Editor `Target.cs`, both
+referencing all six modules. `smores/Variant_Strategy/` no longer has `Combat/`,
+`Inventory/`, `UI/`, or the unit character classes — `MainMenu/` still has its own `UI/`
+(unrelated feature, untouched). There is no `Plugins/` folder for game-specific code yet.
+The engine-side plugins already enabled (`ModelContextProtocol`, `AllToolsets`,
+`StateTree`) are editor/MCP tooling, unrelated to this topic.
 
 ## Concrete Folder Structure
 
@@ -48,6 +51,9 @@ Source/
     Variant_Strategy/             # shrinks as pieces below are peeled out
       StrategyGameMode.* StrategyPawn.* StrategyPlayerController.*
       EnvQueryContext_MoveGoal.*
+                                   # StrategyPlayerController implements SmoresUI's
+                                   # IStrategySelectionHost/IStrategyCameraCommands/
+                                   # IInventoryMoveHost interfaces - see below
   SmoresCore/
     SmoresCore.Build.cs
     SmoresCore.cpp / SmoresCore.h
@@ -71,7 +77,15 @@ Source/
   SmoresWorld/
   SmoresBaseBuilding/
   SmoresTechCrafting/
-  SmoresUI/                        # future: StrategyHUD/StrategyUI/inventory widgets — see sequencing note below
+  SmoresUI/
+    SmoresUI.Build.cs
+    SmoresUI.cpp / SmoresUI.h
+    StrategyHUD.* StrategyUI.* StrategyTouchControls.* WindowWidget.*
+    InventoryWidget.* InventorySlotWidget.* InventoryDragDropOperation.*
+                                   # moved from smores/Variant_Strategy/UI/
+    StrategySelectionHost.* StrategyCameraCommands.* InventoryMoveHost.*
+                                   # new interfaces, resolve the smores<->SmoresUI coupling
+                                   # (AStrategyPlayerController implements all three)
   SmoresSaveGame/
   SmoresOnlineSession/
   SmoresEditor/                    # Editor-only, TargetAllowList: Editor
@@ -256,12 +270,27 @@ first:
    moved to a different owning class (the whole actor class relocated modules, not a property
    onto a new component). One new lesson this move surfaced: see the `<Module>_API` export
    macro note added to "Per-move mechanics" below.
-4. **`SmoresUI` should come after `SmoresCharacters` exists, not before.** `AStrategyHUD`/
-   `UStrategyUI`/the inventory widgets currently reference `AStrategyPlayerController` and
-   `AStrategyUnit` directly. Splitting UI out first would just relocate the tangle (`SmoresUI`
-   depending back on `smores`, and possibly vice versa) rather than resolve it. `smores`
-   (which keeps `AStrategyPlayerController`) depending on `SmoresUI` is fine either way —
-   only the reverse would be a cycle.
+4. **DONE — `AStrategyHUD`/`UStrategyUI`/`UStrategyTouchControls`/`UWindowWidget`/
+   `UInventoryWidget`/`UInventorySlotWidget`/`UInventoryDragDropOperation` moved into
+   `SmoresUI`.** This one genuinely had the two-way tangle predicted above: `smores`'s
+   `AStrategyPlayerController` needs `SmoresUI` (it owns/spawns `AStrategyHUD`/
+   `UStrategyTouchControls`/`UInventoryWidget`), but three of the moving files also cast
+   their owning PlayerController to the concrete `AStrategyPlayerController` and called
+   PC-specific methods (`StrategyHUD.cpp`'s selection queries, `StrategyTouchControls.cpp`'s
+   camera commands, `InventorySlotWidget.cpp`'s inventory-move RPC). Resolved with three
+   narrow interfaces (`IStrategySelectionHost`, `IStrategyCameraCommands`,
+   `IInventoryMoveHost`) declared in `SmoresUI` and implemented by `AStrategyPlayerController`
+   — since `smores`→`SmoresUI` already had to exist, implementing interfaces declared there
+   added no new dependency direction, exactly as anticipated. No method signatures changed;
+   `AStrategyPlayerController`'s existing methods already matched the interfaces 1:1 (same
+   plain-virtual-override pattern as `IAttackDamageDealer`, RPC macro and all — a
+   `UFUNCTION(Server, Reliable)` method can satisfy a plain C++ interface's pure virtual
+   with no special handling). Two real complications turned up, both now folded into
+   "Per-move mechanics" below: `CoreRedirects` silently failed to resolve 2 of the 7 moved
+   classes' Blueprints even across a clean editor restart (needed manual
+   `BlueprintTools.set_parent` + recompile instead), and that manual reparent silently reset
+   one of those Blueprints' class-default property overrides to null, which only surfaced as
+   a PIE crash (`CreateWidget called with a null class`) — not as a compile or load error.
 
 **Per-move mechanics, every time:**
 
@@ -292,6 +321,30 @@ first:
   ```
   Add one per moved class before opening the editor, not after discovering broken
   Blueprints.
+- **`CoreRedirects` is not guaranteed to resolve every Blueprint, even with a correctly
+  written entry.** The `SmoresUI` move added 7 correctly-formed `ClassRedirects` entries;
+  5 of the affected Blueprints resolved cleanly (including on a from-scratch editor
+  process), but 2 (`BP_StrategyHUD`, `WBP_StrategyMobileControls`) still failed to load
+  their parent class (`LogUObjectGlobals: Failed to find object 'Class /Script/smores.X'`)
+  even after a clean editor restart — with no discernible difference in the redirect entry
+  itself, and the target native class independently confirmed to exist and be correctly
+  registered (`ObjectTools.search_subclasses`). Root cause undetermined; treat this as a
+  real per-asset failure mode, not just a config mistake to double-check. **Fallback**:
+  `BlueprintTools.set_parent(blueprint, correct_native_class)` followed by
+  `BlueprintTools.compile_blueprint` and `AssetTools.save_assets` — this is the doc's
+  already-documented "manually reparented" alternative, just confirmed to actually be
+  needed in practice now, not merely theoretical.
+- **A Blueprint reparented from a broken (null) parent can lose its class-default property
+  overrides, not just its parent link — and this fails silently until runtime.** When
+  `BP_StrategyHUD`'s parent failed to resolve, its previously-authored `UIWidgetClass`
+  class-default override (pointing at `UI_Strategy`) was gone by the time `set_parent`
+  fixed the parent link — compiling and saving both succeeded with no warning. The loss
+  only surfaced as a PIE crash (`CreateWidget called with a null class`, an `AStrategyHUD`
+  BeginPlay `check()` failure) well after the "migration" appeared complete. **After any
+  manual reparent, diff the affected Blueprint's `EditAnywhere`/class-default properties
+  against what they should be** (`ObjectTools.get_properties` on the Blueprint, which
+  resolves to its CDO) before considering the move done — this is a distinct risk from,
+  and not covered by, the placed-level-instance per-instance-override risk described next.
 - **Moving a `UPROPERTY` off an actor onto a new component has the same content-compatibility
   risk as moving a class, but for properties, and there's no `CoreRedirects`-style fix.** Any
   actor already **placed in a level** (not just Blueprint class defaults) can carry a stale
@@ -325,8 +378,8 @@ first:
   guess, not a settled interface.
 - Whether an automation/test module should exist to match `Automation_smores.slnx` isn't
   decided — no such module exists today despite that solution file's name.
-- Migration is underway — `SmoresCore`, `SmoresCombat`, `SmoresItems`, and now
-  `SmoresCharacters` (`AStrategyUnit`/`AStrategyPlayerUnit`) are done (see "Migrating
-  Today's Prototype Code"). `SmoresUI` (step 4: `AStrategyHUD`/`UStrategyUI`/the inventory
-  widgets) is next up, now that `SmoresCharacters` exists. Keep updating that section's
-  status as each further step happens.
+- Migration is underway — `SmoresCore`, `SmoresCombat`, `SmoresItems`, `SmoresCharacters`,
+  and now `SmoresUI` (steps 1-4, see "Migrating Today's Prototype Code") are all done. All
+  four migration steps originally scoped are complete; no further step is currently
+  planned (the remaining modules in the target map correspond to systems that don't exist
+  in any form yet). Keep updating that section's status if/when a further split starts.
