@@ -4,8 +4,9 @@
 #include "StrategyHUD.h"
 #include "StrategyUnit.h"
 #include "StrategyPlayerUnit.h"
-#include "StrategyPlayerController.h"
+#include "StrategySelectionHost.h"
 #include "StrategyUI.h"
+#include "GameFramework/PlayerController.h"
 
 void AStrategyHUD::BeginPlay()
 {
@@ -34,8 +35,11 @@ void AStrategyHUD::DrawHUD()
 	// draw all debug information, etc.
 	Super::DrawHUD();
 
-	// ensure we have a valid player controller
-	if (AStrategyPlayerController* PC = Cast<AStrategyPlayerController>(GetOwningPlayerController()))
+	// ensure we have a valid player controller that hosts unit selection
+	APlayerController* PC = GetOwningPlayerController();
+	IStrategySelectionHost* SelectionHost = Cast<IStrategySelectionHost>(PC);
+
+	if (PC && SelectionHost)
 	{
 		// draw the selection box
 		if (bDrawBox)
@@ -68,17 +72,17 @@ void AStrategyHUD::DrawHUD()
 			}
 
 			// update the unit selection on the player controller
-			PC->DragSelectUnits(BoxedUnits);
+			SelectionHost->DragSelectUnits(BoxedUnits);
 		}
 
 		// get the currently selected units
-		TArray<AStrategyUnit*> SelectedUnits = PC->GetSelectedUnits();
+		TArray<AStrategyUnit*> SelectedUnits = SelectionHost->GetSelectedUnits();
 
 		// update the selection count on the UI widget
 		if (UIWidget)
 		{
 			UIWidget->SetSelectedUnitsCount(SelectedUnits.Num());
-			UIWidget->SetSelectionTargetLabel(PC->GetSelectionTargetLabel());
+			UIWidget->SetSelectionTargetLabel(SelectionHost->GetSelectionTargetLabel());
 		}
 
 		// process each selected unit

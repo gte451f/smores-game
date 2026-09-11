@@ -11,7 +11,7 @@
  *	Keeps track of the number of units currently selected
  */
 UCLASS(abstract)
-class UStrategyUI : public UUserWidget
+class SMORESUI_API UStrategyUI : public UUserWidget
 {
 	GENERATED_BODY()
 	

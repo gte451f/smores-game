@@ -23,7 +23,8 @@ public class smores : ModuleRules
 			"SmoresCore",
 			"SmoresCombat",
 			"SmoresItems",
-			"SmoresCharacters"
+			"SmoresCharacters",
+			"SmoresUI"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
@@ -31,7 +32,6 @@ public class smores : ModuleRules
 		PublicIncludePaths.AddRange(new string[] {
 			"smores",
 			"smores/Variant_Strategy",
-			"smores/Variant_Strategy/UI",
 			"smores/MainMenu",
 			"smores/MainMenu/UI"
 		});

@@ -4,28 +4,27 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "StrategyCameraCommands.h"
 #include "StrategyTouchControls.generated.h"
-
-class AStrategyPlayerController;
 
 /**
  *  Base class for additional touchscreen controls for a strategy game.
  *  Exposes some game commands to UI
  */
 UCLASS(abstract)
-class SMORES_API UStrategyTouchControls : public UUserWidget
+class SMORESUI_API UStrategyTouchControls : public UUserWidget
 {
 	GENERATED_BODY()
-	
+
 protected:
 
-	/** Pointer to the owning Strategy PC */
-	TObjectPtr<AStrategyPlayerController> PlayerController;
+	/** Interface to the owning Strategy PC's camera/selection commands */
+	TScriptInterface<IStrategyCameraCommands> PlayerController;
 
 public:
 
-	/** Sets the owning Strategy PC pointer */
-	void SetPlayerController(AStrategyPlayerController* PC);
+	/** Sets the owning Strategy PC interface */
+	void SetPlayerController(TScriptInterface<IStrategyCameraCommands> PC);
 
 	/** Syncs the camera zoom percentage with the UI. Called by the owning PC */
 	UFUNCTION(BlueprintImplementableEvent, Category="UI", meta=(DisplayName="Set Zoom Percentage"))

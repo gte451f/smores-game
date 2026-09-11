@@ -4,6 +4,9 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "StrategySelectionHost.h"
+#include "StrategyCameraCommands.h"
+#include "InventoryMoveHost.h"
 #include "StrategyPlayerController.generated.h"
 
 class AStrategyPawn;
@@ -26,7 +29,7 @@ class UInventoryComponent;
  *  Implements both mouse and touch controls.
  */
 UCLASS(abstract)
-class AStrategyPlayerController : public APlayerController
+class AStrategyPlayerController : public APlayerController, public IStrategySelectionHost, public IStrategyCameraCommands, public IInventoryMoveHost
 {
 	GENERATED_BODY()
 
@@ -294,17 +297,25 @@ public:
 
 public:
 
+	//~ Begin IStrategySelectionHost interface
+
 	/** Updates selected units from the HUD's drag select box */
-	void DragSelectUnits(const TArray<AStrategyUnit*>& Units);
+	virtual void DragSelectUnits(const TArray<AStrategyUnit*>& Units) override;
 
 	/** Passes the list of selected units */
-	const TArray<AStrategyUnit*>& GetSelectedUnits();
+	virtual const TArray<AStrategyUnit*>& GetSelectedUnits() override;
 
 	/** Returns the label text for whichever pawn, NPC, or container was most recently selected, or empty if none */
-	FText GetSelectionTargetLabel() const;
+	virtual FText GetSelectionTargetLabel() const override;
+
+	//~ End IStrategySelectionHost interface
+
+	//~ Begin IStrategyCameraCommands interface
 
 	/** Returns the default camera zoom percentage value */
-	float GetDefaultZoomPercentage() const;
+	virtual float GetDefaultZoomPercentage() const override;
+
+	//~ End IStrategyCameraCommands interface (remaining members below, alongside the other camera commands)
 
 protected:
 
@@ -413,7 +424,7 @@ public:
 	void DoDeselectAllUnitsCommand();
 
 	/** Toggles between selecting all units on screen and deselecting units */
-	void DoToggleSelectAllUnitsCommand();
+	virtual void DoToggleSelectAllUnitsCommand() override;
 
 	/** Scrolls the camera based on a new screen coordinate */
 	void DoCameraDragScrollCommand(const FVector2D& CurrentCursorPosition);
@@ -428,10 +439,10 @@ public:
 	void DoCameraModifyZoomCommand(float ZoomDelta);
 
 	/** Resets the camera zoom to default */
-	void DoCameraResetZoomCommand();
+	virtual void DoCameraResetZoomCommand() override;
 
 	/** Sets the camera zoom to a percentage between min and max zoom */
-	void DoCameraSetZoomPercentageCommand(float Percentage);
+	virtual void DoCameraSetZoomPercentageCommand(float Percentage) override;
 
 	/** Rotates the camera by the given mouse delta, clamping pitch */
 	void DoCameraRotateCommand(const FVector2D& MouseDelta);
@@ -459,11 +470,15 @@ private:
 
 public:
 
+	//~ Begin IInventoryMoveHost interface
+
 	/** Server-side entry point for an inventory drag-drop move/swap (see UInventorySlotWidget::NativeOnDrop -
 	 *  the widget can't mutate inventory contents directly, since UInventoryComponent::SetItemAt is
 	 *  authority-only). Just forwards to UInventoryComponent::MoveItem. */
 	UFUNCTION(Server, Reliable)
-	void Server_MoveInventoryItem(UInventoryComponent* SourceInventory, int32 SourceIndex, UInventoryComponent* DestInventory, int32 DestIndex);
+	virtual void Server_MoveInventoryItem(UInventoryComponent* SourceInventory, int32 SourceIndex, UInventoryComponent* DestInventory, int32 DestIndex) override;
+
+	//~ End IInventoryMoveHost interface
 
 protected:
 

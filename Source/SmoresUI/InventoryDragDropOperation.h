@@ -14,7 +14,7 @@ class UInventoryComponent;
  *  and consumed by the target slot's NativeOnDrop.
  */
 UCLASS()
-class UInventoryDragDropOperation : public UDragDropOperation
+class SMORESUI_API UInventoryDragDropOperation : public UDragDropOperation
 {
 	GENERATED_BODY()
 

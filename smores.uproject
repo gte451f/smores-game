@@ -32,6 +32,11 @@
 			"Name": "SmoresCharacters",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "SmoresUI",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [
@@ -200,6 +205,10 @@
 		},
 		{
 			"Name": "GitSourceControl",
+			"Enabled": false
+		},
+		{
+			"Name": "GLTFExporter",
 			"Enabled": false
 		}
 	]

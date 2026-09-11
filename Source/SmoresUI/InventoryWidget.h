@@ -19,7 +19,7 @@ class UPanelWidget;
  *  renders as a grid, any other UPanelWidget renders as a list).
  */
 UCLASS(abstract)
-class UInventoryWidget : public UWindowWidget
+class SMORESUI_API UInventoryWidget : public UWindowWidget
 {
 	GENERATED_BODY()
 

@@ -19,7 +19,7 @@ class UTextBlock;
  *  this widget is currently bound to.
  */
 UCLASS(abstract)
-class UInventorySlotWidget : public UUserWidget
+class SMORESUI_API UInventorySlotWidget : public UUserWidget
 {
 	GENERATED_BODY()
 

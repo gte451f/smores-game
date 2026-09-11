@@ -13,7 +13,7 @@ class UStrategyUI;
  *  Draws the selection box and unit selected overlays
  */
 UCLASS(abstract)
-class AStrategyHUD : public AHUD
+class SMORESUI_API AStrategyHUD : public AHUD
 {
 	GENERATED_BODY()
 	

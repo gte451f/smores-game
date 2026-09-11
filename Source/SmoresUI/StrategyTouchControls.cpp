@@ -1,10 +1,9 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 
-#include "Variant_Strategy/UI/StrategyTouchControls.h"
-#include "Variant_Strategy/StrategyPlayerController.h"
+#include "StrategyTouchControls.h"
 
-void UStrategyTouchControls::SetPlayerController(AStrategyPlayerController* PC)
+void UStrategyTouchControls::SetPlayerController(TScriptInterface<IStrategyCameraCommands> PC)
 {
 	PlayerController = PC;
 }

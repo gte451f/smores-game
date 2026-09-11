@@ -16,7 +16,7 @@ class UButton;
  *  doesn't provide them simply doesn't get that behavior.
  */
 UCLASS(abstract)
-class UWindowWidget : public UUserWidget
+class SMORESUI_API UWindowWidget : public UUserWidget
 {
 	GENERATED_BODY()
 
