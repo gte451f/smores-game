@@ -6,6 +6,7 @@
 #include "Components/TextBlock.h"
 #include "Components/PanelWidget.h"
 #include "Components/UniformGridPanel.h"
+#include "Components/UniformGridSlot.h"
 
 #define LOCTEXT_NAMESPACE "InventoryWidget"
 
@@ -105,7 +106,14 @@ void UInventoryWidget::RefreshDisplay()
 
 			if (GridPanel)
 			{
-				GridPanel->AddChildToUniformGrid(SlotWidget, Index / SafeGridColumns, Index % SafeGridColumns);
+				// UUniformGridSlot defaults to HAlign_Left/VAlign_Top, so an unfilled slot widget
+				// shrink-wraps to its own content and sticks in the cell's top-left corner, leaving
+				// most of the (much larger) uniform cell empty - stretch it to fill the cell instead.
+				if (UUniformGridSlot* GridSlot = GridPanel->AddChildToUniformGrid(SlotWidget, Index / SafeGridColumns, Index % SafeGridColumns))
+				{
+					GridSlot->SetHorizontalAlignment(HAlign_Fill);
+					GridSlot->SetVerticalAlignment(VAlign_Fill);
+				}
 			}
 			else
 			{
