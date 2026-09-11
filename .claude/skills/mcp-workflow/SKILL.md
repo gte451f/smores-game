@@ -72,6 +72,14 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
     looking like a successful reset. Don't trust `reset_properties` to recover a value that
     was itself set via a raw CDO write; verify the result with `get_properties` before
     moving on.
+  - **A CDO write followed by `compile_blueprint` *is* durable.** `BlueprintTools` exposes
+    no dedicated class-default setter, so the working recipe for a class default is
+    `get_default_object` → `ObjectTools.set_properties` → `BlueprintTools.compile_blueprint`.
+    The compile promotes the value into a real Blueprint default: it serializes into the
+    saved `.uasset` (verifiable by grepping the binary for the referenced asset's name), and
+    `reset_properties` on a placed instance then correctly falls back to *it* rather than
+    walking past to the native C++ default. The "raw CDO write" hazards above apply to a
+    `set_properties` that is never followed by a compile.
   - A genuine Blueprint recompile (a real edit through the editor UI, not another raw MCP
     write) re-instances every placed actor of that class in the open level from the fresh
     CDO, and **discards any per-instance override that was itself set via a raw MCP write**
@@ -90,6 +98,18 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   `ValueType` (`IA_Strategy_CyclePawn` is `Boolean`) — but hand the IMC key-binding step to
   the user. InputAction `UPROPERTY` asset paths use `/Game/Path/IA_Name.IA_Name` (no `_C` —
   that suffix is only for Blueprint-generated classes).
+- **`SceneTools.save_actor` is broken for World Partition external actors.** It builds a
+  `/Game/__ExternalActors__/...` path that doesn't resolve and raises "Asset does not
+  exist". Use `AssetTools.save_assets([])` (save-all-dirty) instead — that does flush
+  external-actor packages to disk.
+- **A reshaped `USTRUCT` leaves stale per-instance overrides on placed actors.** After any
+  C++ change to a struct used in an `EditAnywhere` array, placed actors that carry an
+  override of that array keep it — the removed fields simply don't deserialize, so the
+  override survives as garbage (null references, or an *empty* array that silently shadows
+  the Blueprint's new defaults). These don't announce themselves: an actor showing nothing
+  looks the same as an actor that legitimately holds nothing. Find them by grepping
+  `Content/__ExternalActors__/` for the property name, then either re-author the override
+  or `ObjectTools.reset_properties` it away — and verify with `get_properties` after.
 - **No MCP compile/build trigger exists.** Checked exhaustively across all ~50 toolsets
   (Blueprint, Object, Material, Scene, Actor, Asset, Sequencer, Niagara, PCG, GAS,
   Automation Tests, Config Settings, Plugins, Logs, etc.) — none expose compile/build/Live

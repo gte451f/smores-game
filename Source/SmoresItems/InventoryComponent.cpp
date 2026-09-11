@@ -43,6 +43,12 @@ bool UInventoryComponent::AddItem(const FInventoryItem& Item)
 		return false;
 	}
 
+	// an item with no definition is an empty slot, not something to place
+	if (Item.IsEmpty())
+	{
+		return false;
+	}
+
 	int32 FreeIndex = INDEX_NONE;
 
 	for (int32 Index = 0; Index < Items.Num(); ++Index)
@@ -57,7 +63,7 @@ bool UInventoryComponent::AddItem(const FInventoryItem& Item)
 	if (FreeIndex == INDEX_NONE)
 	{
 		UE_LOG(LogSmoresItems, Warning, TEXT("InventoryComponent on %s is full (%d/%d); can't add '%s'."),
-			*GetNameSafe(GetOwner()), NumSlots - GetFreeSlotCount(), NumSlots, *Item.ItemId.ToString());
+			*GetNameSafe(GetOwner()), NumSlots - GetFreeSlotCount(), NumSlots, *GetNameSafe(Item.Definition));
 
 		return false;
 	}

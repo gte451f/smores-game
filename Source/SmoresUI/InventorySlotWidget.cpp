@@ -5,6 +5,7 @@
 #include "InventoryDragDropOperation.h"
 #include "Components/TextBlock.h"
 #include "InventoryMoveHost.h"
+#include "InventoryWidget.h"
 
 void UInventorySlotWidget::SetSlot(UInventoryComponent* InOwningInventory, int32 InSlotIndex, const FInventoryItem& InItem)
 {
@@ -14,7 +15,8 @@ void UInventorySlotWidget::SetSlot(UInventoryComponent* InOwningInventory, int32
 
 	if (SlotText)
 	{
-		SlotText->SetText(IsSlotEmpty() ? FText::GetEmpty() : Item.DisplayName);
+		// name/quantity come from the shared definition, not from the carried instance
+		SlotText->SetText(UInventoryWidget::GetItemLabel(Item));
 	}
 }
 

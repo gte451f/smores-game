@@ -60,14 +60,31 @@ FText UInventoryWidget::GetSlotSummary() const
 
 	for (int32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
 	{
+		// display data lives on the shared item definition, not on the carried instance
 		const FText SlotContents = (Items.IsValidIndex(SlotIndex) && !Items[SlotIndex].IsEmpty())
-			? Items[SlotIndex].DisplayName
+			? UInventoryWidget::GetItemLabel(Items[SlotIndex])
 			: LOCTEXT("EmptySlot", "(empty)");
 
 		Lines.Add(FString::Printf(TEXT("%d. %s"), SlotIndex + 1, *SlotContents.ToString()));
 	}
 
 	return FText::FromString(FString::Join(Lines, TEXT("\n")));
+}
+
+FText UInventoryWidget::GetItemLabel(const FInventoryItem& Item)
+{
+	if (Item.IsEmpty())
+	{
+		return FText::GetEmpty();
+	}
+
+	// suffix the count only once stacking actually produces one - a lone item reads as just its name
+	if (Item.Quantity > 1)
+	{
+		return FText::Format(LOCTEXT("StackedItemLabel", "{0} x{1}"), Item.GetDisplayName(), FText::AsNumber(Item.Quantity));
+	}
+
+	return Item.GetDisplayName();
 }
 
 void UInventoryWidget::HandleInventoryChanged()

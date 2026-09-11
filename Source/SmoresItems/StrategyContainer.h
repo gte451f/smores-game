@@ -14,8 +14,9 @@ class UMaterialInterface;
 /**
  *  Base class for a world container holding its own inventory (a chest, barrel, bag, etc.).
  *  A selected unit must be within InteractionRange to open one. Concrete container types
- *  (e.g. AStrategyChest) derive from this to supply their own default StartingItems and
- *  any type-specific behavior; this class only holds what every container type needs.
+ *  (e.g. AStrategyChest) derive from this to add any type-specific behavior; this class only
+ *  holds what every container type needs. Contents are authored as StartingItems on the
+ *  Blueprint subclass.
  */
 UCLASS(abstract)
 class SMORESITEMS_API AStrategyContainer : public AActor
@@ -38,7 +39,7 @@ private:
 
 protected:
 
-	/** Items this container starts with. Empty by default here; concrete types populate it in their constructor. */
+	/** Items this container starts with, authored per-Blueprint as references to UItemDefinition assets */
 	UPROPERTY(EditAnywhere, Category = "Inventory")
 	TArray<FInventoryItem> StartingItems;
 

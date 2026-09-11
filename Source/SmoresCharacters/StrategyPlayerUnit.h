@@ -22,9 +22,6 @@ class SMORESCHARACTERS_API AStrategyPlayerUnit : public AStrategyUnit
 
 public:
 
-	/** Constructor */
-	AStrategyPlayerUnit();
-
 	/** Returns whichever PlayerController currently owns/commands this unit, or nullptr if unclaimed. See ClaimForController. */
 	APlayerController* GetOwningController() const { return OwningController; }
 
@@ -39,7 +36,7 @@ public:
 
 protected:
 
-	/** Items every player unit starts with. Populated with defaults in the constructor; overridable per-Blueprint. */
+	/** Items every player unit starts with, authored per-Blueprint as references to UItemDefinition assets */
 	UPROPERTY(EditAnywhere, Category = "Inventory")
 	TArray<FInventoryItem> StartingItems;
 

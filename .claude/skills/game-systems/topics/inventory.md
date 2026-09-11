@@ -7,10 +7,13 @@ and replicated, with a shared drag-and-drop UI for moving items within one inven
 between two. The same component and UI back three different holders today: a squad unit's
 own carried items, a world container's contents, and a Downed NPC's loot.
 
-This system does **not** yet handle: stacking/quantities, item definitions/data tables,
-equipment/worn slots, weight/encumbrance, currency, trading/purchase, theft, or world-loose
-item pickups. See `inventory-roadmap.md` for the target design covering all of that — this
-topic only documents what's actually built.
+What an item *is* lives in a shared `UItemDefinition` data asset; what a carried copy *is
+like* lives in the `FInventoryItem` instance that references it.
+
+This system does **not** yet handle: stacking/quantities, equipment/worn slots,
+weight/encumbrance, currency, trading/purchase, theft, or world-loose item pickups. See
+`inventory-roadmap.md` for the target design covering all of that — this topic only
+documents what's actually built.
 
 ## Player Surface
 
@@ -39,17 +42,29 @@ topic only documents what's actually built.
 
 ## Core Rules
 
+- **Item definitions are shared; item instances are per-copy.** A `UItemDefinition`
+  (`UPrimaryDataAsset`, one asset per item type under `Content/Items/`) carries everything
+  every copy of that item has in common — stable `ItemId`, display name, description,
+  `EItemCategory`, 2D `Icon`, 3D `WorldMesh`, `Weight`, `BaseValue`, grid footprint,
+  `MaxStackSize`, `EEquipSlot`. An `FInventoryItem` carries only what varies copy-to-copy: a
+  `Definition` pointer plus `Quantity`, `Condition`, and `bStolen`. All display data is read
+  through the definition; nothing is duplicated per instance.
+- Most definition fields are authored but **not yet read by anything** — footprint,
+  `MaxStackSize`, `EquipSlot`, and `WorldMesh` belong to the grid, stacking, equipment, and
+  world-pickup systems that don't exist yet. `Condition` and `bStolen` on the instance are
+  likewise inert placeholders.
 - Every `UInventoryComponent` has a fixed slot count (`NumSlots`, default 64, clamped
-  0–64); `Items` always has exactly that many entries, and an entry with
-  `ItemId == NAME_None` marks an empty slot.
-- No stacking or quantities exist — every non-empty slot holds exactly one `FInventoryItem`,
-  however small the item conceptually is.
+  0–64); `Items` always has exactly that many entries, and an entry with a null `Definition`
+  marks an empty slot.
+- No stacking or quantities exist yet — `Quantity` is always 1, and every non-empty slot
+  holds exactly one `FInventoryItem`, however small the item conceptually is.
 - All mutation (`AddItem`, `SetItemAt`, `RemoveItemAt`, `SetNumSlots`) is authority-only;
   called on a non-authority machine, each is a silent no-op. `Items` and `NumSlots` are both
   replicated; `OnRep_Items` re-broadcasts `OnInventoryChanged` on clients (authority already
   broadcasts it directly from the mutators, so it isn't double-fired there).
 - `AddItem` fills the first free slot and fails (returns `false`, logs a warning) if none is
-  free — there's no partial/overflow handling since there's nothing to stack into.
+  free — there's no partial/overflow handling since there's nothing to stack into. It also
+  rejects an item with no `Definition`, so a blank `StartingItems` entry doesn't burn a slot.
 - `RemoveItemAt` clears the slot in place rather than compacting the array, so slot indices
   stay stable across removals.
 - `MoveItem` is a static swap: it exchanges whatever occupies `SourceIndex`/`DestIndex`,
@@ -68,16 +83,22 @@ topic only documents what's actually built.
 ## C++ Implementation
 
 - **Primary classes:**
-  - `SmoresItems`: `FInventoryItem`, `UInventoryComponent`, `AStrategyContainer` (abstract
-    base for world containers), `AStrategyChest` (first concrete container type — no added
-    behavior yet beyond its own `StartingItems`, exists so future chest-specific behavior
-    like locks/keys has a home)
+  - `SmoresItems`: `UItemDefinition` (+ `EItemCategory` / `EEquipSlot`), `FInventoryItem`,
+    `UInventoryComponent`, `AStrategyContainer` (abstract base for world containers),
+    `AStrategyChest` (first concrete container type — no added behavior of its own, exists
+    so future chest-specific behavior like locks/keys has a home)
   - `SmoresUI`: `UWindowWidget` (reusable floating-window chrome), `UInventoryWidget`,
     `UInventorySlotWidget`, `UInventoryDragDropOperation`, `IInventoryMoveHost`
   - `SmoresCharacters`: `AStrategyUnit` (owns the `Inventory` subobject shared by NPCs and
     player units alike), `AStrategyPlayerUnit`
   - `smores` (`Variant_Strategy`): `AStrategyPlayerController`
 - **Important methods:**
+  - `FInventoryItem::GetDisplayName` / `GetIcon` / `GetItemId` / `GetDescription` /
+    `GetTotalWeight` / `GetTotalBaseValue` / `HasSameDefinitionAs` — the read-through
+    accessors that hide the definition indirection from callers
+  - `UInventoryWidget::GetItemLabel` (static) — the one place an item's player-facing label
+    is formatted (`"Name"`, or `"Name xN"` once quantities exist); shared by the summary
+    text block and the per-slot widgets
   - `UInventoryComponent::AddItem` / `SetItemAt` / `RemoveItemAt` / `SetNumSlots` —
     authority-only mutators, all broadcast `OnInventoryChanged`
   - `UInventoryComponent::MoveItem` (static) — the single move/swap entry point for both
@@ -114,6 +135,11 @@ topic only documents what's actually built.
 
 ## Blueprint / Asset Dependencies
 
+- **`DA_Item_*`** (`Content/Items/`) — `UItemDefinition` assets, one per item type
+  (`Apple`, `PocketKnife`, `GoldCoin`, `HealthPotion`, `IronSword`, `Rope`, `Torch`,
+  `TrapKit`). `Icon` and `WorldMesh` are unassigned on all of them — no item art exists yet.
+  Because a definition is the only thing a carried item references, **deleting one empties
+  every slot holding it**.
 - **`WBP_Inventory`** (`Content/Variant_Strategy/UI/`) — `UInventoryWidget` subclass,
   assigned to `AStrategyPlayerController::InventoryWidgetClass`. Shows the selected pawn's
   own inventory.
@@ -131,29 +157,37 @@ topic only documents what's actually built.
 - **`IA_Strategy_ToggleContainer`** — bound to `ToggleContainerAction`. Also desktop-only.
 - **`AStrategyContainer` / `AStrategyChest` Blueprint subclasses** — assign `ContainerMesh`'s
   materials (`NormalMaterial`/`SelectedMaterial`), `ContainerDisplayName`, and populate
-  `StartingItems`.
-- **Unit Blueprints** — may pre-populate `Items` on their `Inventory` subobject for testing;
-  `NumSlots` can be overridden per-Blueprint (re-synced against `Items.Num()` in
-  `UInventoryComponent::BeginPlay`).
+  `StartingItems`. `StartingItems` is authored **entirely in Blueprint** (and per placed
+  instance, as the "Chest 2" actor in `LVL_Strategy` does) — no C++ constructor seeds it,
+  since C++ shouldn't hard-code content paths.
+- **Unit Blueprints** — `AStrategyPlayerUnit::StartingItems` is likewise Blueprint-authored
+  (`BP_PlayerUnit` seeds an Apple and a Pocket Knife). Units may also pre-populate `Items`
+  on their `Inventory` subobject directly for testing; `NumSlots` can be overridden
+  per-Blueprint (re-synced against `Items.Num()` in `UInventoryComponent::BeginPlay`).
 
 ## Extension Points
 
-- **Item definitions / data table** — `FInventoryItem` is a fully inline, hand-authored
-  struct today; a `UDataTable` of shared item rows would let every holder reference common
-  icon/name/base-stat data instead of duplicating it per instance.
+- **New item types** — add a `DA_Item_*` asset under `Content/Items/`; no code change
+  needed. `UItemDefinition`'s `GetPrimaryAssetId` keys off the authored `ItemId` (falling
+  back to the asset name when it's blank), so definitions can be renamed or moved without
+  breaking ID-based lookups once an asset-manager path needs them.
 - **Stacking, equipment, currency, trading, theft, world pickups, grid/bulk placement,
-  sort/filter** — none of this exists in code yet. Full target design and rationale live in
-  `inventory-roadmap.md`.
+  sort/filter** — none of this exists in code yet, though `UItemDefinition` already carries
+  the fields they'll read. Full target design and rationale live in `inventory-roadmap.md`.
 - **Save/load** — `FInventoryItem` and `UInventoryComponent`'s state are fully
   `UPROPERTY`-reflected; no struct changes are needed for whatever serialization approach
   the save system eventually adopts.
 
 ## Known Gaps
 
-- No stacking/quantity — every item, however small, consumes a full slot.
-- No item definitions — icon, name, and description are duplicated on every instance rather
-  than shared.
-- No equipment/worn slots distinct from the general carried grid.
+- No stacking/quantity — `FInventoryItem::Quantity` exists and `UItemDefinition::MaxStackSize`
+  is authored, but nothing merges entries; every item, however small, consumes a full slot.
+- No grid footprint — `FootprintWidth`/`FootprintHeight` are authored but the storage model
+  is still a flat 1D slot array, so every item occupies exactly one slot regardless.
+- No equipment/worn slots distinct from the general carried grid — `EquipSlot` is authored
+  but unread.
+- No item art — every `DA_Item_*` has a null `Icon` and `WorldMesh`, so the UI shows names
+  only.
 - No currency, trading, or purchase flow.
 - No weight/encumbrance tracking.
 - No world-loose item pickups — only container- and unit-held inventories exist; nothing

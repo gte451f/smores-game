@@ -108,7 +108,7 @@ Source/
     Variant_Strategy/          – Squad gameplay, the active variant (RTS-style camera/selection/command controls)
   SmoresCore/                  – Empty proving module; no classes yet
   SmoresCombat/                – HealthComponent, DamageNumberActor/Widget, AnimNotify_AttackHit, IAttackDamageDealer
-  SmoresItems/                 – InventoryComponent (FInventoryItem), StrategyContainer, StrategyChest
+  SmoresItems/                 – ItemDefinition (shared item-type data asset), InventoryComponent (FInventoryItem), StrategyContainer, StrategyChest
 ```
 
 ### Class hierarchy pattern

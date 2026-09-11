@@ -8,17 +8,13 @@
 
 /**
  *  A chest: the first concrete AStrategyContainer type.
- *  Adds no new behavior yet beyond seeding its own default StartingItems - it exists as a
- *  distinct type so future chest-specific behavior (locks, keys, etc.) has a home without
- *  touching AStrategyContainer or other container types (barrels, bags, ...).
+ *  Adds no behavior of its own yet - it exists as a distinct type so future chest-specific
+ *  behavior (locks, keys, etc.) has a home without touching AStrategyContainer or other
+ *  container types (barrels, bags, ...). Its contents are authored as StartingItems on the
+ *  Blueprint subclass, pointing at UItemDefinition assets.
  */
 UCLASS(abstract)
 class SMORESITEMS_API AStrategyChest : public AStrategyContainer
 {
 	GENERATED_BODY()
-
-public:
-
-	/** Constructor */
-	AStrategyChest();
 };

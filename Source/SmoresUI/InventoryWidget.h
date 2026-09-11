@@ -72,6 +72,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	FText GetSlotSummary() const;
 
+	/** Player-facing label for one carried item - its definition's display name, plus "xN" once it's a real stack.
+	 *  Shared by the summary text and the per-slot widgets so both read the definition the same way. */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	static FText GetItemLabel(const FInventoryItem& Item);
+
 protected:
 
 	/** Blueprint handler to rebuild custom slot visuals */

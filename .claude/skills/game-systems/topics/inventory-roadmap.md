@@ -7,8 +7,9 @@ target design**, the result of a brainstorming pass against the `game-design` sk
 `economy.md`, `characters-and-squads.md`, and `combat.md`) and the actual current
 `UInventoryComponent`/`SmoresUI` implementation. It exists so the next several rounds of
 inventory programming work have a settled target to build toward instead of re-litigating
-the same design questions piecemeal per feature. **Nothing here is built yet** — treat every
-section as "what to build next," not "what exists."
+the same design questions piecemeal per feature. Treat every section as "what to build
+next," not "what exists" — **except** where a heading is marked SHIPPED, which means that
+section has moved to `inventory.md` and only its summary line remains here.
 
 The work is deliberately cut into **one slice per clean session** (see "Implementation
 Order" below). Each session should start by reading `inventory.md`, this file's slice
@@ -16,28 +17,11 @@ entry, and the current source — not the conversation that produced this docume
 slice ships, move its content into `inventory.md`, delete it from here, and mark the slice
 `DONE` in the order list (the same convention `unreal-module-organization.md` uses).
 
-## Item Definitions vs. Item Instances
+## Item Definitions vs. Item Instances — **SHIPPED (Slice 1)**
 
-The current `FInventoryItem` is a fully inline instance struct (ID, name, description,
-icon) — every holder duplicates the same data per copy. The target model splits this in two:
-
-- **Item definition** (shared): a `UPrimaryDataAsset` subclass (`UItemDefinition`) — one
-  asset per item type under `Content/`. Chosen over a `UDataTable` because each definition
-  directly references other assets (icon texture, world mesh), is Blueprint- and
-  MCP-friendly to author, and is naturally moddable as content. Fields: stable ID, display
-  name, description, category/type (weapon, armor, consumable, material, etc.), base weight,
-  base resale value, grid footprint (width × height cells), base max stack size, equip slot
-  (if any), a **2D icon** (inventory/UI representation) and a **separate 3D representation**
-  (mesh for the world pickup and the equipped visual) — the 2D and 3D representations are
-  deliberately independent assets, not the same texture reused two ways.
-- **Item instance** (per carried entry, `FInventoryItem` reshaped): a reference to its
-  definition, plus whatever varies copy-to-copy — quantity (if stackable), condition
-  (placeholder field only, see Explicitly Out of Scope), stolen flag (see Theft below), and
-  its current grid anchor cell + rotation within whatever holder it's in.
-
-This is the foundation everything else below builds on — stacking, weight, and grid
-placement all read from the definition; only quantity/condition/stolen-status/placement
-live per-instance.
+The definition/instance split is built; see `inventory.md`. The one piece of it still
+outstanding is per-instance **grid anchor cell + rotation**, which arrives with the grid
+itself in Slice 2.
 
 ## Grid-Based Storage (Bulk) and Stacking
 
@@ -212,19 +196,19 @@ protocol, so it isn't repeated per entry:
 
 Slice status is tracked inline; update it when a slice ships.
 
-### Slice 1 — Item definitions and instances
+### Slice 1 — Item definitions and instances — **DONE**
 
-- **Build:** `UItemDefinition : UPrimaryDataAsset` in `SmoresItems` with the fields listed
-  under "Item Definitions vs. Item Instances" (footprint, stack, equip slot, and 3D mesh
-  fields can exist now with defaults even though nothing reads them yet). Reshape
-  `FInventoryItem` into an instance: `Definition` reference, `Quantity` (always 1 this
-  slice), `Condition` placeholder, `bStolen`; drop the inline name/description/icon fields.
-  `IsEmpty()` becomes "no definition."
-- **Touches:** `InventoryComponent.*`, `StrategyContainer.*`/`StrategyChest.*`
-  (`StartingItems`), `InventoryWidget.*`/`InventorySlotWidget.*` (read display data through
-  the definition), and every Blueprint that authored inline `StartingItems`/`Items`.
-- **Done when:** a handful of `DA_Item_*` definition assets exist, every existing chest/unit
-  seeds from them, and PIE behaves exactly as before the slice. Behavior-neutral by design.
+Shipped; see `inventory.md`. Two notes worth carrying forward:
+
+- `StartingItems` no longer has any C++-authored defaults — hard-coding content paths in a
+  constructor is exactly what CLAUDE.md's "C++ first, Blueprints for wiring" rule rules out.
+  Every holder's starting contents are Blueprint/instance-authored now.
+- Reshaping `FInventoryItem` silently voided **per-placed-instance** `StartingItems`
+  overrides on four actors in `LVL_Strategy` — "Chest 2" held three entries that
+  deserialized to null definitions, and "Chest 1" plus both placed `BP_PlayerUnit` actors
+  held *empty*-array overrides that quietly shadowed the new Blueprint defaults. Slices 2
+  and 5 reshape this struct again: grep `Content/__ExternalActors__/` for `StartingItems`
+  first, and don't assume Blueprint class defaults are the only authored copies.
 
 ### Slice 2 — Grid storage, footprint, rotation, stacking (component side)
 

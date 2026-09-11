@@ -4,46 +4,70 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "ItemDefinition.h"
 #include "InventoryComponent.generated.h"
 
 class UTexture2D;
 
 /**
- *  A single carried item.
- *  Deliberately minimal for this first pass - just enough for a designer to dress up later.
+ *  One carried item *instance*: a reference to the shared UItemDefinition that says what it
+ *  is, plus only what actually varies copy-to-copy. Everything common (name, icon, weight,
+ *  value, footprint, stack size) is read through Definition rather than duplicated here.
+ *
+ *  A default-constructed instance (no Definition) marks an empty slot.
  */
 USTRUCT(BlueprintType)
 struct FInventoryItem
 {
 	GENERATED_BODY()
 
-	/** Stable identifier for this item */
+	/** What this item is. Null means "empty slot". Replicates by path, since definitions are stably-named assets. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory")
-	FName ItemId;
+	TObjectPtr<UItemDefinition> Definition = nullptr;
 
-	/** Player-facing name */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory")
-	FText DisplayName;
+	/** How many of the item this entry holds. Always 1 until stacking lands. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory", meta = (ClampMin = 1))
+	int32 Quantity = 1;
 
-	/** Player-facing description */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory")
-	FText Description;
+	/** Wear state, 0 (destroyed) to 1 (pristine). Placeholder only - no durability/upkeep mechanics read it yet. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory", meta = (ClampMin = 0.0, ClampMax = 1.0))
+	float Condition = 1.0f;
 
-	/** Optional icon, wired by a designer */
+	/** Set when this instance was taken by theft. Carried only - territory recognition and expiry wait on faction/NPC-awareness systems. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory")
-	TObjectPtr<UTexture2D> Icon = nullptr;
+	bool bStolen = false;
 
 	FInventoryItem() = default;
 
-	FInventoryItem(FName InItemId, const FText& InDisplayName, const FText& InDescription = FText::GetEmpty())
-		: ItemId(InItemId)
-		, DisplayName(InDisplayName)
-		, Description(InDescription)
+	explicit FInventoryItem(UItemDefinition* InDefinition, int32 InQuantity = 1)
+		: Definition(InDefinition)
+		, Quantity(InQuantity)
 	{
 	}
 
-	/** True if this represents an empty slot (no item placed) */
-	bool IsEmpty() const { return ItemId.IsNone(); }
+	/** True if this represents an empty slot (no definition placed) */
+	bool IsEmpty() const { return Definition == nullptr; }
+
+	/** Stable item-type identifier, or NAME_None when empty */
+	FName GetItemId() const { return Definition ? Definition->ItemId : NAME_None; }
+
+	/** Player-facing name, or empty when this slot is empty */
+	FText GetDisplayName() const { return Definition ? Definition->DisplayName : FText::GetEmpty(); }
+
+	/** Player-facing description, or empty when this slot is empty */
+	FText GetDescription() const { return Definition ? Definition->Description : FText::GetEmpty(); }
+
+	/** Inventory icon, or null when this slot is empty / the definition has no icon */
+	UTexture2D* GetIcon() const { return Definition ? Definition->Icon : nullptr; }
+
+	/** Combined weight of this entry (unit weight x quantity) */
+	float GetTotalWeight() const { return Definition ? Definition->Weight * Quantity : 0.0f; }
+
+	/** Combined base resale value of this entry, before any buy/sell markup */
+	int32 GetTotalBaseValue() const { return Definition ? Definition->BaseValue * Quantity : 0; }
+
+	/** True if both entries hold the same item type and could merge into one stack */
+	bool HasSameDefinitionAs(const FInventoryItem& Other) const { return Definition != nullptr && Definition == Other.Definition; }
 };
 
 /** Broadcast whenever the slot count or item list changes */

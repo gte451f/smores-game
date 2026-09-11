@@ -5,13 +5,6 @@
 #include "InventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 
-AStrategyPlayerUnit::AStrategyPlayerUnit()
-{
-	// every player unit starts with a couple of fake items for this first pass
-	StartingItems.Add(FInventoryItem(TEXT("Apple"), FText::FromString(TEXT("Apple"))));
-	StartingItems.Add(FInventoryItem(TEXT("PocketKnife"), FText::FromString(TEXT("Pocket Knife"))));
-}
-
 void AStrategyPlayerUnit::BeginPlay()
 {
 	Super::BeginPlay();
