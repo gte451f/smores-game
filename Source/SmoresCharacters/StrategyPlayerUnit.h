@@ -16,7 +16,7 @@
  *  (team ID, hover highlight, etc.).
  */
 UCLASS(abstract)
-class AStrategyPlayerUnit : public AStrategyUnit
+class SMORESCHARACTERS_API AStrategyPlayerUnit : public AStrategyUnit
 {
 	GENERATED_BODY()
 

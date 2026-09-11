@@ -13,15 +13,16 @@ see "When to Actually Split" below.
 
 ## Current State
 
-Four runtime modules: `smores` (`Source/smores/smores.Build.cs`, the primary/game
+Five runtime modules: `smores` (`Source/smores/smores.Build.cs`, the primary/game
 module), `SmoresCore` (empty proving module, stood up alongside the first real split),
 `SmoresCombat` (`HealthComponent`, `DamageNumberActor`/`DamageNumberWidget`,
-`AnimNotify_AttackHit`, plus a small `IAttackDamageDealer` interface), and `SmoresItems`
-(`FInventoryItem`/`UInventoryComponent`, `AStrategyContainer`, `AStrategyChest` — see
-"Migrating Today's Prototype Code" below). One game `Target.cs` and one Editor `Target.cs`,
-both referencing all four modules. `smores/Variant_Strategy/` no longer has `Combat/` or
-`Inventory/` subfolders — the remaining `UI/` subfolder is still organized by feature, not
-by module; `MainMenu/` still has its own `UI/`. There is no `Plugins/` folder for
+`AnimNotify_AttackHit`, plus a small `IAttackDamageDealer` interface), `SmoresItems`
+(`FInventoryItem`/`UInventoryComponent`, `AStrategyContainer`, `AStrategyChest`), and
+`SmoresCharacters` (`AStrategyUnit`, `AStrategyPlayerUnit` — see "Migrating Today's
+Prototype Code" below). One game `Target.cs` and one Editor `Target.cs`, both referencing
+all five modules. `smores/Variant_Strategy/` no longer has `Combat/`, `Inventory/`, or
+the unit character classes — the remaining `UI/` subfolder is still organized by feature,
+not by module; `MainMenu/` still has its own `UI/`. There is no `Plugins/` folder for
 game-specific code yet. The engine-side plugins already enabled (`ModelContextProtocol`,
 `AllToolsets`, `StateTree`) are editor/MCP tooling, unrelated to this topic.
 
@@ -46,7 +47,6 @@ Source/
       UI/  MainMenuWidget.* OptionsWidget.*
     Variant_Strategy/             # shrinks as pieces below are peeled out
       StrategyGameMode.* StrategyPawn.* StrategyPlayerController.*
-      StrategyUnit.* StrategyPlayerUnit.*   (until the Characters/Combat split happens)
       EnvQueryContext_MoveGoal.*
   SmoresCore/
     SmoresCore.Build.cs
@@ -62,7 +62,10 @@ Source/
     HealthComponent.*             # moved from smores/Variant_Strategy/Combat/
     AnimNotify_AttackHit.*
     DamageNumberActor.* DamageNumberWidget.*
-  SmoresCharacters/                # future: AStrategyUnit/AStrategyPlayerUnit split out of Variant_Strategy
+  SmoresCharacters/
+    SmoresCharacters.Build.cs
+    SmoresCharacters.cpp / SmoresCharacters.h
+    StrategyUnit.* StrategyPlayerUnit.*   # moved from smores/Variant_Strategy/
   SmoresFactions/
   SmoresEconomy/
   SmoresWorld/
@@ -126,6 +129,14 @@ it actually earns its cost.
 This table is a target shape, not a literal migration order — several of these modules
 correspond to systems that don't exist in any form yet (factions, economy, base building,
 tech/crafting are all still design-only per `game-design`).
+
+**Known discrepancy**: the table above lists `SmoresCombat` depending on `SmoresCharacters`,
+but the actual `AStrategyUnit`/`AStrategyPlayerUnit` move (see "Migrating Today's Prototype
+Code") went the other way — `AStrategyUnit` owns a `UCombatComponent` and `UInventoryComponent`
+as subobjects, so `SmoresCharacters` depends on `SmoresCombat` and `SmoresItems`, not the
+reverse. No cycle exists either way (neither `SmoresCombat` nor `SmoresItems` reference
+`AStrategyUnit`), but this table's dependency column needs reconciling with reality —
+unresolved, tracked here rather than silently left wrong.
 
 ## Module Naming
 
@@ -221,9 +232,10 @@ first:
    the other way around" — don't assume any other "obviously one-directional" class actually
    is until checked:
    - `AnimNotify_AttackHit` cast directly to `AStrategyUnit` to call `ApplyAttackDamage()`.
-     Resolved with a small `IAttackDamageDealer` interface (declared in `SmoresCombat`,
-     implemented by `AStrategyUnit`) rather than doing the full character/combat extraction
-     early.
+     Resolved with a small `IAttackDamageDealer` interface (declared in `SmoresCombat`); by
+     the time `UCombatComponent` existed, that interface ended up implemented there instead
+     of on `AStrategyUnit` directly, which is what let step 3 below move the character
+     classes without `SmoresCharacters` needing to implement anything from `SmoresCombat`.
    - `AStrategyContainer::IsUnitInRange` took `const AStrategyUnit*` but only ever called
      `GetActorLocation()` on it — no interface needed, just widen the parameter to
      `const AActor*`. Cheaper fix than an interface when the dependency turns out to be
@@ -232,12 +244,18 @@ first:
    Both `SmoresCombat` and `SmoresItems` got their own log category (`LogSmoresCombat`,
    `LogSmoresItems`) instead of reaching into `smores.h`'s `Logsmores` — expect every future
    module to need its own rather than sharing the primary module's.
-3. **`AStrategyUnit`/`AStrategyPlayerUnit` into `SmoresCharacters` is the big one, and it's
-   not a pure file move.** Per "When to Actually Split" above, these classes currently
-   implement combat swing logic inline (`AttackTarget`/`PerformAttack`/`ApplyAttackDamage`)
-   rather than delegating to `SmoresCombat`. Pulling the character body out means actually
-   extracting that combat resolution logic first — do this only after step 2 has proven the
-   module-cut mechanics on lower-stakes code.
+3. **DONE — `AStrategyUnit`/`AStrategyPlayerUnit` moved into `SmoresCharacters`.** The
+   prerequisite (combat resolution logic extracted out of `AStrategyUnit` into
+   `UCombatComponent`, so `AttackTarget`/`PerformAttack`/`ApplyAttackDamage` no longer
+   implement swing logic inline) was already done going in. The dependency-direction check
+   confirmed no cycle: neither `SmoresCombat` nor `SmoresItems` reference `AStrategyUnit` at
+   all, so `SmoresCharacters`'s `Build.cs` just adds `SmoresCombat`/`SmoresItems`/`SmoresCore`
+   as dependencies (see the known table discrepancy noted under "Proposed Target Module
+   Map"). Placed instances in `LVL_Strategy` were checked post-move via
+   `SceneTools.find_actors` — no stale per-instance overrides this time, since no `UPROPERTY`
+   moved to a different owning class (the whole actor class relocated modules, not a property
+   onto a new component). One new lesson this move surfaced: see the `<Module>_API` export
+   macro note added to "Per-move mechanics" below.
 4. **`SmoresUI` should come after `SmoresCharacters` exists, not before.** `AStrategyHUD`/
    `UStrategyUI`/the inventory widgets currently reference `AStrategyPlayerController` and
    `AStrategyUnit` directly. Splitting UI out first would just relocate the tangle (`SmoresUI`
@@ -248,9 +266,21 @@ first:
 **Per-move mechanics, every time:**
 
 - `git mv` the `.h`/`.cpp` files (preserves history) rather than delete-and-recreate.
-- Update `#include` paths in the moved files and anything that referenced them.
+- Update `#include` paths in the moved files and anything that referenced them — including
+  any qualified include like `#include "Variant_Strategy/StrategyUnit.h"` elsewhere in
+  `smores` that assumed the old folder location; it needs to become a bare
+  `#include "StrategyUnit.h"` once the header lives in another module's
+  `PublicIncludePaths`.
 - Add/remove `PublicDependencyModuleNames` and `PublicIncludePaths` entries in both the
   source and destination modules' `Build.cs` files.
+- **Add the new module's `<MODULE>_API` export macro to every moved class** (e.g.
+  `class SMORESCHARACTERS_API AStrategyUnit : public ACharacter`). A class living in a
+  monolithic module doesn't need this — everything links into the same DLL — but once it's
+  the sole owner of symbols another module calls (`smores.dll` calling
+  `AStrategyUnit::AttackTarget`, say), skipping the macro produces `LNK2019: unresolved
+  external symbol` at link time for every method/property another module touches. Cheap to
+  get right up front; easy to miss because the compile step alone won't catch it, only the
+  link step will.
 - **Moving a `UCLASS`/`USTRUCT` changes its native package path** (e.g.
   `/Script/smores.HealthComponent` → `/Script/SmoresCombat.HealthComponent`). Any Blueprint
   or asset that references the old path will show a missing/null parent class until either
@@ -295,8 +325,8 @@ first:
   guess, not a settled interface.
 - Whether an automation/test module should exist to match `Automation_smores.slnx` isn't
   decided — no such module exists today despite that solution file's name.
-- Migration is underway — `SmoresCore`, `SmoresCombat`, and `SmoresItems` are done (see
-  "Migrating Today's Prototype Code" for what moved and the dependency-direction surprises
-  each turned up). `AStrategyUnit`/`AStrategyPlayerUnit` → `SmoresCharacters` is next, and
-  is the first step that requires extracting logic (not just moving files) first. Keep
-  updating that section's status as each further step happens.
+- Migration is underway — `SmoresCore`, `SmoresCombat`, `SmoresItems`, and now
+  `SmoresCharacters` (`AStrategyUnit`/`AStrategyPlayerUnit`) are done (see "Migrating
+  Today's Prototype Code"). `SmoresUI` (step 4: `AStrategyHUD`/`UStrategyUI`/the inventory
+  widgets) is next up, now that `SmoresCharacters` exists. Keep updating that section's
+  status as each further step happens.

@@ -2,7 +2,7 @@
 
 
 #include "Variant_Strategy/EnvQueryContext_MoveGoal.h"
-#include "Variant_Strategy/StrategyUnit.h"
+#include "StrategyUnit.h"
 #include "EnvironmentQuery/Items/EnvQueryItemType_Point.h"
 
 void UEnvQueryContext_MoveGoal::ProvideContext(FEnvQueryInstance& QueryInstance, FEnvQueryContextData& ContextData) const

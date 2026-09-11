@@ -14,5 +14,6 @@ public class smoresTarget : TargetRules
 		ExtraModuleNames.Add("SmoresCore");
 		ExtraModuleNames.Add("SmoresCombat");
 		ExtraModuleNames.Add("SmoresItems");
+		ExtraModuleNames.Add("SmoresCharacters");
 	}
 }

@@ -16,7 +16,7 @@
 #include "StrategyPlayerUnit.h"
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
-#include "smores.h"
+#include "SmoresCharacters.h"
 
 AStrategyUnit::AStrategyUnit()
 {
@@ -157,7 +157,7 @@ void AStrategyUnit::MoveToLocation(const FVector& Location, bool bInteract, cons
 	// kicks off the EQS/AIController move, which visibly slides the ragdoll-posed unit around
 	if (IsDowned())
 	{
-		UE_LOG(Logsmores, Warning, TEXT("[Combat] %s MoveToLocation bailed early: unit is Downed"), *GetName());
+		UE_LOG(LogSmoresCharacters, Warning, TEXT("[Combat] %s MoveToLocation bailed early: unit is Downed"), *GetName());
 		return;
 	}
 
@@ -401,7 +401,7 @@ void AStrategyUnit::OnCombatTargetOutOfRange(AActor* Target)
 
 void AStrategyUnit::OnHealthDowned()
 {
-	UE_LOG(Logsmores, Warning, TEXT("[Combat] %s OnHealthDowned"), *GetName());
+	UE_LOG(LogSmoresCharacters, Warning, TEXT("[Combat] %s OnHealthDowned"), *GetName());
 
 	StopMoving();
 
@@ -417,7 +417,7 @@ void AStrategyUnit::OnHealthDowned()
 
 void AStrategyUnit::OnHealthRecovered()
 {
-	UE_LOG(Logsmores, Warning, TEXT("[Combat] %s OnHealthRecovered"), *GetName());
+	UE_LOG(LogSmoresCharacters, Warning, TEXT("[Combat] %s OnHealthRecovered"), *GetName());
 
 	Combat->NotifyOwnerRecovered();
 
@@ -444,7 +444,7 @@ void AStrategyUnit::OnHealthDamaged(AActor* DamageInstigator)
 		return;
 	}
 
-	UE_LOG(Logsmores, Warning, TEXT("[Combat] %s OnHealthDamaged: auto-retaliating against %s"), *GetName(), *Attacker->GetName());
+	UE_LOG(LogSmoresCharacters, Warning, TEXT("[Combat] %s OnHealthDamaged: auto-retaliating against %s"), *GetName(), *Attacker->GetName());
 
 	AttackTarget(Attacker);
 }

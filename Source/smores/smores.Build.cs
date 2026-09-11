@@ -22,7 +22,8 @@ public class smores : ModuleRules
 			"SlateCore",
 			"SmoresCore",
 			"SmoresCombat",
-			"SmoresItems"
+			"SmoresItems",
+			"SmoresCharacters"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });

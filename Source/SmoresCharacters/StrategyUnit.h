@@ -31,7 +31,7 @@ enum class EStrategyDisposition : uint8
  *  Rather than react to inputs, it's controlled indirectly by the Strategy Player Controller
  */
 UCLASS(abstract)
-class AStrategyUnit : public ACharacter
+class SMORESCHARACTERS_API AStrategyUnit : public ACharacter
 {
 	GENERATED_BODY()
 
