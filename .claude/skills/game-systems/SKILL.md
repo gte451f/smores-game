@@ -19,7 +19,8 @@ documented as part of each system topic, in its "Player Surface" section, plus t
 |---|---|
 | [`topics/strategy-camera-and-selection.md`](topics/strategy-camera-and-selection.md) | RTS-style camera pawn, mouse/touch camera movement and zoom, unit selection, drag selection, double-tap, pawn cycling |
 | [`topics/strategy-unit-commands.md`](topics/strategy-unit-commands.md) | Move commands, lead-unit/formation targeting, movement completion, interaction triggering |
-| [`topics/inventory.md`](topics/inventory.md) | `UInventoryComponent` item storage, `UInventoryWidget` display, HUD-managed open/close/toggle |
+| [`topics/inventory.md`](topics/inventory.md) | `UInventoryComponent` fixed-slot item storage, `UInventoryWidget` drag-and-drop display, PlayerController-managed open/close/toggle for pawn/container/loot |
+| [`topics/inventory-roadmap.md`](topics/inventory-roadmap.md) | *(forward-looking)* Target design for item definitions, grid/bulk stacking with rotation, equipment/paperdoll, per-player currency, a unified proximity-gated transfer interface (trade/purchase/loot/theft), and world pickups — plus a dependency-ordered, one-slice-per-session Implementation Order with status and a Resolved Design Decisions log |
 | [`topics/combat.md`](topics/combat.md) | `UHealthComponent` health/damage/Downed-recovery, NPC self-hunting, player-issued squad attacks, auto-retaliation |
 | [`topics/game-modes.md`](topics/game-modes.md) | Visible game modes and what they let the player do |
 | [`topics/terminology.md`](topics/terminology.md) | Player-surface terms used across topics (Controlled Units, Drag Selection, Interaction Radius, Lead Unit, Player Surface) |
@@ -28,9 +29,11 @@ documented as part of each system topic, in its "Player Surface" section, plus t
 ## Working in this skill
 
 - **Describe current implementation, not aspiration.** Put future ideas under a "Known
-  Gaps" section in the relevant topic, not into the main description. The one deliberate
-  exception is `topics/unreal-module-organization.md`, which is explicitly a forward-looking
-  architecture reference rather than a record of built behavior — it says so up front.
+  Gaps" section in the relevant topic, not into the main description. The deliberate
+  exceptions are `topics/unreal-module-organization.md` and `topics/inventory-roadmap.md`,
+  each explicitly a forward-looking reference rather than a record of built behavior — both
+  say so up front. When a roadmap topic's content ships, move it into the paired
+  current-implementation topic and trim the roadmap accordingly.
 - **Update when behavior changes.** Any change to gameplay behavior, controls, camera
   behavior, selection rules, or UI-visible rules should be reflected here in the same
   change, alongside the code.
