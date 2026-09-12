@@ -278,9 +278,6 @@ topic only documents what's actually built.
   `ItemLabel` (`UTextBlock`, centred, `AutoWrapText` off). Nothing in that tree may clip to
   bounds: C++ turns the label 90° with a render transform, which doesn't affect layout, so the
   label has to be free to overflow its box.
-- **`WBP_InventorySlot`** — the pre-Slice-3 per-cell widget. Superseded by `WBP_InventoryCell`
-  and referenced by nothing; a CoreRedirect keeps its parent class resolving (to
-  `UInventoryCellWidget`) so it still loads, but it's dead weight and safe to delete.
 - **`IA_Strategy_Inventory`** (`Content/Variant_Strategy/Input/Actions/`) — bound to
   `ToggleInventoryAction`. Desktop-only; not mapped in the touch `InputMappingContext`.
 - **`IA_Strategy_ToggleContainer`** — bound to `ToggleContainerAction`. Also desktop-only.
