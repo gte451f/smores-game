@@ -9,9 +9,10 @@
 class UInventoryComponent;
 
 /**
- *  Drag payload for moving/swapping an item between inventory slot widgets - identifies which
- *  inventory and slot the drag started from. Created by UInventorySlotWidget::NativeOnDragDetected
- *  and consumed by the target slot's NativeOnDrop.
+ *  Drag payload for moving a placed item between inventory grids - identifies which inventory
+ *  and which placed entry the drag started from, plus the orientation the item is currently
+ *  being carried at. Created by UInventorySlotWidget::NativeOnDragDetected and consumed by the
+ *  target cell's NativeOnDrop, which supplies the destination cell.
  */
 UCLASS()
 class SMORESUI_API UInventoryDragDropOperation : public UDragDropOperation
@@ -24,7 +25,11 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
 	TWeakObjectPtr<UInventoryComponent> SourceInventory;
 
-	/** Slot index within SourceInventory the dragged item is coming from */
+	/** Stable id of the placed entry being dragged (see FInventoryEntry::EntryId) */
 	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
-	int32 SourceSlotIndex = INDEX_NONE;
+	int32 SourceEntryId = INDEX_NONE;
+
+	/** Orientation the item will be dropped at. Seeded from the entry's current rotation; a rotate key flips it mid-drag (Slice 3). */
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
+	bool bRotated = false;
 };

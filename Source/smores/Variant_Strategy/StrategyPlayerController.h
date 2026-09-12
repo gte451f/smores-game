@@ -472,13 +472,37 @@ public:
 
 	//~ Begin IInventoryMoveHost interface
 
-	/** Server-side entry point for an inventory drag-drop move/swap (see UInventorySlotWidget::NativeOnDrop -
-	 *  the widget can't mutate inventory contents directly, since UInventoryComponent::SetItemAt is
-	 *  authority-only). Just forwards to UInventoryComponent::MoveItem. */
+	/** Server-side entry point for an inventory drag-drop move (see UInventorySlotWidget::NativeOnDrop -
+	 *  the widget can't mutate inventory contents directly, since UInventoryComponent's mutators are
+	 *  authority-only). Just forwards to UInventoryComponent::MoveItem, which does all the validation. */
 	UFUNCTION(Server, Reliable)
-	virtual void Server_MoveInventoryItem(UInventoryComponent* SourceInventory, int32 SourceIndex, UInventoryComponent* DestInventory, int32 DestIndex) override;
+	virtual void Server_MoveInventoryItem(UInventoryComponent* SourceInventory, int32 EntryId, UInventoryComponent* DestInventory, FIntPoint DestCell, bool bRotated, int32 Quantity) override;
 
 	//~ End IInventoryMoveHost interface
+
+	/**
+	 *  Debug exec: dumps the selected pawn's inventory grid to the log as an ASCII occupancy map
+	 *  plus a per-entry list. The authoritative grid only exists on the server, so this hops there
+	 *  via Server_DebugInventory rather than reading the local replicated copy.
+	 */
+	UFUNCTION(Exec)
+	void SmoresDumpInventory();
+
+	/**
+	 *  Debug exec: adds Count more of whatever item already sits in the selected pawn's first grid
+	 *  entry, then dumps the grid - exercising stack-merge, auto-placement and rotation against
+	 *  real authored footprints without needing an item-id lookup path that doesn't exist yet.
+	 */
+	UFUNCTION(Exec)
+	void SmoresAddItem(int32 Count = 1);
+
+protected:
+
+	/** Server side of the inventory debug execs - optionally adds AddCount items, then logs the grid */
+	UFUNCTION(Server, Reliable)
+	void Server_DebugInventory(UInventoryComponent* Inventory, int32 AddCount);
+
+public:
 
 protected:
 

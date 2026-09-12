@@ -72,6 +72,18 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
     looking like a successful reset. Don't trust `reset_properties` to recover a value that
     was itself set via a raw CDO write; verify the result with `get_properties` before
     moving on.
+  - **Verify a placed instance's inherited value only after save + level reload.** A newly
+    added C++ `UPROPERTY` on a *native default subobject* (e.g. `Inventory` on
+    `AStrategyUnit`) reads back as the **native C++ default** on every placed instance until
+    the owning Blueprint's `.uasset` is actually written to disk — a compile alone isn't
+    enough. This looks exactly like "the Blueprint default didn't take", and the obvious fix
+    (`reset_properties` on the instance) is the worst possible move: per the bullet above it
+    resolves to the native default anyway, *and* it flags that value as an explicit
+    per-instance override on every actor it touches, which the next `save_assets` then
+    persists to disk. Correct order is CDO write → `compile_blueprint` → `AssetTools.save_assets([])`
+    → reload the level → *then* read the instance back. If overrides were already written,
+    clean them by setting the intended value explicitly per instance and re-saving, then
+    confirm with `grep -arl "<PropertyName>" Content/__ExternalActors__/` returning nothing.
   - **A CDO write followed by `compile_blueprint` *is* durable.** `BlueprintTools` exposes
     no dedicated class-default setter, so the working recipe for a class default is
     `get_default_object` → `ObjectTools.set_properties` → `BlueprintTools.compile_blueprint`.

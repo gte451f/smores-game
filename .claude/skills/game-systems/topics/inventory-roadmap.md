@@ -23,31 +23,12 @@ The definition/instance split is built; see `inventory.md`. The one piece of it 
 outstanding is per-instance **grid anchor cell + rotation**, which arrives with the grid
 itself in Slice 2.
 
-## Grid-Based Storage (Bulk) and Stacking
+## Grid-Based Storage (Bulk) and Stacking — **SHIPPED (Slice 2)**
 
-Replaces the current flat `NumSlots` 1D array with a genuine 2D grid:
-
-- Every holder (pawn backpack, world container, storefront shelf) has its own authored
-  grid width × height — **sized per holder type**, not a single fixed size everywhere. A
-  pawn's personal pack is meaningfully smaller than a storefront's or a warehouse chest's.
-- An item occupies a rectangular footprint of cells (from its definition), not necessarily
-  1×1 — a bulkier item takes more grid space, which is the game's stand-in for
-  volume/bulk independent of weight (see Weight & Encumbrance below).
-- **Rotation is supported.** Auto-placement (e.g. picking up a loose world item, "take all"
-  from a loot panel) tries both orientations to find a fit; the player can also manually
-  force-rotate an item while dragging, to pack deliberately ("Tetris" play is an intended,
-  supported style, not just tolerated).
-- Placement validates against overlap — no two placed footprints may share a cell.
-- **Stacking**: items with a matching definition and stackable category combine into one
-  entry. **Decided:** effective max stack = the definition's base max stack × the holder's
-  stack multiplier (a per-`UInventoryComponent` value, default 1.0 for a pawn's pack;
-  storefronts/warehouse chests set it higher). One number per holder type covers "a shelf
-  stacks deeper than a backpack" without per-transfer special cases.
-- This replaces `UInventoryComponent::AddItem`/`SetItemAt`/`MoveItem`'s current
-  single-index model with real placement/collision logic, and the current
-  `IInventoryMoveHost::Server_MoveInventoryItem` RPC needs to carry a target cell and
-  rotation (and eventually a quantity, for partial-stack moves) instead of a single
-  destination index.
+The component-side grid is built; see `inventory.md`. The one piece of it still outstanding
+is the **player-facing** half of rotation: auto-placement already tries both orientations,
+but there's no rotate-while-dragging key, and no item widget spanning its footprint. Both
+arrive with the grid UI in Slice 3.
 
 ## Weight & Encumbrance
 
@@ -170,11 +151,12 @@ underlying move/copy operation rather than inventing its own UI:
 What carries forward largely unchanged: authority-gated mutation + replication, the
 `OnInventoryChanged` delegate pattern, `UWindowWidget` floating-panel chrome, and the
 overall "drag from one slot widget, drop on another, server validates and applies" shape.
-What needs real rework: `UInventoryComponent`'s flat index model (→ 2D grid + placement),
-`IInventoryMoveHost::Server_MoveInventoryItem`'s single-index signature (→ cell + rotation,
-and possibly quantity for partial-stack moves), and `AStrategyContainer`/loot's
-`InteractionRange` proximity pattern (→ generalized to every transfer context via
-`IInventoryHolder`, not reimplemented per context).
+Already reworked in Slice 2: `UInventoryComponent`'s flat index model (now a 2D grid with
+placement/collision) and `IInventoryMoveHost::Server_MoveInventoryItem`'s signature (now
+entry id + cell + rotation + quantity). What still needs real rework:
+`AStrategyContainer`/loot's `InteractionRange` proximity pattern (→ generalized to every
+transfer context via `IInventoryHolder`, not reimplemented per context), and the interim
+one-widget-per-cell inventory UI (→ item widgets spanning their footprint).
 
 ## Implementation Order
 
@@ -206,26 +188,28 @@ Shipped; see `inventory.md`. Two notes worth carrying forward:
 - Reshaping `FInventoryItem` silently voided **per-placed-instance** `StartingItems`
   overrides on four actors in `LVL_Strategy` — "Chest 2" held three entries that
   deserialized to null definitions, and "Chest 1" plus both placed `BP_PlayerUnit` actors
-  held *empty*-array overrides that quietly shadowed the new Blueprint defaults. Slices 2
-  and 5 reshape this struct again: grep `Content/__ExternalActors__/` for `StartingItems`
-  first, and don't assume Blueprint class defaults are the only authored copies.
+  held *empty*-array overrides that quietly shadowed the new Blueprint defaults. Slice 2 did
+  **not** reshape `FInventoryItem` (it added `FInventoryEntry` around it instead), so those
+  overrides survived untouched — but Slice 5 may still touch it: grep
+  `Content/__ExternalActors__/` for `StartingItems` first, and don't assume Blueprint class
+  defaults are the only authored copies.
 
-### Slice 2 — Grid storage, footprint, rotation, stacking (component side)
+### Slice 2 — Grid storage, footprint, rotation, stacking (component side) — **DONE**
 
-- **Build:** replace `NumSlots`/`Items` with `GridWidth`/`GridHeight`, `StackMultiplier`,
-  and a replicated array of placed entries (instance + anchor cell + rotation). Placement
-  API: `CanPlaceAt(item, cell, rotation)`, `FindFreePlacement(item)` (tries both
-  rotations), `AddItem` (merge into an existing stack up to base × multiplier first, then
-  auto-place), `RemoveEntry`, and a new static `MoveItem(src, entryId, dest, cell,
-  rotation, quantity)`. Change `IInventoryMoveHost::Server_MoveInventoryItem` to match.
-  Keep `OnInventoryChanged`/`OnRep` and authority gating exactly as they are.
-- **Touches:** `InventoryComponent.*`, `InventoryMoveHost.h`,
-  `StrategyPlayerController.*` (RPC signature), and the UI just enough to compile — the
-  slot-widget rendering can be temporarily degraded (e.g. the `SlotListText` fallback) until
-  Slice 3.
-- **Done when:** unit tests or a debug command exercise placement/rotation/stack-merge on
-  the server and results replicate; existing chest/unit `StartingItems` auto-place on
-  BeginPlay; the text fallback lists entries with quantities.
+Shipped; see `inventory.md`. Notes worth carrying forward:
+
+- **`MoveItem` deliberately has no swap path.** Two differently-shaped footprints have no
+  well-defined exchange, so a drop resolves to merge / reposition / place, and anything else
+  is rejected whole. Later slices that add a transfer context (purchase, loot, steal) should
+  layer their gating *in front of* `MoveItem` rather than adding a fourth resolution to it.
+- **Rejection is silent.** The server mutates nothing and sends nothing back; the client's
+  next refresh redraws unchanged replicated state, which is what makes the item appear to
+  snap back. If a context ever needs to explain *why* a move failed (insufficient gold,
+  Slice 8), that needs a new client RPC — it can't be inferred from the absence of a change.
+- **Rotation is only half-shipped.** `FindFreePlacement` uses it; the player can't yet
+  invoke it. Slice 3 owns the rotate key and the footprint-spanning item widget.
+- Verify with the `SmoresDumpInventory` / `SmoresAddItem <Count>` console execs on
+  `AStrategyPlayerController` — they run server-side and log an ASCII occupancy map.
 
 ### Slice 3 — Grid UI: cells, footprints, drag with rotate
 
@@ -238,6 +222,12 @@ Shipped; see `inventory.md`. Two notes worth carrying forward:
 - **Touches:** `InventoryWidget.*`, `InventorySlotWidget.*` (likely becomes an item widget
   plus a cell widget), `InventoryDragDropOperation.h`, `WBP_Inventory`,
   `WBP_ContainerInventory`, `WBP_InventorySlot`.
+- **Starting point:** Slice 2 already left an interim one-widget-per-cell renderer in place —
+  `UInventorySlotWidget` is a *cell* bound to whichever entry covers it, the drag operation
+  already carries entry id + rotation, and the drop already resolves to a cell. What's missing
+  is the footprint-spanning item widget, the rotate key flipping
+  `UInventoryDragDropOperation::bRotated` mid-drag, and a partial-quantity drag (the RPC
+  already takes a quantity; the UI always passes 0 for "whole stack").
 - **Done when:** the user can drag, rotate, and pack items between a pawn window and a chest
   window in PIE, and a second client (or listen-server + client in-editor) sees the result.
 

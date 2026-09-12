@@ -12,11 +12,13 @@ class UTextBlock;
 class UPanelWidget;
 
 /**
- *  Inventory screen for a single selected pawn.
+ *  Inventory screen for a single holder (a selected pawn, a world container, a loot target).
  *  Mirrors the UStrategyUI pattern: C++ owns the data, Blueprint builds the visuals.
- *  The default visual is a single text block listing every slot; if a SlotContainer and
- *  SlotWidgetClass are set, per-slot widgets are spawned into it instead (a UUniformGridPanel
- *  renders as a grid, any other UPanelWidget renders as a list).
+ *
+ *  The default visual is a single text block listing every placed entry; if a SlotContainer and
+ *  SlotWidgetClass are set, one cell widget per grid cell is spawned into it instead (a
+ *  UUniformGridPanel lays them out as the actual GridWidth x GridHeight grid, any other
+ *  UPanelWidget as a flat list).
  */
 UCLASS(abstract)
 class SMORESUI_API UInventoryWidget : public UWindowWidget
@@ -28,27 +30,23 @@ protected:
 	/** Inventory this widget is currently displaying */
 	TWeakObjectPtr<UInventoryComponent> BoundInventory;
 
-	/** Optional text block that shows one line per slot. Name it "SlotListText" in the WBP to auto-bind. */
+	/** Optional text block that lists the placed entries. Name it "SlotListText" in the WBP to auto-bind. */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> SlotListText;
 
 	/**
-	 *  Optional container for per-slot widgets. A UUniformGridPanel renders as a grid
-	 *  (using GridColumns); any other UPanelWidget (e.g. UVerticalBox) renders as a list.
-	 *  Name it "SlotContainer" in the WBP to auto-bind.
+	 *  Optional container for per-cell widgets. A UUniformGridPanel renders the real grid
+	 *  (wrapping at the bound inventory's GridWidth); any other UPanelWidget (e.g. UVerticalBox)
+	 *  renders a flat list. Name it "SlotContainer" in the WBP to auto-bind.
 	 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UPanelWidget> SlotContainer;
 
-	/** Widget class spawned once per slot into SlotContainer. Must be set for slot widgets to appear. */
+	/** Widget class spawned once per grid cell into SlotContainer. Must be set for cell widgets to appear. */
 	UPROPERTY(EditAnywhere, Category = "Inventory")
 	TSubclassOf<UInventorySlotWidget> SlotWidgetClass;
 
-	/** Number of columns to wrap at when SlotContainer is a UUniformGridPanel. Ignored otherwise. */
-	UPROPERTY(EditAnywhere, Category = "Inventory", meta = (ClampMin = 1))
-	int32 GridColumns = 8;
-
-	/** Slot widgets spawned by the last RefreshDisplay */
+	/** Cell widgets spawned by the last RefreshDisplay, in row-major order */
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UInventorySlotWidget>> SlotWidgets;
 
@@ -60,20 +58,20 @@ public:
 	/** Unbinds this widget from its inventory */
 	void ClearInventory();
 
-	/** Number of slots on the bound inventory (0 if none) */
+	/** Grid dimensions of the bound inventory (zero if none) */
 	UFUNCTION(BlueprintPure, Category = "Inventory")
-	int32 GetNumSlots() const;
+	FIntPoint GetGridSize() const;
 
-	/** Items on the bound inventory (empty if none) */
+	/** Placed entries on the bound inventory (empty if none) */
 	UFUNCTION(BlueprintPure, Category = "Inventory")
-	TArray<FInventoryItem> GetItems() const;
+	TArray<FInventoryEntry> GetEntries() const;
 
-	/** Multi-line summary: one line per slot, "(empty)" for unfilled slots */
+	/** Multi-line summary: one line per placed entry with its quantity, cell and orientation */
 	UFUNCTION(BlueprintPure, Category = "Inventory")
-	FText GetSlotSummary() const;
+	FText GetContentsSummary() const;
 
-	/** Player-facing label for one carried item - its definition's display name, plus "xN" once it's a real stack.
-	 *  Shared by the summary text and the per-slot widgets so both read the definition the same way. */
+	/** Player-facing label for one carried item - its definition's display name, plus "xN" for a real stack.
+	 *  Shared by the summary text and the per-cell widgets so both read the definition the same way. */
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	static FText GetItemLabel(const FInventoryItem& Item);
 
@@ -87,7 +85,7 @@ protected:
 	UFUNCTION()
 	void HandleInventoryChanged();
 
-	/** Pushes current inventory state to the default text block and the BP hook */
+	/** Pushes current inventory state to the default text block, the cell widgets and the BP hook */
 	void RefreshDisplay();
 
 	//~ Begin UUserWidget interface

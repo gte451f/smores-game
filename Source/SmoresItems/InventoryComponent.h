@@ -14,18 +14,19 @@ class UTexture2D;
  *  is, plus only what actually varies copy-to-copy. Everything common (name, icon, weight,
  *  value, footprint, stack size) is read through Definition rather than duplicated here.
  *
- *  A default-constructed instance (no Definition) marks an empty slot.
+ *  A default-constructed instance (no Definition) is "nothing" - it never appears as a placed
+ *  grid entry, only as the empty result of a failed lookup.
  */
 USTRUCT(BlueprintType)
 struct FInventoryItem
 {
 	GENERATED_BODY()
 
-	/** What this item is. Null means "empty slot". Replicates by path, since definitions are stably-named assets. */
+	/** What this item is. Null means "no item". Replicates by path, since definitions are stably-named assets. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory")
 	TObjectPtr<UItemDefinition> Definition = nullptr;
 
-	/** How many of the item this entry holds. Always 1 until stacking lands. */
+	/** How many of the item this entry holds, capped by the definition's MaxStackSize x the holder's StackMultiplier. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory", meta = (ClampMin = 1))
 	int32 Quantity = 1;
 
@@ -45,19 +46,19 @@ struct FInventoryItem
 	{
 	}
 
-	/** True if this represents an empty slot (no definition placed) */
+	/** True if this holds no item at all (no definition) */
 	bool IsEmpty() const { return Definition == nullptr; }
 
 	/** Stable item-type identifier, or NAME_None when empty */
 	FName GetItemId() const { return Definition ? Definition->ItemId : NAME_None; }
 
-	/** Player-facing name, or empty when this slot is empty */
+	/** Player-facing name, or empty when this holds no item */
 	FText GetDisplayName() const { return Definition ? Definition->DisplayName : FText::GetEmpty(); }
 
-	/** Player-facing description, or empty when this slot is empty */
+	/** Player-facing description, or empty when this holds no item */
 	FText GetDescription() const { return Definition ? Definition->Description : FText::GetEmpty(); }
 
-	/** Inventory icon, or null when this slot is empty / the definition has no icon */
+	/** Inventory icon, or null when this holds no item / the definition has no icon */
 	UTexture2D* GetIcon() const { return Definition ? Definition->Icon : nullptr; }
 
 	/** Combined weight of this entry (unit weight x quantity) */
@@ -66,16 +67,113 @@ struct FInventoryItem
 	/** Combined base resale value of this entry, before any buy/sell markup */
 	int32 GetTotalBaseValue() const { return Definition ? Definition->BaseValue * Quantity : 0; }
 
-	/** True if both entries hold the same item type and could merge into one stack */
+	/** Base (unmultiplied) stack cap from the definition; 0 when empty. The holder's StackMultiplier scales this - see UInventoryComponent::GetEffectiveMaxStack. */
+	int32 GetBaseMaxStackSize() const { return Definition ? Definition->MaxStackSize : 0; }
+
+	/**
+	 *  Rectangular grid footprint in cells, from the definition. Rotation is the single
+	 *  supported 90-degree turn, which just swaps width and height.
+	 *  Zero when this holds no item.
+	 */
+	FIntPoint GetFootprint(bool bRotated = false) const
+	{
+		if (!Definition)
+		{
+			return FIntPoint::ZeroValue;
+		}
+
+		return bRotated
+			? FIntPoint(Definition->FootprintHeight, Definition->FootprintWidth)
+			: FIntPoint(Definition->FootprintWidth, Definition->FootprintHeight);
+	}
+
+	/** True if both entries hold the same item type */
 	bool HasSameDefinitionAs(const FInventoryItem& Other) const { return Definition != nullptr && Definition == Other.Definition; }
+
+	/**
+	 *  True if these two entries may merge into one stack: same definition, the definition
+	 *  allows stacking at all, and neither launders the other's stolen flag away. Condition
+	 *  is deliberately *not* compared - stackable goods are bulk materials, and splitting a
+	 *  stack per wear value would fragment it uselessly.
+	 */
+	bool CanStackWith(const FInventoryItem& Other) const
+	{
+		return HasSameDefinitionAs(Other) && Definition->IsStackable() && bStolen == Other.bStolen;
+	}
 };
 
-/** Broadcast whenever the slot count or item list changes */
+/**
+ *  One item instance *placed* in a holder's grid: the instance itself plus where it sits
+ *  (anchor cell = its top-left corner) and whether it's turned 90 degrees.
+ *
+ *  EntryId is the stable handle callers use to refer to a placement - unlike an array index
+ *  it survives other entries being added or removed, which matters because the UI holds a
+ *  reference across a client->server round trip.
+ */
+USTRUCT(BlueprintType)
+struct FInventoryEntry
+{
+	GENERATED_BODY()
+
+	/** Stable per-holder identifier, assigned on placement. INDEX_NONE on a default-constructed (invalid) entry. */
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
+	int32 EntryId = INDEX_NONE;
+
+	/** The carried instance */
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
+	FInventoryItem Item;
+
+	/** Top-left cell of this entry's footprint. X is the column, Y the row. */
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
+	FIntPoint AnchorCell = FIntPoint::ZeroValue;
+
+	/** True when the footprint is turned 90 degrees (width and height swapped) */
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
+	bool bRotated = false;
+
+	FInventoryEntry() = default;
+
+	FInventoryEntry(int32 InEntryId, const FInventoryItem& InItem, FIntPoint InAnchorCell, bool bInRotated)
+		: EntryId(InEntryId)
+		, Item(InItem)
+		, AnchorCell(InAnchorCell)
+		, bRotated(bInRotated)
+	{
+	}
+
+	/** True if this is a real placement rather than a "not found" result */
+	bool IsValidEntry() const { return EntryId != INDEX_NONE && !Item.IsEmpty(); }
+
+	/** Footprint in cells, already accounting for rotation */
+	FIntPoint GetFootprint() const { return Item.GetFootprint(bRotated); }
+
+	/** True if this entry's footprint covers the given cell */
+	bool CoversCell(FIntPoint Cell) const
+	{
+		const FIntPoint Size = GetFootprint();
+
+		return Cell.X >= AnchorCell.X && Cell.X < AnchorCell.X + Size.X
+			&& Cell.Y >= AnchorCell.Y && Cell.Y < AnchorCell.Y + Size.Y;
+	}
+};
+
+/** Broadcast whenever the grid size or placed entries change */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryChangedDelegate);
 
 /**
- *  Simple inventory carried by every strategy pawn (NPC and player alike).
- *  Holds a dynamic number of slots (default 4) and the items filling them.
+ *  Grid inventory carried by every holder (strategy pawn, world container, and later
+ *  storefronts and world pickups).
+ *
+ *  Storage is a GridWidth x GridHeight cell grid rather than a flat slot list: an item
+ *  occupies a rectangular footprint of cells taken from its definition, optionally rotated
+ *  90 degrees, and no two footprints may overlap. That footprint is the game's stand-in for
+ *  bulk/volume, deliberately independent of weight.
+ *
+ *  Stacking is capped at the definition's MaxStackSize x this holder's StackMultiplier, so a
+ *  storefront shelf stacks deeper than a pawn's backpack without any per-transfer special case.
+ *
+ *  All mutation is authority-only and every mutator broadcasts OnInventoryChanged; Entries
+ *  replicates, and OnRep re-broadcasts on non-authority machines.
  */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class SMORESITEMS_API UInventoryComponent : public UActorComponent
@@ -87,84 +185,148 @@ public:
 	/** Constructor */
 	UInventoryComponent();
 
-	/** Number of item slots available on this inventory. Replicated (see Items) since it's shared gameplay state. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Inventory", meta = (ClampMin = 0, ClampMax = 64))
-	int32 NumSlots = 64;
+	/** Grid width in cells. Sized per holder type - a pawn's pack is meaningfully smaller than a warehouse chest's. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Inventory", meta = (ClampMin = 1, ClampMax = 32))
+	int32 GridWidth = 8;
+
+	/** Grid height in cells. Sized per holder type (see GridWidth). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Inventory", meta = (ClampMin = 1, ClampMax = 32))
+	int32 GridHeight = 8;
+
+	/**
+	 *  Scales every item definition's MaxStackSize into this holder's effective stack cap.
+	 *  1.0 for a pawn's pack; storefronts and warehouse chests set it higher.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Inventory", meta = (ClampMin = 0.01))
+	float StackMultiplier = 1.0f;
 
 protected:
 
-	/** Items currently held, always exactly NumSlots entries; an empty FInventoryItem marks an empty slot.
-	 *  Replicated so every machine sees the same contents (a container's inventory is visible to whichever
-	 *  player has it open, a unit's inventory to whoever's looting/trading with it). */
-	UPROPERTY(ReplicatedUsing = OnRep_Items, BlueprintReadOnly, Category = "Inventory")
-	TArray<FInventoryItem> Items;
+	/** Items currently placed in the grid, in no particular order. Replicated so every machine sees the same
+	 *  contents (a container's inventory is visible to whichever player has it open, a unit's inventory to
+	 *  whoever's looting/trading with it). */
+	UPROPERTY(ReplicatedUsing = OnRep_Entries, BlueprintReadOnly, Category = "Inventory")
+	TArray<FInventoryEntry> Entries;
 
-	//~ Begin UActorComponent interface
-	virtual void BeginPlay() override;
-	//~ End UActorComponent interface
+	/** Server-side counter handing out stable EntryIds. Not replicated - clients read ids off Entries. */
+	int32 NextEntryId = 0;
 
 	//~ Begin UObject interface
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	//~ End UObject interface
 
-	/** Reacts on non-authority machines to a replicated item-list change - authority already broadcast
-	 *  OnInventoryChanged directly from AddItem/SetItemAt/SetNumSlots */
+	/** Reacts on non-authority machines to a replicated entry-list change - authority already broadcast
+	 *  OnInventoryChanged directly from the mutator it called */
 	UFUNCTION()
-	void OnRep_Items();
+	void OnRep_Entries();
+
+	/** Index into Entries for the given id, or INDEX_NONE */
+	int32 IndexOfEntry(int32 EntryId) const;
 
 public:
 
-	/** Fired when the slot count or item list changes */
+	/** Fired when the grid size or the placed entries change */
 	UPROPERTY(BlueprintAssignable, Category = "Inventory")
 	FOnInventoryChangedDelegate OnInventoryChanged;
 
-	/** Adds an item if there's a free slot. Authority-only (no-ops on a non-authority machine). Returns false (and warns) when full. */
+	//~ Queries
+
+	/** True when this machine may mutate the inventory (it owns the authoritative copy) */
+	bool HasOwnerAuthority() const;
+
+	/** Grid dimensions in cells */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	FIntPoint GetGridSize() const { return FIntPoint(GridWidth, GridHeight); }
+
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	int32 GetGridWidth() const { return GridWidth; }
+
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	int32 GetGridHeight() const { return GridHeight; }
+
+	/** True if the cell coordinate lies inside the grid */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	bool IsCellInBounds(FIntPoint Cell) const;
+
+	/** Number of cells not covered by any placed entry */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	int32 GetFreeCellCount() const;
+
+	/** This holder's stack cap for the given definition: its base MaxStackSize x StackMultiplier, never below 1. Zero for a null definition. */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	int32 GetEffectiveMaxStack(const UItemDefinition* Definition) const;
+
+	/** Read-only access to the placed entries */
+	const TArray<FInventoryEntry>& GetEntries() const { return Entries; }
+
+	/** Blueprint-friendly copy of the placed entries */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	TArray<FInventoryEntry> GetEntriesCopy() const { return Entries; }
+
+	/** The entry with the given id, or a default (invalid) entry if there's none */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	FInventoryEntry GetEntry(int32 EntryId) const;
+
+	/** Id of the entry whose footprint covers the given cell, or INDEX_NONE if the cell is free/out of bounds */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	int32 GetEntryIdAtCell(FIntPoint Cell) const;
+
+	/**
+	 *  True if Item's footprint would fit with its top-left corner at Cell: inside the grid and
+	 *  overlapping no other entry. IgnoreEntryId excludes one existing entry from the overlap
+	 *  test, which is what lets an entry be re-anchored onto cells it already occupies itself.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	bool CanPlaceAt(const FInventoryItem& Item, FIntPoint Cell, bool bRotated, int32 IgnoreEntryId = -1) const;
+
+	/**
+	 *  Scans for somewhere Item fits, trying the natural orientation across the whole grid first
+	 *  and only then the rotated one (so items don't get turned sideways when they didn't need to be).
+	 *  Returns false and leaves the outputs untouched when nothing fits.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	bool FindFreePlacement(const FInventoryItem& Item, FIntPoint& OutCell, bool& bOutRotated, int32 IgnoreEntryId = -1) const;
+
+	//~ Mutators - all authority-only, all silent no-ops on a non-authority machine
+
+	/**
+	 *  Adds an item: merges into existing stacks of the same type first (up to this holder's
+	 *  effective cap), then auto-places whatever's left over, splitting into as many entries as
+	 *  the cap requires. Returns true only if the entire quantity was taken; a partial add still
+	 *  keeps what fit and warns about the rest.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool AddItem(const FInventoryItem& Item);
 
-	/** Removes the item at the given index. Authority-only (see SetItemAt). Returns false if the index is invalid. */
+	/** Places an item at an explicit cell/rotation, without any stack merging. Returns false if it doesn't fit. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	bool RemoveItemAt(int32 Index);
+	bool AddItemAt(const FInventoryItem& Item, FIntPoint Cell, bool bRotated);
 
-	/** Sets the item at the given index (an empty FInventoryItem clears the slot). Authority-only (no-ops on a non-authority machine). Returns false if the index is invalid. */
+	/** Removes a placed entry outright. Returns false if there's no such entry. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	bool SetItemAt(int32 Index, const FInventoryItem& Item);
+	bool RemoveEntry(int32 EntryId);
+
+	/** Sets an entry's quantity, clamped to this holder's effective stack cap; a new quantity of 0 or less removes the entry. */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	bool SetEntryQuantity(int32 EntryId, int32 NewQuantity);
+
+	/** Moves an existing entry to a new cell/rotation within this same grid. Returns false if it wouldn't fit there. */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	bool RepositionEntry(int32 EntryId, FIntPoint NewCell, bool bRotated);
+
+	/** Resizes the grid, dropping any entry that no longer fits inside it. Returns false if the size was already that. */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	bool SetGridSize(int32 NewWidth, int32 NewHeight);
 
 	/**
-	 *  Moves the item at SourceIndex (on SourceInventory) to DestIndex (on DestInventory), swapping
-	 *  with whatever already occupies DestIndex. Works for reordering within one inventory
-	 *  (SourceInventory == DestInventory) and for transferring between two different inventories.
-	 *  Authority-only (enforced by the underlying SetItemAt calls). No-ops (returns false) if either
-	 *  component is null, either index is invalid, the source slot is empty, or the source and
-	 *  destination are the same slot.
+	 *  The single move/transfer entry point, used for repositioning within one grid
+	 *  (SourceInventory == DestInventory) and for transferring between two.
+	 *
+	 *  Quantity <= 0 moves the whole entry; a smaller quantity splits the stack. The move either
+	 *  merges into a stackable entry already anchored at DestCell, or places the item there
+	 *  outright - it never swaps, so a drop onto something that can't stack is rejected whole and
+	 *  the UI just snaps back. All validation happens before anything is mutated.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	static bool MoveItem(UInventoryComponent* SourceInventory, int32 SourceIndex, UInventoryComponent* DestInventory, int32 DestIndex);
-
-	/** Number of empty slots remaining */
-	UFUNCTION(BlueprintPure, Category = "Inventory")
-	int32 GetFreeSlotCount() const;
-
-	/** True if the slot at Index holds no item (or Index is out of range) */
-	UFUNCTION(BlueprintPure, Category = "Inventory")
-	bool IsSlotEmpty(int32 Index) const;
-
-	/** Item at the given slot index; an empty item if Index is invalid or the slot is empty */
-	UFUNCTION(BlueprintPure, Category = "Inventory")
-	FInventoryItem GetItemAt(int32 Index) const;
-
-	/** Current number of slots */
-	UFUNCTION(BlueprintPure, Category = "Inventory")
-	int32 GetNumSlots() const { return NumSlots; }
-
-	/** Resizes the inventory, dropping any items that no longer fit. Authority-only (no-ops on a non-authority machine). */
-	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	void SetNumSlots(int32 NewNumSlots);
-
-	/** Read-only access to the held items */
-	const TArray<FInventoryItem>& GetItems() const { return Items; }
-
-	/** Blueprint-friendly copy of the held items */
-	UFUNCTION(BlueprintPure, Category = "Inventory")
-	TArray<FInventoryItem> GetItemsCopy() const { return Items; }
+	static bool MoveItem(UInventoryComponent* SourceInventory, int32 EntryId, UInventoryComponent* DestInventory, FIntPoint DestCell, bool bRotated, int32 Quantity = 0);
 };

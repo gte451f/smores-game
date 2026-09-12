@@ -1133,9 +1133,94 @@ void AStrategyPlayerController::Server_MoveUnits_Implementation(const TArray<ASt
 	}
 }
 
-void AStrategyPlayerController::Server_MoveInventoryItem_Implementation(UInventoryComponent* SourceInventory, int32 SourceIndex, UInventoryComponent* DestInventory, int32 DestIndex)
+void AStrategyPlayerController::Server_MoveInventoryItem_Implementation(UInventoryComponent* SourceInventory, int32 EntryId, UInventoryComponent* DestInventory, FIntPoint DestCell, bool bRotated, int32 Quantity)
 {
-	UInventoryComponent::MoveItem(SourceInventory, SourceIndex, DestInventory, DestIndex);
+	UInventoryComponent::MoveItem(SourceInventory, EntryId, DestInventory, DestCell, bRotated, Quantity);
+}
+
+void AStrategyPlayerController::SmoresDumpInventory()
+{
+	SmoresAddItem(0);
+}
+
+void AStrategyPlayerController::SmoresAddItem(int32 Count)
+{
+	// the exec runs wherever the console was typed, but the grid it wants to inspect and mutate
+	// only authoritatively exists on the server - so resolve the pawn locally and hop across
+	for (AStrategyUnit* CurrentUnit : ControlledUnits)
+	{
+		if (AStrategyPlayerUnit* PlayerUnit = Cast<AStrategyPlayerUnit>(CurrentUnit))
+		{
+			Server_DebugInventory(PlayerUnit->GetInventory(), Count);
+			return;
+		}
+	}
+
+	UE_LOG(Logsmores, Warning, TEXT("[InvDebug] No player pawn selected."));
+}
+
+void AStrategyPlayerController::Server_DebugInventory_Implementation(UInventoryComponent* Inventory, int32 AddCount)
+{
+	if (!Inventory)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[InvDebug] No inventory to inspect."));
+		return;
+	}
+
+	if (AddCount > 0)
+	{
+		// re-add whatever's already placed first, so this needs no item-id lookup path;
+		// AddItem then exercises stack-merge, auto-placement and the rotation fallback
+		const TArray<FInventoryEntry>& Existing = Inventory->GetEntries();
+
+		if (Existing.IsEmpty())
+		{
+			UE_LOG(Logsmores, Warning, TEXT("[InvDebug] Inventory is empty - nothing to duplicate. Seed StartingItems first."));
+		}
+		else
+		{
+			const bool bAddedAll = Inventory->AddItem(FInventoryItem(Existing[0].Item.Definition, AddCount));
+
+			UE_LOG(Logsmores, Warning, TEXT("[InvDebug] AddItem(%d x %s) -> %s"),
+				AddCount, *GetNameSafe(Existing[0].Item.Definition), bAddedAll ? TEXT("all placed") : TEXT("PARTIAL/FAILED"));
+		}
+	}
+
+	const FIntPoint GridSize = Inventory->GetGridSize();
+	const TArray<FInventoryEntry>& Entries = Inventory->GetEntries();
+
+	UE_LOG(Logsmores, Warning, TEXT("[InvDebug] %s: %dx%d grid, %d entries, %d/%d cells free"),
+		*GetNameSafe(Inventory->GetOwner()), GridSize.X, GridSize.Y, Entries.Num(),
+		Inventory->GetFreeCellCount(), GridSize.X * GridSize.Y);
+
+	// occupancy map: one character per cell, indexing into the entry list below
+	for (int32 Row = 0; Row < GridSize.Y; ++Row)
+	{
+		FString RowText;
+
+		for (int32 Column = 0; Column < GridSize.X; ++Column)
+		{
+			const int32 EntryIndex = Entries.IndexOfByPredicate([Cell = FIntPoint(Column, Row)](const FInventoryEntry& Entry)
+			{
+				return Entry.CoversCell(Cell);
+			});
+
+			RowText.AppendChar(EntryIndex == INDEX_NONE ? TEXT('.') : TCHAR(TEXT('a') + (EntryIndex % 26)));
+		}
+
+		UE_LOG(Logsmores, Warning, TEXT("[InvDebug]   |%s|"), *RowText);
+	}
+
+	for (int32 EntryIndex = 0; EntryIndex < Entries.Num(); ++EntryIndex)
+	{
+		const FInventoryEntry& Entry = Entries[EntryIndex];
+		const FIntPoint Footprint = Entry.GetFootprint();
+
+		UE_LOG(Logsmores, Warning, TEXT("[InvDebug]   %c: id=%d %s x%d @ (%d,%d) %dx%d%s (cap %d)"),
+			TCHAR(TEXT('a') + (EntryIndex % 26)), Entry.EntryId, *GetNameSafe(Entry.Item.Definition), Entry.Item.Quantity,
+			Entry.AnchorCell.X, Entry.AnchorCell.Y, Footprint.X, Footprint.Y,
+			Entry.bRotated ? TEXT(" rotated") : TEXT(""), Inventory->GetEffectiveMaxStack(Entry.Item.Definition));
+	}
 }
 
 void AStrategyPlayerController::Server_AttackCommand_Implementation(const TArray<AStrategyUnit*>& Units, AStrategyUnit* Target)
