@@ -1,3 +1,3 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 2026 Jim Jenkins. All Rights Reserved.
 
 #include "MainMenuGameMode.h"
