@@ -219,17 +219,50 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
   hovered cell → `Server_MoveInventoryItem(cell, rotation, full quantity)`; dropping onto a
   same-definition stack merges. Rejected drops snap back with no state change (server is
   authoritative).
-- **Touches:** `InventoryWidget.*`, `InventorySlotWidget.*` (likely becomes an item widget
-  plus a cell widget), `InventoryDragDropOperation.h`, `WBP_Inventory`,
-  `WBP_ContainerInventory`, `WBP_InventorySlot`.
+- **Touches:** `InventoryWidget.*`, `InventorySlotWidget.*` (splits into the two widgets
+  below), new `InventoryItemWidget.*`, `InventoryDragDropOperation.h`, `WBP_Inventory`,
+  `WBP_ContainerInventory`, `WBP_InventorySlot`, a new `WBP_InventoryItem`.
 - **Starting point:** Slice 2 already left an interim one-widget-per-cell renderer in place —
   `UInventorySlotWidget` is a *cell* bound to whichever entry covers it, the drag operation
   already carries entry id + rotation, and the drop already resolves to a cell. What's missing
   is the footprint-spanning item widget, the rotate key flipping
   `UInventoryDragDropOperation::bRotated` mid-drag, and a partial-quantity drag (the RPC
   already takes a quantity; the UI always passes 0 for "whole stack").
+- **Settled before the session** (from PIE-testing the Slice 2 interim UI — with no item icons
+  authored on any `DA_Item_*`, the text label *is* the item's representation, so a multi-cell
+  item drawn as a label stranded in its top-left cell is genuinely unreadable rather than
+  merely unpolished; these are what make it legible, not polish to defer):
+  - **Split `UInventorySlotWidget` into two classes.** `UInventoryCellWidget` — one per grid
+    cell, background/empty-cell look only. `UInventoryItemWidget` — one per *entry*, spanning
+    its footprint, carrying the border and the centered label, and acting as the drag source.
+    A single widget over the whole footprint is what makes centering and a footprint-shaped
+    border fall out for free; neither is achievable while items are drawn per-cell.
+  - **Lay the grid out with `UGridPanel`, not `UUniformGridPanel`.** `UUniformGridSlot` has no
+    span, so it can't host a footprint-spanning child at all. Add cell widgets at
+    `UGridSlot::SetLayer` 0 and item widgets above them with `SetRowSpan`/`SetColumnSpan` from
+    the footprint, and call `SetColumnFill(i, 1.0f)`/`SetRowFill(i, 1.0f)` across the grid to
+    keep cells uniform. **Fallback:** a `UCanvasPanel` with an explicit `CellSize`, positioning
+    cells and items at `Cell * CellSize`. More control and much easier if a footprint highlight
+    that follows the cursor mid-drag is ever wanted, at the cost of a hardcoded pixel cell size
+    — switch only if that polish justifies it.
+  - **One drop target for the whole grid**, not one per cell. With item widgets sitting on top
+    of cell widgets, per-cell `NativeOnDrop` handlers get ambiguous; instead the panel's owning
+    widget handles the drop once and converts the mouse position to a cell coordinate from
+    geometry. This is a simplification over the Slice 2 code, which registers `GridWidth ×
+    GridHeight` separate drop targets.
+  - **Rotate the label off the footprint, not the `bRotated` flag.** Apply
+    `SetRenderTransformAngle(90)` to the label whenever the *placed* footprint is taller than
+    it is wide. That reads correctly down a vertical 1×3 sword and correctly leaves a 2×2 rope
+    alone, regardless of which orientation produced the shape.
+- **Open question for this slice:** should a drop that doesn't fit fall back to auto-rotating,
+  or stay strictly literal? The roadmap leans literal — auto-placement already tries both
+  orientations, and silently turning an item the player didn't ask to turn works against the
+  deliberate "Tetris" packing this design calls an intended style. Recommendation is to keep
+  the drop literal and let the rotate key be the answer, but this is **not** settled; decide it
+  when the rotate key goes in.
 - **Done when:** the user can drag, rotate, and pack items between a pawn window and a chest
-  window in PIE, and a second client (or listen-server + client in-editor) sees the result.
+  window in PIE; a multi-cell item shows one bordered region with a centered (and, when tall,
+  rotated) label; and a second client (or listen-server + client in-editor) sees the result.
 
 ### Slice 4 — Weight tracking and currency
 
