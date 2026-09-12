@@ -41,11 +41,21 @@ topic only documents what's actually built.
   between two different ones. Dropping onto a matching stackable item merges the two; a drop
   that doesn't fit, or lands on something that can't stack, is rejected and the item stays
   where it was. There is no swap: an item never displaces another by landing on it.
-- **Interim visuals.** Until the grid UI slice lands, each grid cell is its own widget and a
-  multi-cell item draws its label only on its top-left cell, so a 1×3 sword reads as one
-  labelled cell followed by two blank ones. There's no rotate-while-dragging key yet either —
-  a dragged item keeps whatever orientation it was placed at. Rotation *is* applied
-  automatically when an item is auto-placed and only fits sideways.
+- Each placed item draws as **one bordered region spanning its whole footprint**, with its
+  label centred in it — and turned 90° when the footprint is taller than it is wide, so a
+  1×3 sword's name reads down the blade rather than spilling across its neighbours.
+- **Picking an item up grabs it where you clicked.** The floating ghost keeps that grip, so a
+  sword grabbed by its tip lands with its tip where you dropped it, rather than jumping to put
+  its top-left corner under the cursor.
+- **Press R while dragging to rotate** the held item 90°. The ghost turns with it, as does the
+  drop preview. Rotating a square item does nothing — a square turns into itself.
+- While a drag hovers a grid, **the cells it would claim light up green or red**: green means
+  the drop will be accepted, red that it won't (no room, or a stack it can't merge into). That
+  preview is the only thing that tells the player whether the rotate key helped.
+- **A drop is literal.** An item that doesn't fit is rejected, never quietly turned sideways to
+  make it fit — auto-placement still tries both orientations on its own, but that's a different
+  path, and turning an item the player didn't ask to turn works against the deliberate packing
+  this design is built around.
 - Deselecting all units, or having no player pawn selected/in range, closes any open
   inventory window.
 
@@ -115,9 +125,29 @@ topic only documents what's actually built.
   a given unit may open it; the same proximity check shape (`IsUnitInRange`) is reused for
   Downed-NPC loot.
 - A client-side drag-and-drop widget can't mutate a replicated, authority-only inventory
-  directly — the slot widget's drop handler instead calls into `IInventoryMoveHost`
+  directly — the inventory window's drop handler instead calls into `IInventoryMoveHost`
   (implemented by `AStrategyPlayerController`), whose `Server_MoveInventoryItem` RPC is the
   only path that actually calls `UInventoryComponent::MoveItem`.
+- **The grid UI is two layers in one `UGridPanel`**: a `UInventoryCellWidget` per cell
+  underneath (background and drop-preview highlight only, no item, no mouse handling), and a
+  `UInventoryItemWidget` per placed entry above it, spanning its footprint via the grid slot's
+  row/column spans. A `UUniformGridPanel` can't host the upper layer at all — `UUniformGridSlot`
+  has no span — which is why the panel type is a hard requirement rather than a preference.
+- **One drop target serves the whole grid**, not one per cell. With item widgets sitting on top
+  of cell widgets, per-cell drop handlers get ambiguous about which cell was actually hit; the
+  drop bubbles up to the window instead, which recovers the cell from the panel's own geometry.
+  That also means the cell size is never hardcoded — it falls out of the panel's arranged size,
+  so a resized window still drops where it looks like it will.
+- **A drag carries a grab offset**, the footprint cell the pointer came down on, and the drop
+  anchor is the hovered cell *minus* that. The floating ghost is positioned by the matching
+  fraction (`Offset = -GrabOffset / Footprint` against `EDragPivot::TopLeft`), so ghost and drop
+  agree by construction — including after a mid-drag rotate, which transposes both together.
+- **The rotate key is a Slate input pre-processor, not a widget key handler or an input action.**
+  A drag captures the pointer but not keyboard focus, and Slate routes key events along the
+  *focus* path — the game viewport, not the inventory window — so a `NativeOnKeyDown` on the
+  window would simply never fire. The pre-processor is registered by the drag operation in
+  `BeginRotateInput` and torn down in `Drop`/`DragCancelled` (and `BeginDestroy` as a backstop),
+  so it lives exactly as long as the drag.
 
 ## C++ Implementation
 
@@ -127,7 +157,8 @@ topic only documents what's actually built.
     `AStrategyChest` (first concrete container type — no added behavior of its own, exists
     so future chest-specific behavior like locks/keys has a home)
   - `SmoresUI`: `UWindowWidget` (reusable floating-window chrome), `UInventoryWidget`,
-    `UInventorySlotWidget`, `UInventoryDragDropOperation`, `IInventoryMoveHost`
+    `UInventoryCellWidget` (+ the `EInventoryCellHighlight` enum), `UInventoryItemWidget`,
+    `UInventoryDragDropOperation`, `IInventoryMoveHost`
   - `SmoresCharacters`: `AStrategyUnit` (owns the `Inventory` subobject shared by NPCs and
     player units alike), `AStrategyPlayerUnit`
   - `smores` (`Variant_Strategy`): `AStrategyPlayerController`
@@ -175,24 +206,43 @@ topic only documents what's actually built.
     `MoveItem` does all of it
   - `UInventoryWidget::SetInventory` / `ClearInventory` — binds/unbinds an inventory,
     subscribes to `OnInventoryChanged`
-  - `UInventorySlotWidget::SetCell` / `NativeOnDragDetected` / `NativeOnDrop` — binds one
-    grid cell to whichever entry covers it, then creates/consumes a
-    `UInventoryDragDropOperation`, routing the move through the owning player controller's
-    `IInventoryMoveHost`
+  - `UInventoryWidget::RebuildGrid` — builds the grid's two layers into the `UGridPanel`:
+    one `UInventoryCellWidget` per cell at `UGridSlot` layer 0, one `UInventoryItemWidget` per
+    placed entry at layer 1 with `SetRowSpan`/`SetColumnSpan` from its footprint. Equal
+    `SetColumnFill`/`SetRowFill` across the grid is what keeps cells uniform, which
+    `ScreenPositionToCell` depends on
+  - `UInventoryWidget::ScreenPositionToCell` / `GetDropAnchorCell` — the geometry half of the
+    single grid-level drop target: panel-relative pointer position → cell, then minus the
+    drag's `GrabOffset` to get the anchor the item's top-left lands on
+  - `UInventoryWidget::WouldAcceptDrop` — the preview's yes/no, deliberately mirroring
+    `MoveItem`'s resolution (merge into a stackable entry at the anchor, else `CanPlaceAt`)
+    so the highlight can't promise a drop the server will reject
+  - `UInventoryWidget::UpdateDragPreview` / `ClearDragPreview` — marks the covered cells
+    Valid/Invalid and tears the preview down again; subscribed to the drag's `OnRotated` so a
+    mid-drag rotate redraws without waiting for the pointer to move
+  - `UInventoryItemWidget::SetEntry` / `SetPreviewOrientation` / `NativeOnDragDetected` —
+    binds one placed entry, re-draws the floating ghost at a new orientation, and starts the
+    drag (recording which footprint cell the pointer grabbed)
+  - `UInventoryDragDropOperation::BeginRotateInput` / `ToggleRotation` / `ApplyPreview` — the
+    rotate key's whole implementation: a Slate input pre-processor registered for exactly the
+    lifetime of the drag, the transpose it applies to `bRotated` + `GrabOffset`, and the
+    decorator repositioning that keeps ghost and drop agreeing afterwards
 - **Runtime ownership:** `UInventoryComponent` is a default subobject of `AStrategyUnit`
   (every unit, NPC or player-controlled) and of `AStrategyContainer` (every world
   container). The two `UInventoryWidget` instances (`InventoryWidget`, `ContainerWidget`)
   are lazy-created and owned by `AStrategyPlayerController` directly — **not** by
   `AStrategyHUD`, which today only spawns the general `UStrategyUI` widget and draws the
   drag-selection box; it has no inventory role.
-- **Data flow (drag-and-drop transfer):** `UInventorySlotWidget::NativeOnDragDetected`
-  (source cell) → `UInventoryDragDropOperation` payload (source inventory + entry id +
-  rotation) → target `UInventorySlotWidget::NativeOnDrop` (supplies its own cell coordinate)
-  → `IInventoryMoveHost::Server_MoveInventoryItem` (client → server RPC via the owning
+- **Data flow (drag-and-drop transfer):** `UInventoryItemWidget::NativeOnDragDetected`
+  (source item) → `UInventoryDragDropOperation` payload (source inventory + entry id + a copy
+  of the item + rotation + grab offset + cell size) → the target window's
+  `UInventoryWidget::NativeOnDrop` (converts the pointer position to a cell, minus the grab
+  offset) → `IInventoryMoveHost::Server_MoveInventoryItem` (client → server RPC via the owning
   `AStrategyPlayerController`) → `UInventoryComponent::MoveItem` → `Entries` replicates back
   down → `OnRep_Entries` → `OnInventoryChanged` → `UInventoryWidget` refreshes on every
   observing client. A rejected move mutates nothing, so the refresh redraws the unchanged
-  state and the item appears to snap back — the client is never told "no" explicitly.
+  state and the item appears to snap back — the client is never told "no" explicitly, which
+  is exactly why the red drop preview exists.
 
 ## Blueprint / Asset Dependencies
 
@@ -210,15 +260,27 @@ topic only documents what's actually built.
 - **`WBP_ContainerInventory`** — a second `UInventoryWidget` subclass, assigned to
   `ContainerWidgetClass`. Reused for both world containers and Downed-NPC loot; only the
   window title differs at open time.
-- **`WBP_InventorySlot`** — `UInventorySlotWidget` subclass, assigned to
-  `UInventoryWidget::SlotWidgetClass`. One instance is spawned per **grid cell**. The widget
-  needs a `UPanelWidget` named `SlotContainer` on the owning
-  `WBP_Inventory`/`WBP_ContainerInventory`; a `UUniformGridPanel` lays the cells out as the
-  bound inventory's actual `GridWidth` × `GridHeight` grid (the old `GridColumns` property is
-  gone — the width comes from the inventory now), and any other `UPanelWidget` renders a flat
-  list. A plain `SlotListText` text block is the fallback default visual if
-  `SlotContainer`/`SlotWidgetClass` aren't set; it lists each placed entry with its quantity,
-  anchor cell, footprint and rotation.
+  Both hold a `UGridPanel` named `SlotContainer` — **not** a `UUniformGridPanel`, which has no
+  slot span and so cannot host a footprint-spanning item widget at all. C++ casts and logs a
+  warning if the panel is the wrong type or `CellWidgetClass` is unset, since either one
+  silently breaks the drop maths. A plain `SlotListText` text block is the fallback visual when
+  no grid is wired; it lists each placed entry with its quantity, anchor cell, footprint and
+  rotation.
+- **`WBP_InventoryCell`** — `UInventoryCellWidget` subclass, assigned to
+  `UInventoryWidget::CellWidgetClass`. One instance per **grid cell**, at grid layer 0. Just a
+  `UBorder` named `CellBorder`, whose tint C++ drives from the highlight state; the brush
+  itself is a plain filled box. Its root must stay hit-test `Visible` so the grid reads as one
+  continuous drop surface.
+- **`WBP_InventoryItem`** — `UInventoryItemWidget` subclass, assigned to
+  `UInventoryWidget::ItemWidgetClass`. One instance per **placed entry**, at grid layer 1,
+  spanning its footprint. Tree is `ItemSizeBox` (`USizeBox`, **no** width/height overrides
+  authored — C++ clears them for grid instances and sets them for the drag ghost) → a border →
+  `ItemLabel` (`UTextBlock`, centred, `AutoWrapText` off). Nothing in that tree may clip to
+  bounds: C++ turns the label 90° with a render transform, which doesn't affect layout, so the
+  label has to be free to overflow its box.
+- **`WBP_InventorySlot`** — the pre-Slice-3 per-cell widget. Superseded by `WBP_InventoryCell`
+  and referenced by nothing; a CoreRedirect keeps its parent class resolving (to
+  `UInventoryCellWidget`) so it still loads, but it's dead weight and safe to delete.
 - **`IA_Strategy_Inventory`** (`Content/Variant_Strategy/Input/Actions/`) — bound to
   `ToggleInventoryAction`. Desktop-only; not mapped in the touch `InputMappingContext`.
 - **`IA_Strategy_ToggleContainer`** — bound to `ToggleContainerAction`. Also desktop-only.
@@ -254,9 +316,14 @@ topic only documents what's actually built.
 
 ## Known Gaps
 
-- The grid UI is interim: one widget per cell with the label on the anchor cell only, no item
-  widget spanning its footprint, no rotate key while dragging, and no partial-stack drag (the
-  UI always moves the whole stack even though `MoveItem` supports a split).
+- No partial-stack drag — the UI always moves the whole stack even though `MoveItem` already
+  takes a quantity and supports the split. Splitting needs a player-facing way to say "how
+  many", which hasn't been designed.
+- A rejected drop is still silent on the wire. The red preview is computed client-side by
+  `WouldAcceptDrop` mirroring `MoveItem`'s rules, so the two can drift apart if only one is
+  changed; and a drop rejected for a reason the client can't see (a race against another
+  player's move) shows no explanation at all. A context that needs to say *why* — insufficient
+  gold, say — will need a new client RPC.
 - No re-validation when an item definition's footprint changes under already-placed entries —
   they can end up overlapping until something moves them.
 - `SetGridSize` drops entries that no longer fit rather than re-packing them; it's an
@@ -264,7 +331,8 @@ topic only documents what's actually built.
 - No equipment/worn slots distinct from the general carried grid — `EquipSlot` is authored
   but unread.
 - No item art — every `DA_Item_*` has a null `Icon` and `WorldMesh`, so the UI shows names
-  only.
+  only. The item widget draws no icon at all yet, which is why the label's 90° turn for tall
+  footprints matters as much as it does.
 - No currency, trading, or purchase flow.
 - No weight/encumbrance tracking.
 - No world-loose item pickups — only container- and unit-held inventories exist; nothing

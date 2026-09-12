@@ -141,4 +141,29 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   (same shape the editor's Plugin Browser writes), then reopen. Check
   `GetPluginDependents`/`GetPluginDependencies` first for non-optional dependents before
   disabling anything.
+- **CoreRedirects do not chain.** `A→B` plus `B→C` leaves an asset that stores `A`
+  resolving to `B` and stopping there — it loads nothing, and the Blueprint ends up with no
+  generated class and no CDO, unrepairable in place (`reparent` needs a class to reparent
+  *from*). Always redirect from the name actually serialized in the `.uasset` straight to the
+  final name. Check what's serialized rather than guessing — the module recorded in an asset
+  can predate a module split by several refactors:
+  `python -c "import re,io;print(sorted(set(re.findall(rb'/Script/[A-Za-z0-9_.]+', io.open('<asset>.uasset','rb').read()))))"`.
+  This bites hardest on a class renamed *after* it was already moved between modules.
+- **`ObjectTools.get_properties` takes `instance` + `properties`**, not `object` /
+  `property_names`, and this build has **no `only_modified` argument at all** — the
+  `only_modified: false` advice above applies to `bp_inspect`, not to `get_properties`.
+- **UMG refPaths need the full `Package.Asset` form** (`/Game/.../WBP_X.WBP_X`); the bare
+  package path fails with "is not a valid object path for property 'WidgetBlueprint'".
+- **`UMGToolSet.GetWidgetDescription` mis-reports `bInherited`.** It returns `false` for
+  widgets that `GetWidgets` correctly reports as `true` (i.e. `BindWidget`-bound), including
+  untouched ones. Never use it to judge whether a `BindWidget` binding survived an edit — use
+  `GetWidgets`.
+- **`BlueprintTools.compile_blueprint` returns `null`**, so success is indistinguishable from
+  failure. `UMGToolSet.CompileWidgetBlueprint` returns a real bool and surfaces
+  `BindWidget`/type errors — prefer it for widget Blueprints, and confirm in the log
+  (`LogBlueprint: Compiling Blueprint ...`).
+- **`UMGToolSet.ReplaceWidgetWithTemplate` is the right tool for a panel-class swap.** It
+  preserves the widget's name, its existing parent slot object *and* that slot's settings, and
+  the C++ `BindWidget` binding — and it reports which properties had no counterpart on the new
+  class. Much safer than delete-and-re-add, which breaks the name binding.
 - **Create/modify operations that touch project assets: get user confirmation first.**

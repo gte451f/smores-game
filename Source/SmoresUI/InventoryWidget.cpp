@@ -3,10 +3,13 @@
 
 #include "InventoryWidget.h"
 #include "InventoryComponent.h"
+#include "InventoryDragDropOperation.h"
+#include "InventoryMoveHost.h"
+#include "SmoresUI.h"
 #include "Components/TextBlock.h"
 #include "Components/PanelWidget.h"
-#include "Components/UniformGridPanel.h"
-#include "Components/UniformGridSlot.h"
+#include "Components/GridPanel.h"
+#include "Components/GridSlot.h"
 
 #define LOCTEXT_NAMESPACE "InventoryWidget"
 
@@ -102,6 +105,11 @@ void UInventoryWidget::HandleInventoryChanged()
 	RefreshDisplay();
 }
 
+void UInventoryWidget::HandleDragEnded(UDragDropOperation* Operation)
+{
+	ClearDragPreview();
+}
+
 void UInventoryWidget::RefreshDisplay()
 {
 	if (SlotListText)
@@ -109,73 +117,369 @@ void UInventoryWidget::RefreshDisplay()
 		SlotListText->SetText(GetContentsSummary());
 	}
 
-	if (SlotContainer && SlotWidgetClass)
+	RebuildGrid();
+
+	BP_InventoryUpdated();
+}
+
+void UInventoryWidget::RebuildGrid()
+{
+	if (!SlotContainer)
 	{
-		SlotContainer->ClearChildren();
-		SlotWidgets.Reset();
+		return;
+	}
 
-		const FIntPoint GridSize = GetGridSize();
-		const TArray<FInventoryEntry> CurrentEntries = GetEntries();
+	SlotContainer->ClearChildren();
+	CellWidgets.Reset();
+	ItemWidgets.Reset();
 
-		// one lookup per cell over a handful of entries is cheaper than building a map for a grid
-		// this small, and keeps the covering entry (not just the anchor) attached to every cell
-		auto FindEntryCovering = [&CurrentEntries](FIntPoint Cell) -> FInventoryEntry
+	const FIntPoint GridSize = GetGridSize();
+
+	if (GridSize.X <= 0 || GridSize.Y <= 0)
+	{
+		return;
+	}
+
+	// UUniformGridSlot has no span, so a uniform grid cannot host a widget covering a
+	// multi-cell footprint at all - the two-layer grid needs a real UGridPanel
+	UGridPanel* GridPanel = Cast<UGridPanel>(SlotContainer.Get());
+
+	if (GridPanel)
+	{
+		// Equal fill across every row and column is what keeps cells uniform, which the
+		// screen-position-to-cell conversion relies on. A filled column takes its size purely
+		// from the coefficient and ignores its children's desired size, so a long item label
+		// cannot stretch the column it sits in.
+		for (int32 Column = 0; Column < GridSize.X; ++Column)
 		{
-			for (const FInventoryEntry& Entry : CurrentEntries)
-			{
-				if (Entry.CoversCell(Cell))
-				{
-					return Entry;
-				}
-			}
+			GridPanel->SetColumnFill(Column, 1.0f);
+		}
 
-			return FInventoryEntry();
-		};
+		for (int32 Row = 0; Row < GridSize.Y; ++Row)
+		{
+			GridPanel->SetRowFill(Row, 1.0f);
+		}
+	}
 
-		UUniformGridPanel* GridPanel = Cast<UUniformGridPanel>(SlotContainer.Get());
-
-		SlotWidgets.Reserve(GridSize.X * GridSize.Y);
+	if (GridPanel && CellWidgetClass)
+	{
+		CellWidgets.Reserve(GridSize.X * GridSize.Y);
 
 		for (int32 Row = 0; Row < GridSize.Y; ++Row)
 		{
 			for (int32 Column = 0; Column < GridSize.X; ++Column)
 			{
-				UInventorySlotWidget* SlotWidget = CreateWidget<UInventorySlotWidget>(this, SlotWidgetClass);
+				UInventoryCellWidget* CellWidget = CreateWidget<UInventoryCellWidget>(this, CellWidgetClass);
 
-				if (!SlotWidget)
+				if (!CellWidget)
 				{
 					continue;
 				}
 
-				const FIntPoint Cell(Column, Row);
-				SlotWidget->SetCell(BoundInventory.Get(), Cell, FindEntryCovering(Cell));
+				CellWidget->SetCell(FIntPoint(Column, Row));
 
-				if (GridPanel)
+				if (UGridSlot* GridSlot = GridPanel->AddChildToGrid(CellWidget, Row, Column))
 				{
-					// UUniformGridSlot defaults to HAlign_Left/VAlign_Top, so an empty cell widget
-					// shrink-wraps to its own content and sticks in the cell's top-left corner, leaving
-					// most of the (much larger) uniform cell empty - stretch it to fill the cell instead.
-					if (UUniformGridSlot* GridSlot = GridPanel->AddChildToUniformGrid(SlotWidget, Row, Column))
-					{
-						GridSlot->SetHorizontalAlignment(HAlign_Fill);
-						GridSlot->SetVerticalAlignment(VAlign_Fill);
-					}
-				}
-				else
-				{
-					SlotContainer->AddChild(SlotWidget);
+					GridSlot->SetLayer(0);
+					GridSlot->SetHorizontalAlignment(HAlign_Fill);
+					GridSlot->SetVerticalAlignment(VAlign_Fill);
 				}
 
-				SlotWidgets.Add(SlotWidget);
+				CellWidgets.Add(CellWidget);
 			}
 		}
 	}
+	else if (GridPanel)
+	{
+		// the cell layer is also what gives the panel its full column and row count - without it
+		// the grid collapses to whatever the items happen to span, and every drop then resolves
+		// to the wrong cell. Worth saying out loud rather than degrading silently.
+		UE_LOG(LogSmoresUI, Warning, TEXT("%s has a grid panel but no CellWidgetClass - the grid will not lay out or accept drops correctly."), *GetName());
+	}
 
-	BP_InventoryUpdated();
+	if (!ItemWidgetClass)
+	{
+		return;
+	}
+
+	for (const FInventoryEntry& Entry : GetEntries())
+	{
+		if (!Entry.IsValidEntry())
+		{
+			continue;
+		}
+
+		UInventoryItemWidget* ItemWidget = CreateWidget<UInventoryItemWidget>(this, ItemWidgetClass);
+
+		if (!ItemWidget)
+		{
+			continue;
+		}
+
+		ItemWidget->SetEntry(BoundInventory.Get(), Entry);
+
+		if (GridPanel)
+		{
+			const FIntPoint Footprint = Entry.GetFootprint();
+
+			if (UGridSlot* GridSlot = GridPanel->AddChildToGrid(ItemWidget, Entry.AnchorCell.Y, Entry.AnchorCell.X))
+			{
+				// one widget over the whole footprint, on the layer above the cells - that is
+				// what gives a multi-cell item a single border and a centred label instead of
+				// a name stranded in its top-left cell
+				GridSlot->SetColumnSpan(FMath::Max(1, Footprint.X));
+				GridSlot->SetRowSpan(FMath::Max(1, Footprint.Y));
+				GridSlot->SetLayer(1);
+				GridSlot->SetHorizontalAlignment(HAlign_Fill);
+				GridSlot->SetVerticalAlignment(VAlign_Fill);
+			}
+		}
+		else
+		{
+			SlotContainer->AddChild(ItemWidget);
+		}
+
+		ItemWidgets.Add(ItemWidget);
+	}
+}
+
+bool UInventoryWidget::ScreenPositionToCell(const FVector2D& ScreenPosition, FIntPoint& OutCell) const
+{
+	const FIntPoint GridSize = GetGridSize();
+
+	// only a real grid panel lays cells out where this maths expects them; the flat-list
+	// fallback has no cell coordinates to recover, so it accepts no drops rather than
+	// scattering items across cells it never drew
+	const UGridPanel* GridPanel = Cast<UGridPanel>(SlotContainer.Get());
+
+	if (!GridPanel || GridSize.X <= 0 || GridSize.Y <= 0)
+	{
+		return false;
+	}
+
+	const FGeometry& PanelGeometry = GridPanel->GetCachedGeometry();
+	const FVector2D PanelSize = PanelGeometry.GetLocalSize();
+
+	if (PanelSize.X <= 0.0f || PanelSize.Y <= 0.0f)
+	{
+		return false;
+	}
+
+	const FVector2D LocalPosition = PanelGeometry.AbsoluteToLocal(ScreenPosition);
+
+	// deliberately unclamped: a pointer outside the grid produces an out-of-bounds cell, which
+	// reads as a rejected drop rather than silently snapping to the nearest legal one
+	OutCell = FIntPoint(
+		FMath::FloorToInt32(LocalPosition.X / (PanelSize.X / GridSize.X)),
+		FMath::FloorToInt32(LocalPosition.Y / (PanelSize.Y / GridSize.Y)));
+
+	return true;
+}
+
+bool UInventoryWidget::GetDropAnchorCell(const UInventoryDragDropOperation* DragOperation, const FVector2D& ScreenPosition, FIntPoint& OutAnchorCell) const
+{
+	FIntPoint HoveredCell;
+
+	if (!DragOperation || !ScreenPositionToCell(ScreenPosition, HoveredCell))
+	{
+		return false;
+	}
+
+	// the anchor is where the ghost's top-left sits, not where the cursor is - the player
+	// grabbed the item somewhere in the middle of its footprint and expects it to land there
+	OutAnchorCell = HoveredCell - DragOperation->GrabOffset;
+
+	return true;
+}
+
+bool UInventoryWidget::WouldAcceptDrop(const UInventoryDragDropOperation* DragOperation, FIntPoint AnchorCell) const
+{
+	if (!DragOperation || !BoundInventory.IsValid() || !DragOperation->SourceInventory.IsValid())
+	{
+		return false;
+	}
+
+	const bool bSameInventory = (DragOperation->SourceInventory.Get() == BoundInventory.Get());
+
+	// mirrors UInventoryComponent::MoveItem: an occupied anchor cell only ever resolves to a
+	// merge, and only an entry moving whole within its own grid may reuse its own cells
+	const int32 TargetEntryId = BoundInventory->GetEntryIdAtCell(AnchorCell);
+
+	if (TargetEntryId != INDEX_NONE && !(bSameInventory && TargetEntryId == DragOperation->SourceEntryId))
+	{
+		const FInventoryEntry TargetEntry = BoundInventory->GetEntry(TargetEntryId);
+
+		return TargetEntry.Item.CanStackWith(DragOperation->DraggedItem)
+			&& TargetEntry.Item.Quantity < BoundInventory->GetEffectiveMaxStack(TargetEntry.Item.Definition);
+	}
+
+	const int32 IgnoreEntryId = bSameInventory ? DragOperation->SourceEntryId : INDEX_NONE;
+
+	return BoundInventory->CanPlaceAt(DragOperation->DraggedItem, AnchorCell, DragOperation->bRotated, IgnoreEntryId);
+}
+
+void UInventoryWidget::SetHoveringDrag(UInventoryDragDropOperation* DragOperation)
+{
+	if (HoveringDrag == DragOperation)
+	{
+		return;
+	}
+
+	ClearDragPreview();
+
+	HoveringDrag = DragOperation;
+
+	if (!HoveringDrag)
+	{
+		return;
+	}
+
+	// a mid-drag rotate changes the preview without the pointer moving, so the grid has to be
+	// told rather than waiting for the next drag-over
+	HoveringDragRotatedHandle = HoveringDrag->OnRotated.AddUObject(this, &UInventoryWidget::UpdateDragPreview);
+
+	// the drag can also end somewhere that never sends this widget a drag-leave (dropped on
+	// another window, cancelled with Escape), which would otherwise strand the highlight
+	HoveringDrag->OnDrop.AddUniqueDynamic(this, &UInventoryWidget::HandleDragEnded);
+	HoveringDrag->OnDragCancelled.AddUniqueDynamic(this, &UInventoryWidget::HandleDragEnded);
+}
+
+void UInventoryWidget::UpdateDragPreview()
+{
+	if (!HoveringDrag)
+	{
+		return;
+	}
+
+	FIntPoint AnchorCell;
+	const bool bHasCell = GetDropAnchorCell(HoveringDrag, LastDragScreenPosition, AnchorCell);
+
+	// the drop is deliberately literal - an item that does not fit is rejected rather than
+	// quietly auto-rotated, since turning an item the player did not ask to turn works against
+	// the packing this design is built around. The red footprint is what says "press rotate".
+	const EInventoryCellHighlight CoveredHighlight = (bHasCell && WouldAcceptDrop(HoveringDrag, AnchorCell))
+		? EInventoryCellHighlight::Valid
+		: EInventoryCellHighlight::Invalid;
+
+	const FIntPoint Footprint = HoveringDrag->GetFootprint();
+
+	for (UInventoryCellWidget* CellWidget : CellWidgets)
+	{
+		if (!CellWidget)
+		{
+			continue;
+		}
+
+		const FIntPoint Cell = CellWidget->GetCellCoord();
+
+		const bool bCovered = bHasCell
+			&& Cell.X >= AnchorCell.X && Cell.X < AnchorCell.X + Footprint.X
+			&& Cell.Y >= AnchorCell.Y && Cell.Y < AnchorCell.Y + Footprint.Y;
+
+		CellWidget->SetHighlight(bCovered ? CoveredHighlight : EInventoryCellHighlight::None);
+	}
+}
+
+void UInventoryWidget::ClearDragPreview()
+{
+	if (HoveringDrag)
+	{
+		HoveringDrag->OnRotated.Remove(HoveringDragRotatedHandle);
+		HoveringDrag->OnDrop.RemoveDynamic(this, &UInventoryWidget::HandleDragEnded);
+		HoveringDrag->OnDragCancelled.RemoveDynamic(this, &UInventoryWidget::HandleDragEnded);
+
+		HoveringDrag = nullptr;
+	}
+
+	HoveringDragRotatedHandle.Reset();
+
+	for (UInventoryCellWidget* CellWidget : CellWidgets)
+	{
+		if (CellWidget)
+		{
+			CellWidget->SetHighlight(EInventoryCellHighlight::None);
+		}
+	}
+}
+
+void UInventoryWidget::NativeOnDragEnter(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	Super::NativeOnDragEnter(InGeometry, InDragDropEvent, InOperation);
+
+	if (UInventoryDragDropOperation* DragOperation = Cast<UInventoryDragDropOperation>(InOperation))
+	{
+		SetHoveringDrag(DragOperation);
+
+		LastDragScreenPosition = InDragDropEvent.GetScreenSpacePosition();
+
+		UpdateDragPreview();
+	}
+}
+
+void UInventoryWidget::NativeOnDragLeave(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	Super::NativeOnDragLeave(InDragDropEvent, InOperation);
+
+	if (InOperation == HoveringDrag)
+	{
+		ClearDragPreview();
+	}
+}
+
+bool UInventoryWidget::NativeOnDragOver(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	if (UInventoryDragDropOperation* DragOperation = Cast<UInventoryDragDropOperation>(InOperation))
+	{
+		SetHoveringDrag(DragOperation);
+
+		LastDragScreenPosition = InDragDropEvent.GetScreenSpacePosition();
+
+		UpdateDragPreview();
+
+		return true;
+	}
+
+	return Super::NativeOnDragOver(InGeometry, InDragDropEvent, InOperation);
+}
+
+bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	UInventoryDragDropOperation* DragOperation = Cast<UInventoryDragDropOperation>(InOperation);
+
+	if (!DragOperation || !BoundInventory.IsValid() || !DragOperation->SourceInventory.IsValid())
+	{
+		return false;
+	}
+
+	FIntPoint AnchorCell;
+	const bool bHasCell = GetDropAnchorCell(DragOperation, InDragDropEvent.GetScreenSpacePosition(), AnchorCell);
+
+	ClearDragPreview();
+
+	if (!bHasCell)
+	{
+		return false;
+	}
+
+	// the actual move is shared-world state, owned by the server - this widget cannot mutate
+	// inventory contents directly (UInventoryComponent's mutators are authority-only), so
+	// dispatch through the owning PlayerController instead. A rejected move simply changes
+	// nothing, and the replicated state the UI redraws from is unchanged, so the item visually
+	// snaps back.
+	if (IInventoryMoveHost* MoveHost = Cast<IInventoryMoveHost>(GetOwningPlayer()))
+	{
+		// quantity 0 means "the whole stack" - partial-stack drags are a later slice
+		MoveHost->Server_MoveInventoryItem(DragOperation->SourceInventory.Get(), DragOperation->SourceEntryId, BoundInventory.Get(), AnchorCell, DragOperation->bRotated, 0);
+
+		return true;
+	}
+
+	return false;
 }
 
 void UInventoryWidget::NativeDestruct()
 {
+	ClearDragPreview();
 	ClearInventory();
 
 	Super::NativeDestruct();
@@ -183,6 +487,7 @@ void UInventoryWidget::NativeDestruct()
 
 void UInventoryWidget::RequestClose_Implementation()
 {
+	ClearDragPreview();
 	ClearInventory();
 
 	if (IsInViewport())

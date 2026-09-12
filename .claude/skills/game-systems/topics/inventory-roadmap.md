@@ -23,12 +23,13 @@ The definition/instance split is built; see `inventory.md`. The one piece of it 
 outstanding is per-instance **grid anchor cell + rotation**, which arrives with the grid
 itself in Slice 2.
 
-## Grid-Based Storage (Bulk) and Stacking — **SHIPPED (Slice 2)**
+## Grid-Based Storage (Bulk) and Stacking — **SHIPPED (Slices 2–3)**
 
-The component-side grid is built; see `inventory.md`. The one piece of it still outstanding
-is the **player-facing** half of rotation: auto-placement already tries both orientations,
-but there's no rotate-while-dragging key, and no item widget spanning its footprint. Both
-arrive with the grid UI in Slice 3.
+The component-side grid shipped in Slice 2 and its UI — footprint-spanning item widgets, the
+rotate-while-dragging key, and the drop preview — in Slice 3. See `inventory.md`. The one
+piece still outstanding is **partial-stack drag**: `MoveItem` takes a quantity and splits
+correctly, but the UI always passes "whole stack" because there's no designed way for the
+player to say how many.
 
 ## Weight & Encumbrance
 
@@ -153,10 +154,11 @@ What carries forward largely unchanged: authority-gated mutation + replication, 
 overall "drag from one slot widget, drop on another, server validates and applies" shape.
 Already reworked in Slice 2: `UInventoryComponent`'s flat index model (now a 2D grid with
 placement/collision) and `IInventoryMoveHost::Server_MoveInventoryItem`'s signature (now
-entry id + cell + rotation + quantity). What still needs real rework:
+entry id + cell + rotation + quantity). Already reworked in Slice 3: the interim
+one-widget-per-cell UI (now a `UGridPanel` with a cell layer and a footprint-spanning item
+layer, one grid-level drop target, and a drop preview). What still needs real rework:
 `AStrategyContainer`/loot's `InteractionRange` proximity pattern (→ generalized to every
-transfer context via `IInventoryHolder`, not reimplemented per context), and the interim
-one-widget-per-cell inventory UI (→ item widgets spanning their footprint).
+transfer context via `IInventoryHolder`, not reimplemented per context).
 
 ## Implementation Order
 
@@ -211,58 +213,33 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
 - Verify with the `SmoresDumpInventory` / `SmoresAddItem <Count>` console execs on
   `AStrategyPlayerController` — they run server-side and log an ASCII occupancy map.
 
-### Slice 3 — Grid UI: cells, footprints, drag with rotate
+### Slice 3 — Grid UI: cells, footprints, drag with rotate — **DONE**
 
-- **Build:** `UInventoryWidget` renders a `GridWidth × GridHeight` cell grid with one item
-  widget per entry spanning its footprint; drag creates a `UInventoryDragDropOperation`
-  carrying entry id + current rotation; a rotate key during drag flips it; drop resolves the
-  hovered cell → `Server_MoveInventoryItem(cell, rotation, full quantity)`; dropping onto a
-  same-definition stack merges. Rejected drops snap back with no state change (server is
-  authoritative).
-- **Touches:** `InventoryWidget.*`, `InventorySlotWidget.*` (splits into the two widgets
-  below), new `InventoryItemWidget.*`, `InventoryDragDropOperation.h`, `WBP_Inventory`,
-  `WBP_ContainerInventory`, `WBP_InventorySlot`, a new `WBP_InventoryItem`.
-- **Starting point:** Slice 2 already left an interim one-widget-per-cell renderer in place —
-  `UInventorySlotWidget` is a *cell* bound to whichever entry covers it, the drag operation
-  already carries entry id + rotation, and the drop already resolves to a cell. What's missing
-  is the footprint-spanning item widget, the rotate key flipping
-  `UInventoryDragDropOperation::bRotated` mid-drag, and a partial-quantity drag (the RPC
-  already takes a quantity; the UI always passes 0 for "whole stack").
-- **Settled before the session** (from PIE-testing the Slice 2 interim UI — with no item icons
-  authored on any `DA_Item_*`, the text label *is* the item's representation, so a multi-cell
-  item drawn as a label stranded in its top-left cell is genuinely unreadable rather than
-  merely unpolished; these are what make it legible, not polish to defer):
-  - **Split `UInventorySlotWidget` into two classes.** `UInventoryCellWidget` — one per grid
-    cell, background/empty-cell look only. `UInventoryItemWidget` — one per *entry*, spanning
-    its footprint, carrying the border and the centered label, and acting as the drag source.
-    A single widget over the whole footprint is what makes centering and a footprint-shaped
-    border fall out for free; neither is achievable while items are drawn per-cell.
-  - **Lay the grid out with `UGridPanel`, not `UUniformGridPanel`.** `UUniformGridSlot` has no
-    span, so it can't host a footprint-spanning child at all. Add cell widgets at
-    `UGridSlot::SetLayer` 0 and item widgets above them with `SetRowSpan`/`SetColumnSpan` from
-    the footprint, and call `SetColumnFill(i, 1.0f)`/`SetRowFill(i, 1.0f)` across the grid to
-    keep cells uniform. **Fallback:** a `UCanvasPanel` with an explicit `CellSize`, positioning
-    cells and items at `Cell * CellSize`. More control and much easier if a footprint highlight
-    that follows the cursor mid-drag is ever wanted, at the cost of a hardcoded pixel cell size
-    — switch only if that polish justifies it.
-  - **One drop target for the whole grid**, not one per cell. With item widgets sitting on top
-    of cell widgets, per-cell `NativeOnDrop` handlers get ambiguous; instead the panel's owning
-    widget handles the drop once and converts the mouse position to a cell coordinate from
-    geometry. This is a simplification over the Slice 2 code, which registers `GridWidth ×
-    GridHeight` separate drop targets.
-  - **Rotate the label off the footprint, not the `bRotated` flag.** Apply
-    `SetRenderTransformAngle(90)` to the label whenever the *placed* footprint is taller than
-    it is wide. That reads correctly down a vertical 1×3 sword and correctly leaves a 2×2 rope
-    alone, regardless of which orientation produced the shape.
-- **Open question for this slice:** should a drop that doesn't fit fall back to auto-rotating,
-  or stay strictly literal? The roadmap leans literal — auto-placement already tries both
-  orientations, and silently turning an item the player didn't ask to turn works against the
-  deliberate "Tetris" packing this design calls an intended style. Recommendation is to keep
-  the drop literal and let the rotate key be the answer, but this is **not** settled; decide it
-  when the rotate key goes in.
-- **Done when:** the user can drag, rotate, and pack items between a pawn window and a chest
-  window in PIE; a multi-cell item shows one bordered region with a centered (and, when tall,
-  rotated) label; and a second client (or listen-server + client in-editor) sees the result.
+Shipped; see `inventory.md`. Notes worth carrying forward:
+
+- **The open question is settled: a drop stays literal.** An item that doesn't fit is
+  rejected, never auto-rotated to make it fit. What made it safe to settle that way is the
+  drop preview — the covered cells turn red, so "press R" is visible rather than something
+  the player has to guess. Without the preview, literal would just read as broken.
+- **The rotate key is a Slate input pre-processor**, registered by the drag operation and torn
+  down with it. This isn't stylistic: a drag captures the pointer but not keyboard focus, and
+  Slate routes key events along the *focus* path (the game viewport), so a `NativeOnKeyDown` on
+  the inventory window never fires during a drag. Any later slice wanting a mid-drag modifier
+  (split-stack, say) should reuse that hook rather than rediscovering this.
+- **`SlotContainer` must be a `UGridPanel`.** `UUniformGridSlot` has no row/column span, so a
+  uniform grid cannot host a footprint-spanning child at all. The C++ casts and silently
+  degrades to a flat list if the cast fails — if a new holder's WBP shows items in a list and
+  drops do nothing, that's the cause.
+- **Ghost and drop agree by construction**, not by coincidence: the drag carries the footprint
+  cell the pointer grabbed, the anchor is the hovered cell minus it, and the decorator is
+  positioned by the matching fraction against `EDragPivot::TopLeft`. A mid-drag rotate
+  transposes both together. Changing either half alone will desync them.
+- Partial-stack drag is still unbuilt — `MoveItem` supports the split, the UI always sends 0
+  ("whole stack"). It needs a player-facing way to choose a quantity, which is a design
+  question, not a plumbing one.
+- Slice 5 touches the item widget again (right-click to equip). The right-click hook goes on
+  `UInventoryItemWidget`, which is now the per-entry widget — there's no longer any per-cell
+  widget that knows what item it's under.
 
 ### Slice 4 — Weight tracking and currency
 
@@ -363,6 +340,9 @@ Recorded so future sessions don't reopen them:
   pass. (Rejected: soft slowdown now, hard cap.)
 - **World pickup range** — double-click gated by the shared proximity check; no auto-pickup
   radius.
+- **Drop orientation** — a drag lands at the orientation the player is holding; an ill-fitting
+  drop is rejected, not auto-rotated. The rotate key plus a red drop preview is the answer.
+  (Rejected: falling back to the other orientation when the literal one doesn't fit.)
 - **Item definition storage** — `UPrimaryDataAsset` per item, not a `UDataTable`.
 - **Currency ownership** — per-player on `AStrategyPlayerState`, shared across divisions;
   no possession restrictions yet.

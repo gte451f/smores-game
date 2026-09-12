@@ -472,7 +472,7 @@ public:
 
 	//~ Begin IInventoryMoveHost interface
 
-	/** Server-side entry point for an inventory drag-drop move (see UInventorySlotWidget::NativeOnDrop -
+	/** Server-side entry point for an inventory drag-drop move (see UInventoryWidget::NativeOnDrop -
 	 *  the widget can't mutate inventory contents directly, since UInventoryComponent's mutators are
 	 *  authority-only). Just forwards to UInventoryComponent::MoveItem, which does all the validation. */
 	UFUNCTION(Server, Reliable)
