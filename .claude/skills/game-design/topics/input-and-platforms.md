@@ -74,10 +74,43 @@ depth of integration with any one of them.
   it's incidental to the current control scheme, not a commitment to ship on a touch
   platform.
 
+## Keybinds
+
+- **Every player-facing control is rebindable by the player.** This is a committed goal, not
+  an aspiration, and it is the reason it appears here rather than in a settings backlog: it
+  constrains *how every binding is built*, from the first one onward. A control wired outside
+  Unreal's Enhanced Input system cannot be surfaced in a keybind screen at all, so retrofitting
+  one later means rewriting the binding rather than adding a menu. The enforcement detail lives
+  in the `game-systems` skill's `input-and-keybinds.md`.
+- **The default set follows PC RPG convention.** The audience arrives with muscle memory from
+  Kenshi, Baldur's Gate, Pillars, Diablo and the rest — `I` for inventory, `M` for map, `J`
+  for journal, `C` for the character sheet, `Space` to pause, `F5`/`F9` to quicksave and load,
+  number keys for squad groups. Matching that costs nothing and is felt immediately; deviating
+  from it reads as the game being wrong rather than as a setting waiting to be changed.
+- **Defaults must ship conflict-free.** Because most players never open the keybind screen,
+  rebindability is not a licence to leave collisions for the player to discover and work
+  around. Keys are therefore held in reserve for their conventional meaning *before* the
+  system that will use them is built — a system claiming `M` or `Space` for something
+  unrelated is a design error even if the map and pause don't exist yet. The reserved list and
+  the record of what is currently bound live together in
+  `game-systems`/`input-and-keybinds.md`, which is the single place to check before adding a
+  control.
+- **Context-scoped keys are preferred over inventing new ones.** A key may mean different
+  things in different modes (a window open, a build mode active) rather than every new action
+  consuming another key from a finite, increasingly awkward pool.
+- **Controller bindings inherit the same rule** when basic controller support lands — same
+  action definitions, a separate default mapping set.
+
 ## Open Design Questions Worth Tracking
 
 - Whether to actually pursue Steam Deck's "Verified" compatibility badge (vs. just letting
   Proton compatibility happen informally) isn't decided.
+- Whether the keybind screen exposes *modifier* conventions (Ctrl/Shift/Alt + click inside a
+  window) as rebindable, or keeps them fixed as near-universal idioms, isn't decided. Most
+  games keep them fixed; making them rebindable drags real complexity into the settings UI.
+- Several current defaults fight convention (`H` to attack, `O` to open a container, `Q`/`E`
+  spent on camera height) because the conventional keys are already taken by camera movement.
+  Whether to rearrange them is not decided — see `input-and-keybinds.md` for the specifics.
 - The point at which full controller-native UI gets scheduled, if ever, isn't decided.
 - Native Linux, mobile, and console storefronts are marked out of scope for the current
   solo-dev scale of the project — this should be revisited explicitly if that scale

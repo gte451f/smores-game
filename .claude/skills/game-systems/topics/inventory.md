@@ -414,7 +414,9 @@ only documents what's actually built.
   - *Never* a `NativeOnKeyDown` on an inventory widget (these widgets never hold keyboard focus,
     so it cannot fire) and *never* a Slate input pre-processor (invisible to player rebinding).
   The `UInputAction` asset can be made by duplicating an existing Boolean one; the
-  `IMC_Strategy_Inventory` mapping must be authored by hand in the editor.
+  `IMC_Strategy_Inventory` mapping must be authored by hand in the editor. **Check
+  `input-and-keybinds.md` before picking a key** — it holds every current binding and the
+  reserved list, and is where a new one gets recorded.
 - **Save/load** — `FInventoryItem` and `UInventoryComponent`'s state are fully
   `UPROPERTY`-reflected; no struct changes are needed for whatever serialization approach
   the save system eventually adopts.

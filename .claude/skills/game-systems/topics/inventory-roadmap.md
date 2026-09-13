@@ -283,8 +283,9 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
   item widgets overlap grid cells, which makes per-cell drop handlers ambiguous. Equipment slots
   don't overlap, so a drop handler *per slot* is the right shape for the paperdoll.
 - **Any new key this slice adds goes through Enhanced Input**, mapped in
-  `IMC_Strategy_Inventory` — see the Slice 3 notes above and CLAUDE.md's "Input system". Never a
-  widget key handler, never a Slate pre-processor.
+  `IMC_Strategy_Inventory`. Check `input-and-keybinds.md` first for what's already taken and
+  what's reserved, and record the new binding there. Never a widget key handler, never a Slate
+  pre-processor — see the Slice 3 notes above for why.
 - **Build:** `EEquipSlot` enum (keep the roster small — e.g. MainHand, OffHand, Head, Body,
   Feet) and `UEquipmentComponent` on `AStrategyUnit` with one replicated instance per slot;
   server-only `Equip(fromInventory, entryId)` / `Unequip(slot)` that swap the displaced item

@@ -22,6 +22,7 @@ documented as part of each system topic, in its "Player Surface" section, plus t
 | [`topics/inventory.md`](topics/inventory.md) | `UItemDefinition` shared item-type assets vs. `FInventoryItem` carried instances, `UInventoryComponent` 2D grid storage with rectangular footprints, rotation and per-holder stacking, `UInventoryWidget` drag-and-drop display, PlayerController-managed open/close/toggle for pawn/container/loot |
 | [`topics/inventory-roadmap.md`](topics/inventory-roadmap.md) | *(forward-looking)* Target design for grid/bulk stacking with rotation, equipment/paperdoll, per-player currency, a unified proximity-gated transfer interface (trade/purchase/loot/theft), and world pickups — plus a dependency-ordered, one-slice-per-session Implementation Order with status and a Resolved Design Decisions log |
 | [`topics/combat.md`](topics/combat.md) | `UHealthComponent` health/damage/Downed-recovery, NPC self-hunting, player-issued squad attacks, auto-retaliation |
+| [`topics/input-and-keybinds.md`](topics/input-and-keybinds.md) | Every bound key and mouse button with its action asset and context, the reserved-key list for systems not built yet, the Enhanced Input wiring rule every binding must follow, and the checklist for adding one. **Check before adding any player-facing control.** |
 | [`topics/game-modes.md`](topics/game-modes.md) | Visible game modes and what they let the player do |
 | [`topics/terminology.md`](topics/terminology.md) | Player-surface terms used across topics (Controlled Units, Drag Selection, Interaction Radius, Lead Unit, Player Surface) |
 | [`topics/unreal-module-organization.md`](topics/unreal-module-organization.md) | *(forward-looking)* Current single-module state, a proposed target module map sized against the full `game-design` scope, DLC/mod-as-Plugin guidance, and concrete triggers for when to actually split |
@@ -48,6 +49,8 @@ documented as part of each system topic, in its "Player Surface" section, plus t
   command methods (`DoSelectionCommand()`, `DoMoveUnitsCommand()`, etc.) so mouse,
   touch, and any future gamepad input share the same gameplay behavior — keep input
   parsing separate from gameplay rules, and add a shared command method before adding
-  parallel per-device gameplay logic.
+  parallel per-device gameplay logic. **Before adding any new key or button, read
+  `topics/input-and-keybinds.md`** — it holds the current bindings, the keys reserved for
+  systems not built yet, and the wiring rule that keeps a binding player-rebindable.
 - **New system, new topic file.** Follow the same structure as the existing topics.
   **New game mode or control surface**: add a topic, or a section to `game-modes.md`.

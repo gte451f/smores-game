@@ -153,27 +153,11 @@ flow, EQS queries).
 
 All input uses **Enhanced Input** (`UInputAction` / `UInputMappingContext`). Input actions are `EditAnywhere` properties on the C++ classes — actual `UInputAction` assets are assigned in the Blueprint subclass. Strategy uses separate `MouseMappingContext` and `TouchMappingContext` (the RTS control scheme supports touch).
 
-**Player-configurable keybinds are a committed goal**, and that constrains how every
-player-facing action is wired:
-
-- **Every player-facing key or button goes through a `UInputAction`.** Unreal's player
-  key-mapping system only sees Enhanced Input actions, so a binding made any other way can
-  never appear in a settings screen. Two tempting alternatives are ruled out: a
-  `NativeOnKeyDown` on a UMG widget (game widgets don't hold keyboard focus, so it simply never
-  fires), and a Slate input pre-processor (it works, but is invisible both to rebinding and to
-  anyone reading the input assets). The inventory rotate key shipped as a pre-processor and was
-  moved for exactly this reason — see the `game-systems` skill's `inventory.md`.
-- **Scope a context-specific key with its own `UInputMappingContext`**, added and removed as
-  that context opens and closes, rather than adding it to the always-on mouse context
-  (`AStrategyPlayerController::UpdateInventoryInputContext` is the worked example). That's what
-  lets a key mean one thing in the world and another inside a window without a conflict.
-- **Modifier + mouse-button interactions inside a widget need none of this.** A click event
-  already carries `IsControlDown()`/`IsShiftDown()`/`IsAltDown()`, so read them off the event in
-  the widget's own handler — no action asset, no controller involvement.
-- **`UInputMappingContext` key mappings must be authored by hand in the editor.** MCP cannot
-  write them safely (see the `mcp-workflow` skill, which also documents a silent
-  returns-true-writes-nothing failure when clearing them). Create the `UInputAction` asset, wire
-  the C++, then hand the user the single mapping step.
+**Keybinds are player-configurable by design**, which constrains how every binding is built:
+a control wired outside Enhanced Input can never be surfaced in a settings screen. **Before
+adding any player-facing key or button, read the `game-systems` skill's
+`input-and-keybinds.md`** — it holds the current bindings, the keys reserved for systems not
+built yet, the wiring rule, and the add-a-binding checklist.
 
 ### AI
 

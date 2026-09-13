@@ -1,0 +1,192 @@
+# Input and Keybinds
+
+## Purpose
+
+The single place to look **before adding any player-facing key or button**. It records what
+is bound today, which keys are deliberately held in reserve for systems not built yet, and
+the one wiring pattern every binding must follow.
+
+Keybinds are player-configurable by design (see the `game-design` skill's
+`input-and-platforms.md`), which is what makes this topic load-bearing rather than
+bookkeeping: a binding wired any way other than Enhanced Input can never appear in a
+settings screen, and a default that collides with another system's default is a bug the
+player has to discover and work around.
+
+Amend this topic in the same change as any new binding.
+
+## Player Surface
+
+### Defaults — world (`IMC_Strategy_Mouse`, always active in mouse mode)
+
+| Key | Action asset | Does |
+|---|---|---|
+| Left mouse | `IA_Strategy_SelectClick`, `_SelectHold`, `_SelectClickAdditive`, `_SelectAllDoubleClick` | Select; hold to drag a selection box; additive select; double-click to select all on screen |
+| Right mouse | `IA_Strategy_InteractClick` | Move order / interact at the cursor |
+| Middle mouse (hold) | `IA_Strategy_InteractHold` | Rotate the camera |
+| Mouse wheel | `IA_Strategy_Zoom` | Camera zoom |
+| `W` `A` `S` `D` | `IA_Strategy_MoveCamera` | Pan the camera |
+| `Q` / `E` | `IA_Strategy_AdjustHeight` | Lower / raise the camera |
+| `Shift` (either) | `IA_Strategy_SelectionModifier` | Hold to add to / remove from the selection |
+| `Tab` | `IA_Strategy_CyclePawn` | Cycle the selection to the next player pawn |
+| `I` | `IA_Strategy_Inventory` | Toggle the selected pawn's inventory window |
+| `O` | `IA_Strategy_ToggleContainer` | Open the nearest container, or a Downed NPC's loot |
+| `H` | `IA_Strategy_Attack` | Attack the selected NPC |
+
+### Defaults — inventory (`IMC_Strategy_Inventory`, priority 1, only while a window is open)
+
+| Key | Action asset | Does |
+|---|---|---|
+| `R` | `IA_Strategy_RotateDraggedItem` | Turn the item being dragged 90° |
+
+### Touch (`IMC_Strategy_Touch`)
+
+Two gesture actions only — `IA_Strategy_Touch_Primary` and `IA_Strategy_Touch_Secondary`.
+Nothing here can collide with a keyboard default. Touch is incidental to the inherited
+control scheme, not a targeted platform.
+
+### Not bindings
+
+Modifier + mouse-button interactions **inside a widget** (Ctrl+click to split a stack,
+Shift+click to quick-transfer) are not keybinds and take no slot in the tables above — the
+click event already carries `IsControlDown()`/`IsShiftDown()`/`IsAltDown()`. They still need
+to be *consistent*, so they have their own convention below.
+
+## Core Rules
+
+- **Every player-facing key or button goes through a `UInputAction`.** Unreal's player
+  key-mapping system only sees Enhanced Input actions, so a binding made any other way can
+  never be rebound by the player. Two alternatives are specifically ruled out:
+  - a `NativeOnKeyDown` on a UMG widget — game widgets don't hold keyboard focus, so it
+    never fires at all;
+  - a Slate input pre-processor — it *works*, but is invisible both to rebinding and to
+    anyone reading the input assets. The inventory rotate key shipped this way and was
+    moved; see `inventory.md`.
+- **Enhanced Input sits at the end of the keyboard focus path.** Keys reach it only because
+  the game viewport holds focus: UMG game widgets are non-focusable, so on a click Slate
+  walks up from the widget to the viewport, which does take focus. That is why an inventory
+  key still works mid-drag — a drag captures the pointer but not the keyboard. If a future
+  screen ever *does* take focus (a modal, full-screen menu), it has to pass through the keys
+  it doesn't claim, or gameplay input dies while it's open.
+- **Scope a context-specific key with its own `UInputMappingContext`**, added and removed as
+  that context opens and closes, rather than adding it to the always-on mouse context.
+  That's what lets one key mean different things in different places without a conflict, and
+  it's the reason the inventory context sits at priority 1 above the world context's 0.
+- **One key, one meaning per context.** Several actions may share a key inside one context
+  when their triggers differ (the four left-mouse selection actions do exactly this), but two
+  *unrelated* behaviours must not.
+- **Modifier conventions** — keep these consistent everywhere so they're learnable:
+  `Shift` = whole/all (take all, queue an order), `Ctrl` = part/split (split a stack),
+  `Alt` = inspect/info. `Shift` is already the in-world selection modifier, which matches.
+- **Defaults matter even though everything is rebindable**, because most players never open
+  the keybind screen. A default that fights PC RPG convention is experienced as the game
+  being wrong, not as a setting waiting to be changed.
+
+## C++ Implementation
+
+- **All bindings live on `AStrategyPlayerController::SetupInputComponent`**
+  (`smores`, `Variant_Strategy/`). Each action is an `EditAnywhere UInputAction*` property;
+  the actual asset is assigned on `BP_StrategyPlayerController`.
+- **Trigger event choice matters.** Use `ETriggerEvent::Started` for a one-shot that should
+  fire on press, `Completed` for one that should fire on release, and `Triggered` only for
+  continuous input (camera pan, zoom). `Triggered` on a held *key* fires every frame — that
+  would, for instance, spin a dragged item once per tick.
+- **`AStrategyPlayerController::UpdateInventoryInputContext`** is the worked example of a
+  scoped context: it adds `InventoryMappingContext` at priority 1 when an inventory or
+  container window opens and removes it when the last one closes. It is called from all five
+  window open/close paths, so a new path that opens a window must call it too.
+- **`UInventoryDragDropOperation::GetActiveDrag`** (`SmoresUI`) is how a controller-bound
+  action reaches an in-flight drag. Slate owns the drag — no widget or controller holds a
+  reference — so this static is the only bridge, and it lives in `SmoresUI` so the UMG drag
+  plumbing stays out of the controller.
+- **Touch selection** is chosen at `SetupInputComponent` time by `ShouldUseTouchControls()`,
+  which picks `TouchMappingContext` over `MouseMappingContext` — they are alternatives, not
+  layers.
+
+## Blueprint / Asset Dependencies
+
+- **`IA_Strategy_*`** (`Content/Variant_Strategy/Input/Actions/`) — one `UInputAction` per
+  action. A new Boolean action is most easily made by duplicating an existing Boolean one
+  (`IA_Strategy_CyclePawn`).
+- **`IMC_Strategy_Mouse`** — the always-on world context, added at priority 0.
+- **`IMC_Strategy_Inventory`** — added at priority 1 only while an inventory window is open.
+- **`IMC_Strategy_Touch`** — the touch alternative to the mouse context.
+- **`BP_StrategyPlayerController`** — holds every `UInputAction` and `UInputMappingContext`
+  reference as a class default.
+- **`UInputMappingContext` key mappings must be authored by hand in the editor.** MCP cannot
+  write them safely, and clearing them silently fails — see the `mcp-workflow` skill. The
+  workflow for a new binding is: create the action asset and wire the C++, then hand the user
+  the single mapping step.
+
+## Extension Points
+
+### Adding a binding — the checklist
+
+1. **Check the tables above and the reserved list below.** If the key is taken in the same
+   context, or reserved, pick another.
+2. **Decide the context.** Global to gameplay → `IMC_Strategy_Mouse`. Only meaningful while
+   some screen or mode is open → its own context, added and removed with that screen.
+3. **Create the `UInputAction`**, bind it in `SetupInputComponent` with the right trigger
+   event, and add an `EditAnywhere` property for it.
+4. **Hand the user the key mapping** (editor-only), then assign the asset on
+   `BP_StrategyPlayerController`.
+5. **Update this topic** in the same change.
+
+If the interaction is modifier + mouse button *inside a widget*, skip all of this — read the
+modifier off the click event — but follow the modifier conventions in Core Rules.
+
+### Reserved keys — do not take these for something else
+
+Held for their conventional PC-RPG meaning, whether or not the system exists yet. Taking one
+now means either a conflict later or a default that surprises the player.
+
+| Key | Held for |
+|---|---|
+| `Esc` | Close window / back / system menu — never bind to gameplay |
+| `Space` | Pause. Real-time-with-pause squad RPGs universally use it |
+| `F5` / `F9` | Quicksave / quickload — see `save-system.md` |
+| `M` | World map |
+| `J` | Journal / quests |
+| `C` | Character sheet for the selected unit |
+| `K` | Skills / training |
+| `B` | Base / build mode |
+| `1`–`9`, `0` | Squad and control-group recall; `Ctrl`+digit to assign |
+| `F1`–`F4` | Select squad member N, if party-slot selection is ever wanted |
+| `` ` `` | Console |
+| `Alt` (hold) | Highlight interactables / show ground item names |
+
+Broadly free today: `F`, `G`, `L`, `N`, `P`, `T`, `U`, `V`, `X`, `Y`, `Z`. `R` is used in the
+inventory context only — prefer not to give it a second, unrelated meaning in the world
+context, since one key meaning two things is exactly what the context system exists to
+*avoid* needing.
+
+### Existing defaults worth revisiting
+
+Not bugs, and not scheduled — but they fight convention, and the moment to fix them is before
+players build muscle memory:
+
+- **`H` to attack** is unconventional. The RTS convention is `A` (attack-move), which is
+  unavailable because `A` pans the camera. Worth settling when combat commands expand beyond
+  one key.
+- **`O` to open a container** is unconventional; `E` is the usual interact/open key, which is
+  unavailable because `E` raises the camera.
+- **`Q`/`E` on camera height** spends two premium keys — in most RPGs they're ability or
+  quick-slot keys. Camera height is a rarely-touched control holding valuable real estate.
+
+## Known Gaps
+
+- **No keybind settings screen exists**, and no action is marked player-mappable yet. The
+  actions are Enhanced Input actions, which is the prerequisite; exposing them means adding
+  `PlayerMappableKeySettings` (a display name and unique name per mapping) and a UI over
+  Unreal's user-settings API. Until then "rebindable" is a property of the architecture, not
+  something a player can do.
+- **`IA_Strategy_ResetCamera` is bound in C++ but mapped to no key** in either context, so
+  camera reset is currently unreachable. Either map it or drop the action.
+- **`UWindowWidget` swallows only left clicks.** Every other mouse button falls through to
+  the world, so right-clicking an open window issues a move order to the squad. This blocks
+  right-click-to-equip (inventory roadmap Slice 5) and any Ctrl/Shift+right-click transfer,
+  and should be fixed button-agnostically rather than by special-casing a second button.
+- **No gamepad bindings.** Basic controller support is a pre-launch goal per
+  `input-and-platforms.md`; nothing is wired yet.
+- **No conflict detection anywhere but this document.** Two mappings of the same key in the
+  same context will simply both fire. Until a settings screen with conflict checking exists,
+  the tables above are the only guard.
