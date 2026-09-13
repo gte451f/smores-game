@@ -5,6 +5,7 @@
 #include "StrategyUnit.h"
 #include "StrategyPlayerUnit.h"
 #include "StrategySelectionHost.h"
+#include "StrategyResourceHost.h"
 #include "StrategyUI.h"
 #include "GameFramework/PlayerController.h"
 
@@ -83,6 +84,13 @@ void AStrategyHUD::DrawHUD()
 		{
 			UIWidget->SetSelectedUnitsCount(SelectedUnits.Num());
 			UIWidget->SetSelectionTargetLabel(SelectionHost->GetSelectionTargetLabel());
+
+			// the quick-access resource readout, if this controller reports one - the balance itself
+			// lives on the owning player's PlayerState, which SmoresUI deliberately can't see
+			if (const IStrategyResourceHost* ResourceHost = Cast<IStrategyResourceHost>(PC))
+			{
+				UIWidget->SetGold(ResourceHost->GetPlayerGold());
+			}
 		}
 
 		// process each selected unit

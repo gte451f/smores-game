@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**smores** is an Unreal Engine 5.8 game project. C++ is split across a primary module (`smores`) plus a growing set of `Smores*`-prefixed feature modules (currently `SmoresCore`, `SmoresCombat`, `SmoresItems`) per the `game-systems` skill's `unreal-module-organization` topic. The intended game is a **squad-based survival RPG in the vein of Kenshi** — the player commands a squad of individuals, not a single hero, but this is an RPG borrowing squad-command concepts, not an RTS or 4X. See the `game-design` skill for the full design intent (vision, pillars, and every major system) and the `game-systems` skill for the current player-facing behavior and implementation.
+**smores** is an Unreal Engine 5.8 game project. C++ is split across a primary module (`smores`) plus a growing set of `Smores*`-prefixed feature modules (currently `SmoresCore`, `SmoresCombat`, `SmoresItems`, `SmoresCharacters`, `SmoresUI`) per the `game-systems` skill's `unreal-module-organization` topic. The intended game is a **squad-based survival RPG in the vein of Kenshi** — the player commands a squad of individuals, not a single hero, but this is an RPG borrowing squad-command concepts, not an RTS or 4X. See the `game-design` skill for the full design intent (vision, pillars, and every major system) and the `game-systems` skill for the current player-facing behavior and implementation.
 
 The current prototype's control scheme is built on the **Strategy** variant of Epic's Top Down template and is currently RTS-style (floating camera, click/drag-box selection, move commands) — that's an implementation detail of the current input/camera layer, not the intended genre. The template's TwinStick variant has been removed; abstract top-down base classes (`smoresCharacter` / `smoresGameMode` / `smoresPlayerController`) remain in `Source/smores/` for potential reuse, but the template's default `Lvl_TopDown` map and its Content/TopDown/ Blueprints have been removed — `LVL_Strategy` and `Lvl_MainMenu` are the only two maps in the project now.
 
@@ -91,12 +91,23 @@ deferred.
 
 ### Module layout
 
-Four runtime modules today: the primary `smores` module, plus `SmoresCore` (empty
-proving module), `SmoresCombat` (health/damage, floating damage numbers, the
-attack-hit anim notify), and `SmoresItems` (inventory, container/chest actors) — each a
-sibling folder directly under `Source/`, per the `game-systems` skill's
-`unreal-module-organization` topic, which tracks the target module map and migration
-order. Everything else still compiles into `smores`.
+Six runtime modules today: the primary `smores` module, plus `SmoresCore` (empty
+proving module), `SmoresCombat` (health/damage, attack-swing resolution, floating damage
+numbers, the attack-hit anim notify), `SmoresItems` (item definitions, inventory,
+container/chest actors), `SmoresCharacters` (the unit character classes), and `SmoresUI`
+(HUD, strategy UI, the window/inventory widget stack) — each a sibling folder directly
+under `Source/`, per the `game-systems` skill's `unreal-module-organization` topic, which
+tracks the target module map and migration order. What's left in `smores` is the game
+framework for the Strategy variant (game mode, player state, player controller, camera
+pawn) plus the main menu and the template base classes.
+
+Dependency direction runs `smores` → `SmoresUI` → `SmoresCharacters` → {`SmoresItems`,
+`SmoresCombat`} → `SmoresCore`, and never back — higher modules may also depend several
+levels down directly (`SmoresUI` names `SmoresItems` itself, for instance), just never
+upward. Where a lower module needs something from
+`AStrategyPlayerController`, it declares a narrow interface and the controller implements
+it (`IStrategySelectionHost`, `IStrategyCameraCommands`, `IStrategyResourceHost`,
+`IInventoryMoveHost` — all in `SmoresUI`) rather than depending on `smores`.
 
 ```
 Source/
@@ -105,10 +116,18 @@ Source/
     smoresGameMode.*           – Abstract base game mode
     smoresPlayerController.*   – Abstract base: point-and-click nav movement via PathFollowingComponent
 
-    Variant_Strategy/          – Squad gameplay, the active variant (RTS-style camera/selection/command controls)
+    MainMenu/                  – Title screen game mode/HUD and its own UI widgets
+
+    Variant_Strategy/          – Strategy game framework: StrategyGameMode, StrategyPlayerController,
+                                 StrategyPlayerState (per-player gold), StrategyPawn, EnvQueryContext_MoveGoal
   SmoresCore/                  – Empty proving module; no classes yet
-  SmoresCombat/                – HealthComponent, DamageNumberActor/Widget, AnimNotify_AttackHit, IAttackDamageDealer
-  SmoresItems/                 – ItemDefinition (shared item-type data asset), InventoryComponent (FInventoryItem), StrategyContainer, StrategyChest
+  SmoresCombat/                – HealthComponent, CombatComponent, DamageNumberActor/Widget, AnimNotify_AttackHit, IAttackDamageDealer
+  SmoresItems/                 – ItemDefinition (shared item-type data asset), InventoryComponent (FInventoryItem/FInventoryEntry), StrategyContainer, StrategyChest
+  SmoresCharacters/            – StrategyUnit (owns the Inventory/Health/Combat subobjects), StrategyPlayerUnit
+  SmoresUI/                    – StrategyHUD, StrategyUI, StrategyTouchControls, WindowWidget,
+                                 InventoryWidget/CellWidget/ItemWidget, InventoryDragDropOperation,
+                                 and the IStrategySelectionHost / IStrategyCameraCommands /
+                                 IStrategyResourceHost / IInventoryMoveHost interfaces
 ```
 
 ### Class hierarchy pattern
@@ -121,11 +140,14 @@ Blueprint hooks follow the convention `BP_*` (`BP_Damaged`, `BP_UnitSelected`, e
 
 The active gameplay variant. Squad-based by design intent (see the `game-design` skill);
 its current control scheme — camera pan/zoom, click/drag-box selection, move commands —
-is RTS-style, inherited from Epic's Strategy template. Key classes: `AStrategyPlayerController`
-(selection, camera pan/zoom, mouse + touch input), `AStrategyUnit` (abstract AI-driven
-character, EQS-refined movement via `AAIController`), `AStrategyPawn` (camera-only pawn),
-`AStrategyHUD` (drag-select box), `EnvQueryContext_MoveGoal`. See the `game-systems` skill
-for full behavior detail (selection rules, movement/command flow, EQS queries).
+is RTS-style, inherited from Epic's Strategy template. Key classes, which no longer all live
+in `Variant_Strategy/` — several have moved to feature modules: `AStrategyPlayerController`
+(selection, camera pan/zoom, mouse + touch input), `AStrategyPawn` (camera-only pawn),
+`AStrategyPlayerState` (per-player gold) and `EnvQueryContext_MoveGoal` in `smores`;
+`AStrategyUnit` (abstract AI-driven character, EQS-refined movement via `AAIController`) and
+`AStrategyPlayerUnit` in `SmoresCharacters`; `AStrategyHUD` (drag-select box) in `SmoresUI`.
+See the `game-systems` skill for full behavior detail (selection rules, movement/command
+flow, EQS queries).
 
 ### Input system
 

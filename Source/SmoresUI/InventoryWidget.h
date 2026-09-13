@@ -43,6 +43,18 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> SlotListText;
 
+	/** Optional carried-weight readout ("Weight: 12.4 / 30.0"). Name it "WeightText" in the WBP to auto-bind. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> WeightText;
+
+	/** Colour WeightText takes while the holder is within its capacity */
+	UPROPERTY(EditAnywhere, Category = "Inventory")
+	FLinearColor WeightNormalColor = FLinearColor::White;
+
+	/** Colour WeightText takes while carried weight exceeds capacity. Cosmetic only - being over capacity has no gameplay effect yet. */
+	UPROPERTY(EditAnywhere, Category = "Inventory")
+	FLinearColor WeightOverCapacityColor = FLinearColor(1.0f, 0.35f, 0.25f, 1.0f);
+
 	/**
 	 *  Container the grid is built into. A UGridPanel renders the real two-layer grid; any
 	 *  other UPanelWidget (e.g. UVerticalBox) degrades to a flat list of item widgets. Name it
@@ -96,6 +108,18 @@ public:
 	/** Multi-line summary: one line per placed entry with its quantity, cell and orientation */
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	FText GetContentsSummary() const;
+
+	/**
+	 *  Carried weight against this holder's capacity, as "Weight: 12.4 / 30.0" - or just
+	 *  "Weight: 12.4" for a holder with no capacity authored (a chest doesn't carry anything
+	 *  anywhere, so a limit on it would be meaningless).
+	 */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	FText GetWeightSummary() const;
+
+	/** True while the bound holder is over its capacity. Drives WeightText's colour and nothing else. */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	bool IsOverWeightCapacity() const;
 
 	/** Player-facing label for one carried item - its definition's display name, plus "xN" for a real stack.
 	 *  Shared by the summary text and the item widgets so both read the definition the same way. */

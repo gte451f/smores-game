@@ -31,21 +31,12 @@ piece still outstanding is **partial-stack drag**: `MoveItem` takes a quantity a
 correctly, but the UI always passes "whole stack" because there's no designed way for the
 player to say how many.
 
-## Weight & Encumbrance
+## Weight & Encumbrance — **SHIPPED (Slice 4)**
 
-Two independent measures, deliberately not conflated:
-
-- **Weight** — the sum of carried item weights (unit weight × quantity), a density figure
-  that will eventually feed movement/stealth effects per `characters-and-squads.md` (a thief
-  carrying stolen goods moves slower and noisier). Pure numeric accumulation; no grid/UI
-  footprint of its own.
-- **Grid footprint (bulk/volume)** — see above; how much *space* an item takes, independent
-  of how heavy it is. A large but light item (a bundle of cloth) and a small but heavy one
-  (an ingot) stress the two measures differently, which is the point.
-- **Decided: track only, no effects this round.** Total carried weight and a per-pawn weight
-  capacity are computed, replicated, and shown in the UI; movement-speed and stealth-noise
-  penalties are deliberately deferred to a later characters/combat pass, since those systems
-  own the effects. Nothing in this round blocks a pickup on weight grounds.
+Weight tracking and the per-holder capacity readout shipped in Slice 4; see `inventory.md`.
+The deliberate deferral stands: **effects are not this system's job**. Movement-speed and
+stealth-noise penalties for a heavily-laden pawn belong to a later characters/combat pass,
+which owns those effects — `IsOverWeightCapacity` is the seam it reads.
 
 ## Equipment / Worn Slots
 
@@ -60,20 +51,13 @@ Two independent measures, deliberately not conflated:
   untrained equip (per `combat.md`'s weapon-class mismatch penalty) are entirely
   combat/skill-resolution's concern, never an inventory-system restriction.
 
-## Currency
+## Currency — **SHIPPED (Slice 4)**
 
-- Placeholder name **"gold"** — no weight, not part of the grid/inventory at all (not an
-  item, not a stack, doesn't occupy a cell).
-- **Owned per-player, not per-pawn or per-division.** Every sub-squad/division under one
-  player draws from the same pool regardless of physical location or distance from each
-  other, per `characters-and-squads.md`'s Squad Divisions (an organization layer, not a
-  separate economy). This means it lives outside `UInventoryComponent` entirely — a
-  replicated, authority-gated value on a new `AStrategyPlayerState` (no custom
-  `PlayerState` exists in the project yet) — and the trade/purchase transfer context
-  (below) touches both a pawn's `UInventoryComponent` *and* the player's currency value in
-  the same server-side transaction.
-- No possession restrictions yet (no robbable cash, no per-division budgets) — explicitly
-  deferred; noted as a future extension point only.
+The per-player gold balance on `AStrategyPlayerState` shipped in Slice 4; see `inventory.md`.
+Still outstanding is everything that *moves* it — the purchase/sale transaction is Slice 8,
+which pairs `TrySpendGold` with the item half in one server-side call. Possession
+restrictions (robbable cash, per-division budgets) remain explicitly deferred; the shared-pool
+model is unchanged.
 
 ## Unified Transfer Interface
 
@@ -151,7 +135,9 @@ underlying move/copy operation rather than inventing its own UI:
 
 What carries forward largely unchanged: authority-gated mutation + replication, the
 `OnInventoryChanged` delegate pattern, `UWindowWidget` floating-panel chrome, and the
-overall "drag from one slot widget, drop on another, server validates and applies" shape.
+overall "drag from one slot widget, drop on another, server validates and applies" shape —
+and now the narrow-interface seam between `smores` and `SmoresUI` (Slice 4 added a fourth,
+`IStrategyResourceHost`, rather than moving a gameplay class down a module).
 Already reworked in Slice 2: `UInventoryComponent`'s flat index model (now a 2D grid with
 placement/collision) and `IInventoryMoveHost::Server_MoveInventoryItem`'s signature (now
 entry id + cell + rotation + quantity). Already reworked in Slice 3: the interim
@@ -241,18 +227,39 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
   `UInventoryItemWidget`, which is now the per-entry widget — there's no longer any per-cell
   widget that knows what item it's under.
 
-### Slice 4 — Weight tracking and currency
+### Slice 4 — Weight tracking and currency — **DONE**
 
-- **Build:** `UInventoryComponent::GetTotalWeight()` (unit weight × quantity), a replicated
-  `WeightCapacity` on the pawn (or its component) shown as "X / Y" in the inventory window;
-  no gameplay effect. `AStrategyPlayerState` (new, `smores` or `SmoresCore`) with a
-  replicated `Gold`, server-only `AddGold`/`TrySpendGold`, `OnRep_Gold`, and a readout in
-  `UStrategyUI` per `player-interface.md`'s quick-access strip. Set it as the Strategy game
-  mode's `PlayerStateClass`.
-- **Touches:** `InventoryComponent.*`, `StrategyUnit.*`, `StrategyGameMode.*`, new
-  `StrategyPlayerState.*`, `StrategyUI.*`, `UI_Strategy`.
-- **Done when:** weight updates live as items move; gold shows on the HUD and a debug command
-  can add/spend it with correct replication.
+Shipped; see `inventory.md`. Notes worth carrying forward:
+
+- **`AStrategyPlayerState` went in `smores/Variant_Strategy/`, not `SmoresCore`.** It's a
+  Strategy-variant framework class like `StrategyGameMode`/`StrategyPawn`/
+  `StrategyPlayerController`, and `SmoresCore`'s charter is explicitly "no gameplay-specific
+  logic". The cost of that choice is that `SmoresUI` can't see the type, which is paid with a
+  fourth narrow interface, `IStrategyResourceHost` (`GetPlayerGold`), declared in `SmoresUI`
+  and implemented by `AStrategyPlayerController` — the same pattern
+  `unreal-module-organization.md` records for the other three. Slice 8's UI price display will
+  want the same seam; extend that interface rather than inventing a second one.
+- **`StrategyGameMode.*` needed no C++ change.** The roadmap predicted one, but the project's
+  abstract-C++-class/BP-subclass convention means `PlayerStateClass` is assigned on
+  `BP_StrategyGameMode` instead. Nothing in C++ references `AStrategyPlayerState::StaticClass()`
+  — so if that Blueprint assignment is ever lost, the failure is silent at compile time and
+  shows up only as a permanent `Gold: 0` plus a warning from the gold execs.
+- **Setting a class default on a Blueprint whose placed instances predate the property writes
+  a stale per-instance override.** Changing `BP_Chest`'s `WeightCapacity` 30 → 0 and compiling
+  re-instanced both placed chests in `LVL_Strategy`, and the re-instancing copied their *old*
+  inherited value (30) forward as a genuine override, silently shadowing the new class default.
+  Caught by `grep -arl "WeightCapacity" Content/__ExternalActors__/` returning two files. Fixed
+  by setting the intended value explicitly per instance and re-saving — the delta then matches
+  the CDO, so nothing serializes and the grep comes back clean. This is the `mcp-workflow`
+  skill's documented hazard firing on a plain class-default edit, not just on a module move:
+  **run that grep after every class-default change to a property placed actors also carry.**
+- The player-facing readouts are `BindWidgetOptional` text blocks (`GoldText` in `UI_Strategy`,
+  `WeightText` in both inventory WBPs) that C++ fills directly — no Blueprint property
+  bindings. That's a deliberate departure from `UI_Strategy`'s older
+  `SelectionCount`/`SelectionTargetText` pattern, which binds BP-side to a `BlueprintPure`
+  getter; the C++-fills-it shape matches `UInventoryWidget`'s and needs no graph work to wire.
+- `SmoresAddGold <Amount>` / `SmoresSpendGold <Amount>` are the console execs, and
+  `SmoresDumpInventory` now logs carried weight against capacity too.
 
 ### Slice 5 — Equipment component and paperdoll
 
@@ -345,5 +352,9 @@ Recorded so future sessions don't reopen them:
   (Rejected: falling back to the other orientation when the literal one doesn't fit.)
 - **Item definition storage** — `UPrimaryDataAsset` per item, not a `UDataTable`.
 - **Currency ownership** — per-player on `AStrategyPlayerState`, shared across divisions;
-  no possession restrictions yet.
+  no possession restrictions yet. Shipped in Slice 4, including the module placement
+  (`smores`, not `SmoresCore`) and the `IStrategyResourceHost` seam it required.
+- **Weight capacity of 0 means unlimited**, which is what every static holder (chest,
+  storefront shelf, warehouse) should use — weight is a carried-density figure and nothing
+  static carries. (Rejected: a sentinel `bHasWeightLimit` flag, or a huge placeholder number.)
 - **Save backend** — not this system's decision; stay `UPROPERTY`-reflected.

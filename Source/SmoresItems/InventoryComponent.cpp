@@ -33,6 +33,7 @@ void UInventoryComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME(UInventoryComponent, GridWidth);
 	DOREPLIFETIME(UInventoryComponent, GridHeight);
 	DOREPLIFETIME(UInventoryComponent, StackMultiplier);
+	DOREPLIFETIME(UInventoryComponent, WeightCapacity);
 }
 
 bool UInventoryComponent::HasOwnerAuthority() const
@@ -66,6 +67,25 @@ int32 UInventoryComponent::GetFreeCellCount() const
 	}
 
 	return FMath::Max(GridWidth * GridHeight - OccupiedCells, 0);
+}
+
+float UInventoryComponent::GetTotalWeight() const
+{
+	float TotalWeight = 0.0f;
+
+	for (const FInventoryEntry& Entry : Entries)
+	{
+		// unit weight x quantity, read through the shared definition like every other display figure
+		TotalWeight += Entry.Item.GetTotalWeight();
+	}
+
+	return TotalWeight;
+}
+
+bool UInventoryComponent::IsOverWeightCapacity() const
+{
+	// a holder with no capacity authored is unlimited rather than permanently overloaded
+	return HasWeightLimit() && GetTotalWeight() > WeightCapacity;
 }
 
 int32 UInventoryComponent::GetEffectiveMaxStack(const UItemDefinition* Definition) const

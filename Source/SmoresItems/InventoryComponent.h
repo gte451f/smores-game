@@ -200,6 +200,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Inventory", meta = (ClampMin = 0.01))
 	float StackMultiplier = 1.0f;
 
+	/**
+	 *  How much weight this holder is meant to carry, the denominator of the inventory window's
+	 *  "carried / capacity" readout. Zero means no limit at all, which is what a static holder
+	 *  like a chest wants - weight is a carried-density figure, and nothing static carries.
+	 *
+	 *  Deliberately inert: exceeding it is reported but never blocks a placement, a transfer or a
+	 *  pickup. The movement-speed and stealth-noise penalties this figure eventually feeds belong
+	 *  to a later characters/combat pass, which owns those effects.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Inventory", meta = (ClampMin = 0.0))
+	float WeightCapacity = 30.0f;
+
 protected:
 
 	/** Items currently placed in the grid, in no particular order. Replicated so every machine sees the same
@@ -251,6 +263,26 @@ public:
 	/** Number of cells not covered by any placed entry */
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	int32 GetFreeCellCount() const;
+
+	/**
+	 *  Combined weight of everything placed here (each entry's unit weight x its quantity).
+	 *  Deliberately unrelated to how many cells those entries occupy - a bundle of cloth is bulky
+	 *  and light, an ingot small and heavy, and the two measures are meant to disagree.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	float GetTotalWeight() const;
+
+	/** This holder's carry capacity; zero or less means unlimited (see HasWeightLimit) */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	float GetWeightCapacity() const { return WeightCapacity; }
+
+	/** True if this holder has a meaningful capacity at all - a chest normally doesn't */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	bool HasWeightLimit() const { return WeightCapacity > 0.0f; }
+
+	/** True if carried weight exceeds capacity. Reported for display only - nothing acts on it yet. */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	bool IsOverWeightCapacity() const;
 
 	/** This holder's stack cap for the given definition: its base MaxStackSize x StackMultiplier, never below 1. Zero for a null definition. */
 	UFUNCTION(BlueprintPure, Category = "Inventory")

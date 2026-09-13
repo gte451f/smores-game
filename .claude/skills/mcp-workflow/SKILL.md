@@ -122,6 +122,16 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   looks the same as an actor that legitimately holds nothing. Find them by grepping
   `Content/__ExternalActors__/` for the property name, then either re-author the override
   or `ObjectTools.reset_properties` it away — and verify with `get_properties` after.
+- **Changing a Blueprint class default writes a stale per-instance override onto every placed
+  actor that predates the property.** Not just module moves and relocated properties — a plain
+  CDO edit does it. Setting `BP_Chest`'s new `WeightCapacity` 30 → 0 and compiling re-instanced
+  both chests placed in `LVL_Strategy`, and re-instancing carried their *old* inherited value
+  (30) forward as a genuine override that silently shadowed the new class default. It looks
+  exactly like "the class default didn't take". Detect it with
+  `grep -arl "<PropertyName>" Content/__ExternalActors__/` after the save; fix it by setting the
+  intended value **explicitly per instance** and re-saving, which makes the delta match the CDO
+  so nothing serializes — then re-grep to confirm it comes back empty. Verify placed instances
+  only after a level reload, not straight after the compile.
 - **No MCP compile/build trigger exists.** Checked exhaustively across all ~50 toolsets
   (Blueprint, Object, Material, Scene, Actor, Asset, Sequencer, Niagara, PCG, GAS,
   Automation Tests, Config Settings, Plugins, Logs, etc.) — none expose compile/build/Live

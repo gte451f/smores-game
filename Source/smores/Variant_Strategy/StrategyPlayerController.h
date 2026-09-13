@@ -6,6 +6,7 @@
 #include "GameFramework/PlayerController.h"
 #include "StrategySelectionHost.h"
 #include "StrategyCameraCommands.h"
+#include "StrategyResourceHost.h"
 #include "InventoryMoveHost.h"
 #include "StrategyPlayerController.generated.h"
 
@@ -22,6 +23,7 @@ class UStrategyTouchControls;
 class UInventoryWidget;
 class AStrategyContainer;
 class UInventoryComponent;
+class AStrategyPlayerState;
 
 /**
  *  Player Controller for a top-down strategy game.
@@ -29,7 +31,7 @@ class UInventoryComponent;
  *  Implements both mouse and touch controls.
  */
 UCLASS(abstract)
-class AStrategyPlayerController : public APlayerController, public IStrategySelectionHost, public IStrategyCameraCommands, public IInventoryMoveHost
+class AStrategyPlayerController : public APlayerController, public IStrategySelectionHost, public IStrategyCameraCommands, public IStrategyResourceHost, public IInventoryMoveHost
 {
 	GENERATED_BODY()
 
@@ -317,6 +319,16 @@ public:
 
 	//~ End IStrategyCameraCommands interface (remaining members below, alongside the other camera commands)
 
+	//~ Begin IStrategyResourceHost interface
+
+	/** Returns this controller's player's gold balance, read off its own AStrategyPlayerState - never a global/shared one */
+	virtual int32 GetPlayerGold() const override;
+
+	//~ End IStrategyResourceHost interface
+
+	/** This controller's player state, or null if it hasn't replicated in yet */
+	AStrategyPlayerState* GetStrategyPlayerState() const;
+
 protected:
 
 	/** Returns true if the PC should run using touchscreen controls */
@@ -501,6 +513,25 @@ protected:
 	/** Server side of the inventory debug execs - optionally adds AddCount items, then logs the grid */
 	UFUNCTION(Server, Reliable)
 	void Server_DebugInventory(UInventoryComponent* Inventory, int32 AddCount);
+
+public:
+
+	/** Debug exec: credits Amount gold to this player. Hops to the server, since the balance is server-owned. */
+	UFUNCTION(Exec)
+	void SmoresAddGold(int32 Amount = 100);
+
+	/**
+	 *  Debug exec: attempts to debit Amount gold from this player, exercising TrySpendGold's
+	 *  insufficient-funds rejection (which leaves the balance untouched).
+	 */
+	UFUNCTION(Exec)
+	void SmoresSpendGold(int32 Amount = 100);
+
+protected:
+
+	/** Server side of the gold debug execs - credits or debits, then logs the resulting balance */
+	UFUNCTION(Server, Reliable)
+	void Server_DebugGold(int32 Amount, bool bSpend);
 
 public:
 

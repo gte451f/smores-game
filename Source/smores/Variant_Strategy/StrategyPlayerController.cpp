@@ -2,6 +2,7 @@
 
 
 #include "StrategyPlayerController.h"
+#include "StrategyPlayerState.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
 #include "EnhancedInputComponent.h"
@@ -1138,6 +1139,54 @@ void AStrategyPlayerController::Server_MoveInventoryItem_Implementation(UInvento
 	UInventoryComponent::MoveItem(SourceInventory, EntryId, DestInventory, DestCell, bRotated, Quantity);
 }
 
+AStrategyPlayerState* AStrategyPlayerController::GetStrategyPlayerState() const
+{
+	// keyed off this controller's own player state - there is no single "the" player in a co-op session
+	return GetPlayerState<AStrategyPlayerState>();
+}
+
+int32 AStrategyPlayerController::GetPlayerGold() const
+{
+	const AStrategyPlayerState* StrategyPlayerState = GetStrategyPlayerState();
+
+	return StrategyPlayerState ? StrategyPlayerState->GetGold() : 0;
+}
+
+void AStrategyPlayerController::SmoresAddGold(int32 Amount)
+{
+	Server_DebugGold(Amount, /*bSpend =*/ false);
+}
+
+void AStrategyPlayerController::SmoresSpendGold(int32 Amount)
+{
+	Server_DebugGold(Amount, /*bSpend =*/ true);
+}
+
+void AStrategyPlayerController::Server_DebugGold_Implementation(int32 Amount, bool bSpend)
+{
+	AStrategyPlayerState* StrategyPlayerState = GetStrategyPlayerState();
+
+	if (!StrategyPlayerState)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[GoldDebug] No AStrategyPlayerState - is the game mode's PlayerStateClass set to a BP_StrategyPlayerState?"));
+		return;
+	}
+
+	if (bSpend)
+	{
+		const bool bSpent = StrategyPlayerState->TrySpendGold(Amount);
+
+		UE_LOG(Logsmores, Warning, TEXT("[GoldDebug] TrySpendGold(%d) -> %s, balance %d"),
+			Amount, bSpent ? TEXT("paid") : TEXT("REJECTED"), StrategyPlayerState->GetGold());
+
+		return;
+	}
+
+	StrategyPlayerState->AddGold(Amount);
+
+	UE_LOG(Logsmores, Warning, TEXT("[GoldDebug] AddGold(%d), balance %d"), Amount, StrategyPlayerState->GetGold());
+}
+
 void AStrategyPlayerController::SmoresDumpInventory()
 {
 	SmoresAddItem(0);
@@ -1189,9 +1238,11 @@ void AStrategyPlayerController::Server_DebugInventory_Implementation(UInventoryC
 	const FIntPoint GridSize = Inventory->GetGridSize();
 	const TArray<FInventoryEntry>& Entries = Inventory->GetEntries();
 
-	UE_LOG(Logsmores, Warning, TEXT("[InvDebug] %s: %dx%d grid, %d entries, %d/%d cells free"),
+	UE_LOG(Logsmores, Warning, TEXT("[InvDebug] %s: %dx%d grid, %d entries, %d/%d cells free, weight %.2f/%.2f%s"),
 		*GetNameSafe(Inventory->GetOwner()), GridSize.X, GridSize.Y, Entries.Num(),
-		Inventory->GetFreeCellCount(), GridSize.X * GridSize.Y);
+		Inventory->GetFreeCellCount(), GridSize.X * GridSize.Y,
+		Inventory->GetTotalWeight(), Inventory->GetWeightCapacity(),
+		Inventory->IsOverWeightCapacity() ? TEXT(" OVER") : TEXT(""));
 
 	// occupancy map: one character per cell, indexing into the entry list below
 	for (int32 Row = 0; Row < GridSize.Y; ++Row)

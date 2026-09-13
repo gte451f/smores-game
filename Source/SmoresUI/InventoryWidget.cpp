@@ -64,6 +64,9 @@ FText UInventoryWidget::GetContentsSummary() const
 	Lines.Add(FString::Printf(TEXT("%dx%d grid, %d/%d cells free"),
 		GridSize.X, GridSize.Y, BoundInventory->GetFreeCellCount(), GridSize.X * GridSize.Y));
 
+	// the same labelled readout WeightText shows, so a WBP wiring only one of the two still reports weight
+	Lines.Add(GetWeightSummary().ToString());
+
 	for (const FInventoryEntry& Entry : Entries)
 	{
 		// display data lives on the shared item definition, not on the carried instance
@@ -82,6 +85,35 @@ FText UInventoryWidget::GetContentsSummary() const
 	}
 
 	return FText::FromString(FString::Join(Lines, TEXT("\n")));
+}
+
+FText UInventoryWidget::GetWeightSummary() const
+{
+	if (!BoundInventory.IsValid())
+	{
+		return FText::GetEmpty();
+	}
+
+	// one decimal place is enough resolution for a figure the player only ever reads, never solves against
+	FNumberFormattingOptions Format;
+	Format.MinimumFractionalDigits = 1;
+	Format.MaximumFractionalDigits = 1;
+
+	const FText CarriedText = FText::AsNumber(BoundInventory->GetTotalWeight(), &Format);
+
+	// a holder with no capacity authored has no denominator to show - see UInventoryComponent::HasWeightLimit
+	if (!BoundInventory->HasWeightLimit())
+	{
+		return FText::Format(LOCTEXT("WeightNoCapacity", "Weight: {0}"), CarriedText);
+	}
+
+	return FText::Format(LOCTEXT("WeightWithCapacity", "Weight: {0} / {1}"),
+		CarriedText, FText::AsNumber(BoundInventory->GetWeightCapacity(), &Format));
+}
+
+bool UInventoryWidget::IsOverWeightCapacity() const
+{
+	return BoundInventory.IsValid() && BoundInventory->IsOverWeightCapacity();
 }
 
 FText UInventoryWidget::GetItemLabel(const FInventoryItem& Item)
@@ -115,6 +147,14 @@ void UInventoryWidget::RefreshDisplay()
 	if (SlotListText)
 	{
 		SlotListText->SetText(GetContentsSummary());
+	}
+
+	if (WeightText)
+	{
+		WeightText->SetText(GetWeightSummary());
+
+		// over capacity is purely informational today - colour is the whole of the consequence
+		WeightText->SetColorAndOpacity(FSlateColor(IsOverWeightCapacity() ? WeightOverCapacityColor : WeightNormalColor));
 	}
 
 	RebuildGrid();

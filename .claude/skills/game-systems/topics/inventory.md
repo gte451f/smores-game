@@ -12,10 +12,12 @@ like* lives in the `FInventoryItem` instance that references it; *where that cop
 particular holder's grid lives in the `FInventoryEntry` placement that wraps it.
 
 Items occupy a rectangular footprint of cells rather than one uniform slot, may be rotated 90°
-to fit, and merge into stacks capped per holder. This system does **not** yet handle:
-equipment/worn slots, weight/encumbrance, currency, trading/purchase, theft, or world-loose
-item pickups. See `inventory-roadmap.md` for the target design covering all of that — this
-topic only documents what's actually built.
+to fit, and merge into stacks capped per holder. Carried weight is tracked and displayed
+alongside the grid, and the player has a gold balance on their `AStrategyPlayerState` — but
+neither *does* anything yet: weight applies no penalty, and nothing spends gold. This system
+does **not** yet handle: equipment/worn slots, trading/purchase, theft, or world-loose item
+pickups. See `inventory-roadmap.md` for the target design covering all of that — this topic
+only documents what's actually built.
 
 ## Player Surface
 
@@ -56,6 +58,14 @@ topic only documents what's actually built.
   make it fit — auto-placement still tries both orientations on its own, but that's a different
   path, and turning an item the player didn't ask to turn works against the deliberate packing
   this design is built around.
+- Every inventory window shows a **carried-weight readout** above its grid — `Weight: 12.4 /
+  30.0` for a pawn, and just `Weight: 8.0` for a chest, which has no capacity of its own. It
+  updates live as items move in, out, and between windows. Exceeding the capacity turns the
+  readout red and does **nothing else**: the drop still lands, the transfer still completes,
+  and the pawn moves exactly as fast as before.
+- The HUD carries a **gold readout** ("Gold: 250") next to the selection count. Gold isn't an
+  item — it has no weight, no footprint, and never appears in a grid — and today nothing in the
+  game spends or earns it outside the debug console.
 - Deselecting all units, or having no player pawn selected/in range, closes any open
   inventory window.
 
@@ -90,6 +100,24 @@ topic only documents what's actually built.
   actually stackable (`MaxStackSize > 1`), and both carry the same `bStolen` flag — so theft
   can't be laundered by merging. `Condition` is deliberately *not* compared, since splitting a
   bulk-material stack per wear value would fragment it uselessly.
+- **Weight and footprint are two independent measures, and are meant to disagree.** Footprint
+  is bulk/volume — how much *space* an item claims. Weight is density — `Definition->Weight` ×
+  quantity, summed over every placed entry by `GetTotalWeight`, with no relation to how many
+  cells those entries cover. A bundle of cloth stresses the grid; an ingot stresses the scale.
+- **`WeightCapacity` is per holder and deliberately inert.** It's the denominator of the
+  window's readout and nothing else — `IsOverWeightCapacity` is consulted only to colour that
+  text. No mutator consults it, so being over capacity never blocks a placement, a transfer or
+  a pickup. The movement-speed and stealth-noise penalties this figure eventually feeds belong
+  to a later characters/combat pass, which owns those effects. A capacity of 0 means *no limit*
+  (`HasWeightLimit`), which is what a static holder like a chest wants — nothing static carries
+  anything anywhere.
+- **Currency is per-player, not per-pawn, and lives outside the inventory entirely.** `Gold`
+  is a replicated `int32` on `AStrategyPlayerState`, not an `FInventoryItem` — it has no
+  weight, no footprint, and occupies no cell. Every sub-squad/division under one player draws
+  from the same balance regardless of where in the world it is, because divisions are an
+  organization layer rather than a separate economy. `AddGold` credits and `TrySpendGold`
+  debits-if-affordable, both authority-only; `TrySpendGold` returning false is what a later
+  purchase flow checks *before* touching any item, so a transaction can't half-apply.
 - All mutation (`AddItem`, `AddItemAt`, `RemoveEntry`, `SetEntryQuantity`, `RepositionEntry`,
   `SetGridSize`) is authority-only; called on a non-authority machine, each is a silent no-op.
   `Entries`, `GridWidth`, `GridHeight` and `StackMultiplier` all replicate; `OnRep_Entries`
@@ -161,7 +189,8 @@ topic only documents what's actually built.
     `UInventoryDragDropOperation`, `IInventoryMoveHost`
   - `SmoresCharacters`: `AStrategyUnit` (owns the `Inventory` subobject shared by NPCs and
     player units alike), `AStrategyPlayerUnit`
-  - `smores` (`Variant_Strategy`): `AStrategyPlayerController`
+  - `smores` (`Variant_Strategy`): `AStrategyPlayerController`, `AStrategyPlayerState` (the
+    per-player gold balance)
 - **Important methods:**
   - `FInventoryItem::GetDisplayName` / `GetIcon` / `GetItemId` / `GetDescription` /
     `GetTotalWeight` / `GetTotalBaseValue` / `GetFootprint` / `HasSameDefinitionAs` /
@@ -178,6 +207,13 @@ topic only documents what's actually built.
   - `UInventoryComponent::FindFreePlacement` — auto-placement scan, natural orientation first
   - `UInventoryComponent::GetEntry` / `GetEntryIdAtCell` / `GetEffectiveMaxStack` /
     `GetFreeCellCount` — the read side used by the UI and by `MoveItem`
+  - `UInventoryComponent::GetTotalWeight` / `GetWeightCapacity` / `HasWeightLimit` /
+    `IsOverWeightCapacity` — the weight read side. Nothing but the UI calls any of them; no
+    mutator consults `WeightCapacity`, which is what keeps the figure inert
+  - `AStrategyPlayerState::AddGold` / `TrySpendGold` / `CanAfford` / `GetGold` — the currency
+    surface. `AddGold`/`TrySpendGold` are authority-only and broadcast `OnGoldChanged`;
+    `OnRep_Gold` re-broadcasts it on clients, same split as `UInventoryComponent`'s mutators
+    vs. `OnRep_Entries`. `StartingGold` is applied once, on the server, in `BeginPlay`
   - `UInventoryComponent::AddItem` / `AddItemAt` / `RemoveEntry` / `SetEntryQuantity` /
     `RepositionEntry` / `SetGridSize` — authority-only mutators, all broadcast
     `OnInventoryChanged`
@@ -200,6 +236,20 @@ topic only documents what's actually built.
     the toggle-key path (checks `ControlledUnits`/`SelectedNPC` only)
   - `AStrategyPlayerController::FindContainerAtLocation` / `FindLootableNPCAtLocation` —
     used by the double-click path (checks every player pawn, within `ContainerSelectionRadius`)
+  - `AStrategyPlayerController::GetPlayerGold` (`IStrategyResourceHost`) —
+    `AStrategyHUD::DrawHUD` polls it each frame and pushes the result into
+    `UStrategyUI::SetGold`. The interface exists because the balance lives on a `smores`
+    gameplay class that `SmoresUI` deliberately can't see; it's the same narrow-interface
+    shape as `IStrategySelectionHost`/`IStrategyCameraCommands`
+  - `AStrategyPlayerController::SmoresAddGold` / `SmoresSpendGold` (console execs) —
+    debug-only, both hopping to the server via `Server_DebugGold` since the balance is
+    server-owned. `SmoresSpendGold` past the balance logs `REJECTED` and changes nothing
+  - `UStrategyUI::SetGold` / `GetGoldLabel` — `SetGold` early-outs when the balance is
+    unchanged (the HUD pushes every frame), so `NativeConstruct` refreshes once on its own to
+    cover a widget built after the first push
+  - `UInventoryWidget::GetWeightSummary` / `IsOverWeightCapacity` — the window's weight
+    readout and the red/normal colour choice; `RefreshDisplay` applies both, so weight tracks
+    `OnInventoryChanged` with no separate subscription
   - `AStrategyPlayerController::Server_MoveInventoryItem_Implementation` — the sole
     authoritative caller of `UInventoryComponent::MoveItem` from UI drag-drop. Carries entry
     id, destination cell, rotation and quantity; it does no validation of its own, since
@@ -231,8 +281,11 @@ topic only documents what's actually built.
   (every unit, NPC or player-controlled) and of `AStrategyContainer` (every world
   container). The two `UInventoryWidget` instances (`InventoryWidget`, `ContainerWidget`)
   are lazy-created and owned by `AStrategyPlayerController` directly — **not** by
-  `AStrategyHUD`, which today only spawns the general `UStrategyUI` widget and draws the
-  drag-selection box; it has no inventory role.
+  `AStrategyHUD`, which today only spawns the general `UStrategyUI` widget, pushes the
+  selection count / target label / gold balance into it each frame, and draws the
+  drag-selection box; it has no inventory role. `AStrategyPlayerState` is spawned per player
+  by the game mode (`PlayerStateClass`), so the gold balance is scoped to one player and
+  never to the world.
 - **Data flow (drag-and-drop transfer):** `UInventoryItemWidget::NativeOnDragDetected`
   (source item) → `UInventoryDragDropOperation` payload (source inventory + entry id + a copy
   of the item + rotation + grab offset + cell size) → the target window's
@@ -266,6 +319,14 @@ topic only documents what's actually built.
   silently breaks the drop maths. A plain `SlotListText` text block is the fallback visual when
   no grid is wired; it lists each placed entry with its quantity, anchor cell, footprint and
   rotation.
+- **`GoldText`** — a `UTextBlock` in `UI_Strategy`, sitting beside `SelectionCount` in the
+  same horizontal strip. Optional (`BindWidgetOptional`); C++ fills its text, so no Blueprint
+  property binding is involved. `WeightText` in `WBP_Inventory`/`WBP_ContainerInventory` works
+  the same way, sitting between the title bar and the grid.
+- **`BP_StrategyPlayerState`** — `AStrategyPlayerState` subclass holding `StartingGold` (250).
+  It is assigned to `BP_StrategyGameMode`'s `PlayerStateClass`; without that assignment the
+  game mode spawns a plain engine `APlayerState`, the HUD shows `Gold: 0` forever, and the
+  gold execs log "No AStrategyPlayerState".
 - **`WBP_InventoryCell`** — `UInventoryCellWidget` subclass, assigned to
   `UInventoryWidget::CellWidgetClass`. One instance per **grid cell**, at grid layer 0. Just a
   `UBorder` named `CellBorder`, whose tint C++ drives from the highlight state; the brush
@@ -289,9 +350,15 @@ topic only documents what's actually built.
   8×6 grid.
 - **Unit Blueprints** — `AStrategyPlayerUnit::StartingItems` is likewise Blueprint-authored
   (`BP_PlayerUnit` seeds an Apple and a Pocket Knife) and its `Inventory` subobject is a 6×4
-  grid. `GridWidth`/`GridHeight`/`StackMultiplier` are the per-holder knobs to override on any
-  new holder Blueprint; `Entries` itself is not editable, so starting contents always go
-  through `StartingItems` and `AddItem`'s auto-placement.
+  grid with the default 30 `WeightCapacity`. `BP_Chest` sets its capacity to **0** (no limit),
+  since a chest doesn't carry anything anywhere.
+  `GridWidth`/`GridHeight`/`StackMultiplier`/`WeightCapacity` are the per-holder knobs to
+  override on any new holder Blueprint; `Entries` itself is not editable, so starting contents
+  always go through `StartingItems` and `AddItem`'s auto-placement.
+- **`DA_Item_*` weights and values are authored** (Apple 0.2/2g, GoldCoin 0.01/1g,
+  HealthPotion 0.5/25g, PocketKnife 0.3/15g, Torch 0.8/5g, Rope 2.0/12g, IronSword 3.5/90g,
+  TrapKit 4.0/60g) — a definition with a zero `Weight` contributes nothing to the readout, so
+  a new item type that forgets to set one looks weightless rather than broken.
 
 ## Extension Points
 
@@ -303,10 +370,17 @@ topic only documents what's actually built.
   it with `GridWidth`/`GridHeight` and set `StackMultiplier` above 1.0 for a holder meant to
   stack deeper than a pawn's pack (a storefront shelf, a warehouse chest). Nothing else needs
   a per-holder code path.
-- **Equipment, currency, trading, theft, world pickups, sort/filter** — none of this exists in
-  code yet, though `UItemDefinition` already carries the fields they'll read (`EquipSlot`,
+- **Equipment, trading, theft, world pickups, sort/filter** — none of this exists in code
+  yet, though `UItemDefinition` already carries the fields they'll read (`EquipSlot`,
   `BaseValue`, `WorldMesh`, `Category`). Full target design and rationale live in
   `inventory-roadmap.md`.
+- **Spending gold** — `AStrategyPlayerState::TrySpendGold` is the seam a purchase runs
+  through: verify proximity, call it, and only move the item if it returned true, all inside
+  one server-side call so the transaction can't half-apply. Nothing calls it yet outside the
+  debug exec.
+- **Encumbrance effects** — `IsOverWeightCapacity` is the seam, and it's deliberately consulted
+  by nothing but the readout's colour. A characters/combat pass that wants a speed or noise
+  penalty reads it from there rather than reaching into `GetTotalWeight` itself.
 - **Save/load** — `FInventoryItem` and `UInventoryComponent`'s state are fully
   `UPROPERTY`-reflected; no struct changes are needed for whatever serialization approach
   the save system eventually adopts.
@@ -330,8 +404,20 @@ topic only documents what's actually built.
 - No item art — every `DA_Item_*` has a null `Icon` and `WorldMesh`, so the UI shows names
   only. The item widget draws no icon at all yet, which is why the label's 90° turn for tall
   footprints matters as much as it does.
-- No currency, trading, or purchase flow.
-- No weight/encumbrance tracking.
+- No trading or purchase flow — gold exists and replicates, but the only things that move it
+  are the `SmoresAddGold`/`SmoresSpendGold` debug execs. It also isn't persisted anywhere,
+  and a player state re-created mid-session re-seeds from `StartingGold`.
+- **Weight has no gameplay consequence.** Nothing reads `IsOverWeightCapacity` but the
+  readout's colour — no speed penalty, no noise penalty, and no pickup is ever refused for
+  being too heavy. That's a deliberate deferral, not an oversight, but it does mean an
+  over-capacity pawn looks warned-about while nothing is actually happening.
+- The gold readout is **polled from `DrawHUD` every frame**, not driven by
+  `OnGoldChanged`. That delegate exists and fires correctly on both sides, but nothing
+  subscribes to it yet — a consumer that needs to *react* to a balance change (a purchase
+  confirmation, an alert) should bind it rather than add a second poll.
+- `WeightCapacity` replicates but never changes at runtime, so no refresh is wired to it —
+  a future system that varies capacity (a pack upgrade, a strength attribute) needs to
+  broadcast `OnInventoryChanged` itself, since only entry changes redraw the window today.
 - No world-loose item pickups — only container- and unit-held inventories exist; nothing
   can be dropped in or picked up directly from the world today.
 - No stolen-item flag or theft/detection mechanics.
