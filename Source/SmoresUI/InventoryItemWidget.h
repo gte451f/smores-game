@@ -4,7 +4,6 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
-#include "InputCoreTypes.h"
 #include "InventoryComponent.h"
 #include "InventoryItemWidget.generated.h"
 
@@ -20,17 +19,13 @@ class USizeBox;
  *  and which cell of the footprint the pointer grabbed, so the item lands where its ghost sits
  *  rather than under the cursor. The same class doubles as that ghost - the drag decorator is
  *  another instance of it, resized to the footprint and re-drawn whenever the rotate key flips
- *  the orientation mid-flight.
+ *  the orientation mid-flight. The rotate key itself belongs to the player controller (an
+ *  Enhanced Input action, so it is player-rebindable); this widget only supplies the drag.
  */
 UCLASS(abstract)
 class SMORESUI_API UInventoryItemWidget : public UUserWidget
 {
 	GENERATED_BODY()
-
-public:
-
-	/** Constructor */
-	UInventoryItemWidget(const FObjectInitializer& ObjectInitializer);
 
 protected:
 
@@ -56,10 +51,6 @@ protected:
 	/** Orientation this widget is drawn at. Matches the entry in the grid; follows the drag while acting as a decorator. */
 	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
 	bool bDrawRotated = false;
-
-	/** Key that flips a drag's orientation while it's in flight. Defaults to R. */
-	UPROPERTY(EditAnywhere, Category = "Inventory")
-	FKey RotateKey;
 
 public:
 

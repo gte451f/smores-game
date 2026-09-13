@@ -207,11 +207,21 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
   rejected, never auto-rotated to make it fit. What made it safe to settle that way is the
   drop preview — the covered cells turn red, so "press R" is visible rather than something
   the player has to guess. Without the preview, literal would just read as broken.
-- **The rotate key is a Slate input pre-processor**, registered by the drag operation and torn
-  down with it. This isn't stylistic: a drag captures the pointer but not keyboard focus, and
-  Slate routes key events along the *focus* path (the game viewport), so a `NativeOnKeyDown` on
-  the inventory window never fires during a drag. Any later slice wanting a mid-drag modifier
-  (split-stack, say) should reuse that hook rather than rediscovering this.
+- **The rotate key is a normal Enhanced Input action** (`IA_Strategy_RotateDraggedItem`),
+  mapped in `IMC_Strategy_Inventory`, which `AStrategyPlayerController` adds at priority 1 only
+  while an inventory window is open and removes when the last one closes. It shipped as a Slate
+  input pre-processor and was moved the same day, once player-rebindable keybinds became a
+  commitment — a pre-processor is invisible to Unreal's player key-mapping system, so it could
+  never appear in a settings screen. **Any later mid-drag key (split-stack, quick-transfer)
+  should follow this pattern**, not the pre-processor.
+  - What makes it work: a `NativeOnKeyDown` on the window really would never fire (the window
+    doesn't hold keyboard focus), but Enhanced Input sits at the *end* of the focus path, and
+    on a click Slate walks up from the non-focusable inventory widgets to the game viewport,
+    which does take focus. So the viewport holds the keyboard throughout a drag.
+  - The controller reaches the in-flight drag through `UInventoryDragDropOperation::GetActiveDrag()`,
+    which asks Slate for the current drag content. Slate owns the drag — nothing else holds a
+    reference to it — so that static is the only bridge, and it deliberately lives in `SmoresUI`
+    so the UMG drag plumbing doesn't leak into the controller.
 - **`SlotContainer` must be a `UGridPanel`.** `UUniformGridSlot` has no row/column span, so a
   uniform grid cannot host a footprint-spanning child at all. The C++ casts and silently
   degrades to a flat list if the cast fails — if a new holder's WBP shows items in a list and
@@ -263,6 +273,18 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
 
 ### Slice 5 — Equipment component and paperdoll
 
+- **Blocker to clear first: right-click doesn't belong to the UI yet.** `UWindowWidget` swallows
+  only the **left** button; every other button falls straight through to the world, where
+  right-click issues a move order. So right-clicking an item widget today also marches the
+  squad to whatever is behind the window. Fix that before building right-click-to-equip, and fix
+  it button-agnostically rather than adding a second special case — Ctrl/Shift+right-click
+  transfer actions are coming behind it.
+- **Don't over-apply Slice 3's "one drop target for the whole grid" rule.** That exists because
+  item widgets overlap grid cells, which makes per-cell drop handlers ambiguous. Equipment slots
+  don't overlap, so a drop handler *per slot* is the right shape for the paperdoll.
+- **Any new key this slice adds goes through Enhanced Input**, mapped in
+  `IMC_Strategy_Inventory` — see the Slice 3 notes above and CLAUDE.md's "Input system". Never a
+  widget key handler, never a Slate pre-processor.
 - **Build:** `EEquipSlot` enum (keep the roster small — e.g. MainHand, OffHand, Head, Body,
   Feet) and `UEquipmentComponent` on `AStrategyUnit` with one replicated instance per slot;
   server-only `Equip(fromInventory, entryId)` / `Unequip(slot)` that swap the displaced item

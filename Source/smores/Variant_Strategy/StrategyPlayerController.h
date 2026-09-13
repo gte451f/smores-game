@@ -120,6 +120,19 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* AttackAction;
 
+	/** Input Action for rotating the item currently being dragged in an inventory window */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* RotateDraggedItemAction;
+
+	/**
+	 *  Mapping context added only while an inventory or container window is open, at a higher
+	 *  priority than the gameplay context. Scoping it that way is what lets an inventory key
+	 *  reuse a key that means something else in the world, and it keeps every inventory binding
+	 *  player-rebindable alongside the rest of them.
+	 */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputMappingContext* InventoryMappingContext;
+
 	/** Input Action for primary touch hold */
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* TouchPrimaryHoldAction;
@@ -379,6 +392,13 @@ protected:
 
 	/** Attacks the currently-selected NPC if it's Passive (flips it to Aggressive); no-op otherwise */
 	void AttackKeyPressed(const FInputActionValue& Value);
+
+	/** Rotates the inventory item currently being dragged, if there is one. Purely local UI state -
+	 *  the orientation only reaches the server on drop, through Server_MoveInventoryItem. */
+	void RotateDraggedItem(const FInputActionValue& Value);
+
+	/** Adds InventoryMappingContext while any inventory window is open, and removes it once none are */
+	void UpdateInventoryInputContext();
 
 	/** Start a select and hold input */
 	void SelectHoldStarted(const FInputActionValue& Value);

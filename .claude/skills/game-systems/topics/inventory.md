@@ -49,8 +49,9 @@ only documents what's actually built.
 - **Picking an item up grabs it where you clicked.** The floating ghost keeps that grip, so a
   sword grabbed by its tip lands with its tip where you dropped it, rather than jumping to put
   its top-left corner under the cursor.
-- **Press R while dragging to rotate** the held item 90°. The ghost turns with it, as does the
-  drop preview. Rotating a square item does nothing — a square turns into itself.
+- **Press the rotate key while dragging** (R by default, and player-rebindable like every other
+  binding) to turn the held item 90°. The ghost turns with it, as does the drop preview.
+  Rotating a square item does nothing — a square turns into itself.
 - While a drag hovers a grid, **the cells it would claim light up green or red**: green means
   the drop will be accepted, red that it won't (no room, or a stack it can't merge into). That
   preview is the only thing that tells the player whether the rotate key helped.
@@ -170,12 +171,23 @@ only documents what's actually built.
   anchor is the hovered cell *minus* that. The floating ghost is positioned by the matching
   fraction (`Offset = -GrabOffset / Footprint` against `EDragPivot::TopLeft`), so ghost and drop
   agree by construction — including after a mid-drag rotate, which transposes both together.
-- **The rotate key is a Slate input pre-processor, not a widget key handler or an input action.**
-  A drag captures the pointer but not keyboard focus, and Slate routes key events along the
-  *focus* path — the game viewport, not the inventory window — so a `NativeOnKeyDown` on the
-  window would simply never fire. The pre-processor is registered by the drag operation in
-  `BeginRotateInput` and torn down in `Drop`/`DragCancelled` (and `BeginDestroy` as a backstop),
-  so it lives exactly as long as the drag.
+- **The rotate key is an Enhanced Input action on the player controller**, not a widget key
+  handler. A `NativeOnKeyDown` on the inventory window would never fire: Slate routes key events
+  along the *keyboard focus* path, and the window never takes focus. Enhanced Input works because
+  it sits at the **end** of that path — on a click, Slate walks up from the (non-focusable)
+  inventory widgets and focuses the game viewport, which holds the keyboard for the whole drag.
+- **Its mapping context is scoped to the window being open.** `InventoryMappingContext` is added
+  at priority 1 when an inventory or container window opens and removed when the last one
+  closes (`UpdateInventoryInputContext`, called from all five open/close paths). That's what lets
+  an inventory key reuse a key that means something else in the world, and it keeps every
+  inventory binding player-rebindable alongside the gameplay ones — a key routed any other way
+  would be invisible to Unreal's player key-mapping system and so unreachable from a settings
+  screen.
+- **The controller reaches the drag through `UInventoryDragDropOperation::GetActiveDrag()`.**
+  Slate owns the in-flight drag; no widget and no controller holds a reference to it. That
+  static is the bridge, and it lives in `SmoresUI` so the UMG drag plumbing stays out of the
+  controller. Rotation is purely local UI state — the orientation only reaches the server on
+  drop, through `Server_MoveInventoryItem`.
 
 ## C++ Implementation
 
@@ -273,10 +285,13 @@ only documents what's actually built.
   - `UInventoryItemWidget::SetEntry` / `SetPreviewOrientation` / `NativeOnDragDetected` —
     binds one placed entry, re-draws the floating ghost at a new orientation, and starts the
     drag (recording which footprint cell the pointer grabbed)
-  - `UInventoryDragDropOperation::BeginRotateInput` / `ToggleRotation` / `ApplyPreview` — the
-    rotate key's whole implementation: a Slate input pre-processor registered for exactly the
-    lifetime of the drag, the transpose it applies to `bRotated` + `GrabOffset`, and the
-    decorator repositioning that keeps ghost and drop agreeing afterwards
+  - `UInventoryDragDropOperation::GetActiveDrag` / `ToggleRotation` / `ApplyPreview` — the
+    rotate path: the static that finds the in-flight drag through Slate, the transpose it
+    applies to `bRotated` + `GrabOffset`, and the decorator repositioning that keeps ghost and
+    drop agreeing afterwards
+  - `AStrategyPlayerController::RotateDraggedItem` / `UpdateInventoryInputContext` — the
+    `IA_Strategy_RotateDraggedItem` handler, and the add/remove of `InventoryMappingContext`
+    that scopes every inventory key to a window actually being open
 - **Runtime ownership:** `UInventoryComponent` is a default subobject of `AStrategyUnit`
   (every unit, NPC or player-controlled) and of `AStrategyContainer` (every world
   container). The two `UInventoryWidget` instances (`InventoryWidget`, `ContainerWidget`)
@@ -342,6 +357,11 @@ only documents what's actually built.
 - **`IA_Strategy_Inventory`** (`Content/Variant_Strategy/Input/Actions/`) — bound to
   `ToggleInventoryAction`. Desktop-only; not mapped in the touch `InputMappingContext`.
 - **`IA_Strategy_ToggleContainer`** — bound to `ToggleContainerAction`. Also desktop-only.
+- **`IA_Strategy_RotateDraggedItem`** — bound to `RotateDraggedItemAction`; rotates the item
+  being dragged. Mapped in `IMC_Strategy_Inventory` (not the always-on mouse context), which the
+  controller adds at priority 1 only while an inventory window is open. Bound on
+  `ETriggerEvent::Started` so the item turns on key press rather than release — never
+  `Triggered`, which for a held key would spin the item once per frame.
 - **`AStrategyContainer` / `AStrategyChest` Blueprint subclasses** — assign `ContainerMesh`'s
   materials (`NormalMaterial`/`SelectedMaterial`), `ContainerDisplayName`, and populate
   `StartingItems`. `StartingItems` is authored **entirely in Blueprint** (and per placed
@@ -381,12 +401,31 @@ only documents what's actually built.
 - **Encumbrance effects** — `IsOverWeightCapacity` is the seam, and it's deliberately consulted
   by nothing but the readout's colour. A characters/combat pass that wants a speed or noise
   penalty reads it from there rather than reaching into `GetTotalWeight` itself.
+- **New inventory input** — three shapes; pick by what already carries the state:
+  - *Modifier + mouse button* (Ctrl+click to split a stack, Shift+click to quick-transfer): read
+    `IsControlDown()`/`IsShiftDown()` straight off the click event in the widget's own handler.
+    No action asset, no mapping context, no controller involvement — the event already carries
+    the modifier state.
+  - *A key pressed while a window is open or a drag is in flight*: a new `UInputAction`, mapped
+    in `IMC_Strategy_Inventory` (the context scoped to a window being open — **not** the
+    always-on mouse context), bound on `AStrategyPlayerController`. If it acts on the drag rather
+    than the window, reach it with `UInventoryDragDropOperation::GetActiveDrag()`; if it changes
+    shared state, it still goes through a server RPC like every other mutation.
+  - *Never* a `NativeOnKeyDown` on an inventory widget (these widgets never hold keyboard focus,
+    so it cannot fire) and *never* a Slate input pre-processor (invisible to player rebinding).
+  The `UInputAction` asset can be made by duplicating an existing Boolean one; the
+  `IMC_Strategy_Inventory` mapping must be authored by hand in the editor.
 - **Save/load** — `FInventoryItem` and `UInventoryComponent`'s state are fully
   `UPROPERTY`-reflected; no struct changes are needed for whatever serialization approach
   the save system eventually adopts.
 
 ## Known Gaps
 
+- **`UWindowWidget` swallows only left clicks.** Every other mouse button passes through to the
+  world underneath, so right-clicking on an open inventory window issues a move order to the
+  selected squad. This blocks right-click-to-equip (Slice 5) and any Ctrl/Shift+right-click
+  transfer, and should be fixed button-agnostically rather than by special-casing a second
+  button.
 - No partial-stack drag — the UI always moves the whole stack even though `MoveItem` already
   takes a quantity and supports the split. Splitting needs a player-facing way to say "how
   many", which hasn't been designed.

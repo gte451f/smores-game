@@ -7,12 +7,6 @@
 #include "Components/TextBlock.h"
 #include "Components/SizeBox.h"
 
-UInventoryItemWidget::UInventoryItemWidget(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
-{
-	RotateKey = EKeys::R;
-}
-
 void UInventoryItemWidget::SetEntry(UInventoryComponent* InOwningInventory, const FInventoryEntry& InEntry)
 {
 	OwningInventory = InOwningInventory;
@@ -143,7 +137,6 @@ void UInventoryItemWidget::NativeOnDragDetected(const FGeometry& InGeometry, con
 		DragOperation->DefaultDragVisual = DragVisual;
 	}
 
-	DragOperation->BeginRotateInput(RotateKey);
 	DragOperation->ApplyPreview();
 
 	OutOperation = DragOperation;

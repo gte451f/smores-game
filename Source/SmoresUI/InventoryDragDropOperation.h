@@ -4,11 +4,9 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/DragDropOperation.h"
-#include "InputCoreTypes.h"
 #include "InventoryComponent.h"
 #include "InventoryDragDropOperation.generated.h"
 
-class FInventoryDragRotateProcessor;
 class UInventoryItemWidget;
 
 /** Broadcast when the rotate key flips a drag's orientation, so a hovering grid can redraw its preview */
@@ -21,8 +19,8 @@ DECLARE_MULTICAST_DELEGATE(FOnInventoryDragRotated);
  *
  *  Created by UInventoryItemWidget::NativeOnDragDetected and consumed by
  *  UInventoryWidget::NativeOnDrop, which converts the pointer position into the destination
- *  cell. The operation also owns the rotate-key hook for the duration of the drag - see
- *  BeginRotateInput for why that cannot just be a widget key handler.
+ *  cell. Rotation is driven from outside: the rotate key is a normal Enhanced Input action on
+ *  the player controller, which reaches the in-flight drag through GetActiveDrag.
  */
 UCLASS()
 class SMORESUI_API UInventoryDragDropOperation : public UDragDropOperation
@@ -62,15 +60,13 @@ public:
 	FIntPoint GetFootprint() const { return DraggedItem.GetFootprint(bRotated); }
 
 	/**
-	 *  Starts watching for the rotate key for the rest of this drag.
+	 *  The inventory drag currently in flight for the local player, or null if there isn't one.
 	 *
-	 *  A drag captures the pointer but not keyboard focus, and Slate routes key events along
-	 *  the *focus* path - which during play is the game viewport, not the inventory window. A
-	 *  Slate input pre-processor is the one hook that sees the key regardless of who holds
-	 *  focus; it is registered here and torn down in Drop/DragCancelled so it lives exactly as
-	 *  long as the drag does.
+	 *  Slate owns the in-flight drag - no widget and no player controller holds a reference to
+	 *  it - so this is the only handle a keybound action has on the thing it needs to rotate.
+	 *  Keeping the Slate/UMG drag plumbing here means the caller is just three lines.
 	 */
-	void BeginRotateInput(const FKey& InRotateKey);
+	static UInventoryDragDropOperation* GetActiveDrag();
 
 	/** Flips the held orientation, transposing the grab offset with it. No-op for a square footprint. */
 	void ToggleRotation();
@@ -78,23 +74,8 @@ public:
 	/** Re-points the decorator at the current orientation and grab offset. Call after changing either. */
 	void ApplyPreview();
 
-	//~ Begin UDragDropOperation interface
-	virtual void Drop_Implementation(const FPointerEvent& PointerEvent) override;
-	virtual void DragCancelled_Implementation(const FPointerEvent& PointerEvent) override;
-	//~ End UDragDropOperation interface
-
-	//~ Begin UObject interface
-	virtual void BeginDestroy() override;
-	//~ End UObject interface
-
 private:
-
-	/** Stops watching for the rotate key. Safe to call more than once. */
-	void EndRotateInput();
 
 	/** The decorator widget, when it is one of ours */
 	UInventoryItemWidget* GetDecoratorItem() const;
-
-	/** Registered with Slate for the lifetime of the drag; null otherwise */
-	TSharedPtr<FInventoryDragRotateProcessor> RotateProcessor;
 };

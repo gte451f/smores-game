@@ -22,6 +22,7 @@
 #include "StrategyTouchControls.h"
 #include "Widgets/Input/SVirtualJoystick.h"
 #include "InventoryWidget.h"
+#include "InventoryDragDropOperation.h"
 #include "InventoryComponent.h"
 #include "StrategyContainer.h"
 #include "Blueprint/UserWidget.h"
@@ -162,6 +163,15 @@ void AStrategyPlayerController::SetupInputComponent()
 			if (AttackAction)
 			{
 				EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::AttackKeyPressed);
+			}
+
+			// Drag rotate. Bound here but only *mapped* while an inventory window is open (see
+			// UpdateInventoryInputContext). Started rather than Completed so the item turns on the
+			// key press instead of the release - and never Triggered, which for a held key would
+			// spin the item once per frame.
+			if (RotateDraggedItemAction)
+			{
+				EnhancedInputComponent->BindAction(RotateDraggedItemAction, ETriggerEvent::Started, this, &AStrategyPlayerController::RotateDraggedItem);
 			}
 
 			// Touch Interaction
@@ -468,6 +478,8 @@ void AStrategyPlayerController::OpenInventoryForPawn(AStrategyPlayerUnit* Player
 		InventoryWidget->SetInventory(PlayerUnit->GetInventory());
 		InventoryWidget->AddToViewport(0);
 	}
+
+	UpdateInventoryInputContext();
 }
 
 void AStrategyPlayerController::CloseInventory()
@@ -480,6 +492,49 @@ void AStrategyPlayerController::CloseInventory()
 		{
 			InventoryWidget->RemoveFromParent();
 		}
+	}
+
+	UpdateInventoryInputContext();
+}
+
+void AStrategyPlayerController::RotateDraggedItem(const FInputActionValue& Value)
+{
+	// a window can be open with nothing in flight, so this is a no-op more often than not.
+	// Slate owns the drag, not this controller - UInventoryDragDropOperation::GetActiveDrag is
+	// what bridges the two.
+	if (UInventoryDragDropOperation* ActiveDrag = UInventoryDragDropOperation::GetActiveDrag())
+	{
+		ActiveDrag->ToggleRotation();
+	}
+}
+
+void AStrategyPlayerController::UpdateInventoryInputContext()
+{
+	if (!InventoryMappingContext || !IsLocalPlayerController())
+	{
+		return;
+	}
+
+	UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer());
+
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	const bool bAnyInventoryWindowOpen =
+		(InventoryWidget && InventoryWidget->IsInViewport()) ||
+		(ContainerWidget && ContainerWidget->IsInViewport());
+
+	if (bAnyInventoryWindowOpen)
+	{
+		// priority 1 beats the gameplay context at 0, so an inventory key wins over whatever the
+		// same key means in the world for as long as a window is up
+		Subsystem->AddMappingContext(InventoryMappingContext, 1);
+	}
+	else
+	{
+		Subsystem->RemoveMappingContext(InventoryMappingContext);
 	}
 }
 
@@ -522,6 +577,8 @@ void AStrategyPlayerController::CloseContainer()
 			ContainerWidget->RemoveFromParent();
 		}
 	}
+
+	UpdateInventoryInputContext();
 }
 
 void AStrategyPlayerController::OpenContainer(AStrategyContainer* Container)
@@ -551,6 +608,8 @@ void AStrategyPlayerController::OpenContainer(AStrategyContainer* Container)
 
 		Container->NotifyOpened();
 	}
+
+	UpdateInventoryInputContext();
 
 	// also open the inventory of whichever player-controlled pawn is closest to this container,
 	// regardless of current selection, so the two panels can be used together to transfer items
@@ -585,6 +644,8 @@ void AStrategyPlayerController::OpenLoot(AStrategyUnit* LootTarget)
 		ContainerWidget->SetInventory(LootTarget->GetInventory());
 		ContainerWidget->AddToViewport(0);
 	}
+
+	UpdateInventoryInputContext();
 
 	// also open the inventory of whichever player-controlled pawn is closest to this NPC,
 	// regardless of current selection, so the two panels can be used together to transfer items

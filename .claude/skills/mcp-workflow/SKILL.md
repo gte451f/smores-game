@@ -100,6 +100,19 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
     Blueprint's class defaults (even a no-op re-drag of the same asset) and let the
     resulting compile re-instance everything — but it means a raw per-instance write should
     never be treated as durable; a routine Blueprint compile can wipe it without warning.
+- **Clearing a `UInputMappingContext`'s mappings silently does nothing.**
+  `ObjectTools.set_properties(IMC, "{\"Mappings\": []}")` returns `true` and writes nothing —
+  the duplicate keeps every mapping it inherited. Discovered while trying to make an empty IMC
+  by duplicating an existing one; had it gone unnoticed, the copy would have re-fired every
+  gameplay action at its own (higher) priority. **Don't build an IMC by duplicate-and-clear** —
+  have the user create a blank one in the editor (right-click → Input → Input Mapping Context).
+  And never confirm an IMC's contents with `get_properties`, which reports `[]` either way;
+  grep the saved `.uasset` binary for `IA_` names instead:
+  `python -c "import re,io;print(sorted(set(re.findall(rb'IA_[A-Za-z_]+', io.open('<asset>.uasset','rb').read()))))"`.
+- **`get_properties` and `set_properties` take different argument shapes.** Read is
+  `instance` + `properties` (a list of names). Write is `instance` + **`values`, a JSON
+  *string***, and `instance` wants the `{"refPath": "..."}` object form. Passing `properties`
+  to a write fails with a schema error naming `values`.
 - **`UInputMappingContext` key mappings can't be round-tripped.**
   `ObjectTools.get_properties(IMC, ["mappings"])` returns `[]` — the real data is
   `defaultKeyMappings.mappings[]`. Read/write formats disagree: the reader flattens `key`

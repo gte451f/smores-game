@@ -3,83 +3,26 @@
 
 #include "InventoryDragDropOperation.h"
 #include "InventoryItemWidget.h"
-#include "Framework/Application/IInputProcessor.h"
+#include "Slate/UMGDragDropOp.h"
 #include "Framework/Application/SlateApplication.h"
 
-/**
- *  Slate input pre-processor that watches for the rotate key while a drag is in flight. See
- *  UInventoryDragDropOperation::BeginRotateInput for why a widget key handler will not do.
- */
-class FInventoryDragRotateProcessor : public IInputProcessor
+UInventoryDragDropOperation* UInventoryDragDropOperation::GetActiveDrag()
 {
-public:
-
-	FInventoryDragRotateProcessor(UInventoryDragDropOperation* InOwner, const FKey& InRotateKey)
-		: Owner(InOwner)
-		, RotateKey(InRotateKey)
+	if (!FSlateApplication::IsInitialized())
 	{
+		return nullptr;
 	}
 
-	virtual void Tick(const float DeltaTime, FSlateApplication& SlateApp, TSharedRef<ICursor> Cursor) override
+	const TSharedPtr<FDragDropOperation> SlateOperation = FSlateApplication::Get().GetDragDroppingContent();
+
+	// every UMG drag is wrapped in an FUMGDragDropOp; anything else in flight (an editor drag,
+	// a native Slate one) simply is not ours
+	if (!SlateOperation.IsValid() || !SlateOperation->IsOfType<FUMGDragDropOp>())
 	{
+		return nullptr;
 	}
 
-	virtual bool HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent) override
-	{
-		// auto-repeat would spin the item while the key is held down; one turn per press
-		if (InKeyEvent.IsRepeat() || InKeyEvent.GetKey() != RotateKey)
-		{
-			return false;
-		}
-
-		if (UInventoryDragDropOperation* DragOperation = Owner.Get())
-		{
-			DragOperation->ToggleRotation();
-
-			// swallowed, so the rotate key can double as a gameplay binding without firing it
-			// every time the player turns an item
-			return true;
-		}
-
-		return false;
-	}
-
-	virtual const TCHAR* GetDebugName() const override { return TEXT("InventoryDragRotate"); }
-
-private:
-
-	TWeakObjectPtr<UInventoryDragDropOperation> Owner;
-
-	FKey RotateKey;
-};
-
-void UInventoryDragDropOperation::BeginRotateInput(const FKey& InRotateKey)
-{
-	EndRotateInput();
-
-	if (!InRotateKey.IsValid() || !FSlateApplication::IsInitialized())
-	{
-		return;
-	}
-
-	RotateProcessor = MakeShared<FInventoryDragRotateProcessor>(this, InRotateKey);
-
-	FSlateApplication::Get().RegisterInputPreProcessor(RotateProcessor);
-}
-
-void UInventoryDragDropOperation::EndRotateInput()
-{
-	if (!RotateProcessor.IsValid())
-	{
-		return;
-	}
-
-	if (FSlateApplication::IsInitialized())
-	{
-		FSlateApplication::Get().UnregisterInputPreProcessor(RotateProcessor);
-	}
-
-	RotateProcessor.Reset();
+	return Cast<UInventoryDragDropOperation>(StaticCastSharedPtr<FUMGDragDropOp>(SlateOperation)->GetOperation());
 }
 
 void UInventoryDragDropOperation::ToggleRotation()
@@ -124,27 +67,4 @@ void UInventoryDragDropOperation::ApplyPreview()
 UInventoryItemWidget* UInventoryDragDropOperation::GetDecoratorItem() const
 {
 	return Cast<UInventoryItemWidget>(DefaultDragVisual);
-}
-
-void UInventoryDragDropOperation::Drop_Implementation(const FPointerEvent& PointerEvent)
-{
-	EndRotateInput();
-
-	Super::Drop_Implementation(PointerEvent);
-}
-
-void UInventoryDragDropOperation::DragCancelled_Implementation(const FPointerEvent& PointerEvent)
-{
-	EndRotateInput();
-
-	Super::DragCancelled_Implementation(PointerEvent);
-}
-
-void UInventoryDragDropOperation::BeginDestroy()
-{
-	// belt and braces - a drag that ends some way this class did not anticipate still cannot
-	// leave a pre-processor holding a stale pointer inside Slate
-	EndRotateInput();
-
-	Super::BeginDestroy();
 }
