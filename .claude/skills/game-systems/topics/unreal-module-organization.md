@@ -15,15 +15,22 @@ see "When to Actually Split" below.
 
 Six runtime modules: `smores` (`Source/smores/smores.Build.cs`, the primary/game
 module), `SmoresCore` (empty proving module, stood up alongside the first real split),
-`SmoresCombat` (`HealthComponent`, `DamageNumberActor`/`DamageNumberWidget`,
-`AnimNotify_AttackHit`, plus a small `IAttackDamageDealer` interface), `SmoresItems`
-(`FInventoryItem`/`UInventoryComponent`, `AStrategyContainer`, `AStrategyChest`),
-`SmoresCharacters` (`AStrategyUnit`, `AStrategyPlayerUnit`), and `SmoresUI`
-(`AStrategyHUD`, `UStrategyUI`, `UStrategyTouchControls`, `UWindowWidget`,
-`UInventoryWidget`, `UInventorySlotWidget`, `UInventoryDragDropOperation`, plus
-`IStrategySelectionHost`/`IStrategyCameraCommands`/`IInventoryMoveHost` — see "Migrating
+`SmoresCombat` (`HealthComponent`, `CombatComponent`, `DamageNumberActor`/
+`DamageNumberWidget`, `AnimNotify_AttackHit`, plus a small `IAttackDamageDealer` interface),
+`SmoresItems` (`UItemDefinition`, `FInventoryItem`/`FInventoryEntry`/`UInventoryComponent`,
+`AStrategyContainer`, `AStrategyChest`), `SmoresCharacters` (`AStrategyUnit`,
+`AStrategyPlayerUnit`), and `SmoresUI` (`AStrategyHUD`, `UStrategyUI`,
+`UStrategyTouchControls`, `UWindowWidget`, `UInventoryWidget`, `UInventoryCellWidget`,
+`UInventoryItemWidget`, `UInventoryDragDropOperation`, plus `IStrategySelectionHost`/
+`IStrategyCameraCommands`/`IStrategyResourceHost`/`IInventoryMoveHost` — see "Migrating
 Today's Prototype Code" below). One game `Target.cs` and one Editor `Target.cs`, both
-referencing all six modules. `smores/Variant_Strategy/` no longer has `Combat/`,
+referencing all six modules.
+
+Measured 2026-09-12, in lines of `.h` + `.cpp`: `smores` 3250, `SmoresUI` 2049,
+`SmoresItems` 1222, `SmoresCombat` 878, `SmoresCharacters` 781, `SmoresCore` 11. **Read
+that `smores` figure carefully before concluding the primary module is bloating: 2433 of
+its 3250 lines are `AStrategyPlayerController` alone** (1832 `.cpp` + 601 `.h`). See "The
+junk drawer is a class, not a module" below. `smores/Variant_Strategy/` no longer has `Combat/`,
 `Inventory/`, `UI/`, or the unit character classes — `MainMenu/` still has its own `UI/`
 (unrelated feature, untouched). There is no `Plugins/` folder for game-specific code yet.
 The engine-side plugins already enabled (`ModelContextProtocol`, `AllToolsets`,
@@ -32,16 +39,16 @@ The engine-side plugins already enabled (`ModelContextProtocol`, `AllToolsets`,
 ## Concrete Folder Structure
 
 Every module is a **sibling folder directly under `Source/`**, never nested inside
-`Source/smores/`. `smores` is the project's primary/game module — its name is tied to the
-project name (`smores.uproject`) and Unreal requires the primary module to share it, so it
-isn't going anywhere without a full project rename (see "Module Naming" below). Every
-other module sits next to it as a peer:
+`Source/smores/`. `smores` is the project's primary/game module — the one module carrying
+`IMPLEMENT_PRIMARY_GAME_MODULE`, of which a project may have exactly one. It matches the
+project name because Epic's template named it that way, not because Unreal requires the two
+to agree (see "Module Naming" below). Every other module sits next to it as a peer:
 
 ```
 Source/
   smores.Target.cs
   smoresEditor.Target.cs
-  smores/                         # primary module — name fixed, shrinks over time
+  smores/                         # primary module — exactly one per project, shrinks over time
     smores.Build.cs
     smores.cpp / smores.h
     smoresCharacter.* smoresGameMode.* smoresPlayerController.*   (template base classes)
@@ -73,7 +80,6 @@ Source/
     SmoresCharacters.cpp / SmoresCharacters.h
     StrategyUnit.* StrategyPlayerUnit.*   # moved from smores/Variant_Strategy/
   SmoresFactions/
-  SmoresEconomy/
   SmoresWorld/
   SmoresBaseBuilding/
   SmoresTechCrafting/
@@ -81,11 +87,15 @@ Source/
     SmoresUI.Build.cs
     SmoresUI.cpp / SmoresUI.h
     StrategyHUD.* StrategyUI.* StrategyTouchControls.* WindowWidget.*
-    InventoryWidget.* InventorySlotWidget.* InventoryDragDropOperation.*
-                                   # moved from smores/Variant_Strategy/UI/
-    StrategySelectionHost.* StrategyCameraCommands.* InventoryMoveHost.*
-                                   # new interfaces, resolve the smores<->SmoresUI coupling
-                                   # (AStrategyPlayerController implements all three)
+    InventoryWidget.* InventoryCellWidget.* InventoryItemWidget.*
+    InventoryDragDropOperation.*   # moved from smores/Variant_Strategy/UI/
+    StrategySelectionHost.* StrategyCameraCommands.* StrategyResourceHost.*
+    InventoryMoveHost.*            # narrow interfaces, resolve the smores<->SmoresUI coupling
+                                   # (AStrategyPlayerController implements all four).
+                                   # StrategyResourceHost goes away if gold becomes a
+                                   # component - see "Framework Classes vs. Feature Modules"
+  SmoresEconomy/                   # value primitives: WalletComponent, PricingProvider
+  SmoresMarkets/                   # market simulation, much later - see the target map
   SmoresSaveGame/
   SmoresOnlineSession/
   SmoresEditor/                    # Editor-only, TargetAllowList: Editor
@@ -121,6 +131,90 @@ it actually earns its cost.
   topic existing in `game-design` is not by itself a reason to cut a module — only cut one
   where there's an actual compile-isolation, optional-loading, or ownership reason (see
   "When to Actually Split").
+- **Per-player and per-pawn state belongs in a component in a feature module, never inline
+  on a framework class.** This is the single most important habit for keeping `smores`
+  small, and it is *not* a module question at all — see the next section.
+
+## Framework Classes vs. Feature Modules
+
+**The recurring question this section answers:** "I have new per-player (or per-pawn) state
+and there's no obvious module for it — am I missing a module?" Almost always, **no**. You're
+missing a component.
+
+### Why `smores` legitimately holds the framework classes
+
+`AGameModeBase` / `APlayerController` / `APlayerState` / `APawn` / `AHUD` are Unreal's
+composition root: the layer that decides who owns what and wires the pieces together. It
+*has* to sit at the top of the dependency graph and see everything below it, and a project
+has exactly one such layer. `AStrategyGameMode`/`AStrategyPlayerController`/
+`AStrategyPlayerState`/`AStrategyPawn` living in `smores/Variant_Strategy/` is therefore
+correct, not a failure to find them a home. Don't invent a module to "rescue" a framework
+class from the primary module — that's inverting the graph for no gain.
+
+Note the consequence, since it's the cost side of that placement: **nothing depends on
+`smores`**, so anything living there is invisible to every feature module. When a lower
+module needs a read from the player controller, it declares a narrow interface and the
+controller implements it (the four `I*Host`/`I*Commands` interfaces in `SmoresUI`).
+
+### The real risk: state accumulating *on* those classes
+
+The junk-drawer failure mode isn't framework classes living in `smores`. It's gameplay
+state being implemented **inline on them** because no feature module obviously owns it yet.
+Each such addition is individually reasonable and collectively fatal.
+
+The project already has the correct pattern and applies it well for pawns — `AStrategyUnit`
+implements none of health, combat, or inventory:
+
+```
+AStrategyUnit                      <- thin host; ~780 lines for the WHOLE module
+  |-- UHealthComponent     (SmoresCombat)
+  |-- UCombatComponent     (SmoresCombat)
+  +-- UInventoryComponent  (SmoresItems)
+```
+
+`AStrategyPlayerState` should be the identical shape and currently isn't: Slice 4 put `Gold`
+inline on it, because one `int32` didn't feel worth a component. That was a defensible call
+for the *first* piece of player state and an indefensible one for the fourth.
+
+### What is queued to land on the player state
+
+Every one of these is per-player, is already committed to in `game-design`, and will want
+the same home:
+
+| Incoming state | Design source | Should become |
+|---|---|---|
+| Gold (**inline today**) | `economy.md` | `UWalletComponent` |
+| Squad roster & divisions | `characters-and-squads.md` | `USquadComponent` (`SmoresCharacters`) |
+| Faction standing | `factions-and-world-state.md` | `UStandingComponent` (`SmoresFactions`) |
+| Research progress | `tech-and-crafting.md` | `UResearchComponent` (`SmoresTechCrafting`) |
+| Quest/objective state | `quests-and-objectives.md` | `UObjectiveComponent` |
+
+Added inline, that's an 800-line player state and a genuinely bloated `smores`. Added as
+components, the player state stays ~40 lines forever and each domain's state lives in the
+module that owns that domain.
+
+### The rule
+
+**When new per-player or per-pawn state arrives and no module obviously owns it, write a
+component in the nearest feature module and host it on the framework class — don't add
+fields to the framework class, and don't cut a module just to have somewhere to put it.**
+A component is cheap, replicates the same way, and can move modules later without touching
+its host. `APlayerState` is an `AActor`, so components and `SetIsReplicatedByDefault(true)`
+work on it exactly as they do on `AStrategyUnit`.
+
+**Bonus: a component can dissolve an interface.** `IStrategyResourceHost` exists only
+because `SmoresUI` can't see `AStrategyPlayerState` in `smores`. Move gold to a
+`UWalletComponent` in a module `SmoresUI` already depends on, and the HUD can reach it with
+no interface at all, because `APlayerState` is an engine type visible everywhere:
+
+```cpp
+// SmoresUI, no dependency on `smores` and no interface needed
+UWalletComponent* Wallet = PC->PlayerState->FindComponentByClass<UWalletComponent>();
+```
+
+(Cache that pointer rather than re-scanning every `DrawHUD` frame.) Weigh this whenever a
+new `I*Host` interface is about to be added: if the thing the UI wants to read is *state*
+rather than *behavior*, a component is usually the better answer than a fifth interface.
 
 ## Proposed Target Module Map
 
@@ -131,7 +225,8 @@ it actually earns its cost.
 | `SmoresCharacters` | Lineage, attributes/skills, recruitment/wages/morale, injuries, squad/division management | `SmoresCore`, `SmoresItems` | `characters-and-squads.md` |
 | `SmoresCombat` | Health/damage, melee resolution, disposition/aggro, incapacitation/capture | `SmoresCore`, `SmoresCharacters` | `combat.md` (both skills) |
 | `SmoresFactions` | Faction simulation, standing, territory, assault intelligence, military progression | `SmoresCore`, `SmoresCharacters` | `factions-and-world-state.md` |
-| `SmoresEconomy` | Markets, emergent pricing, trade routes, caravans | `SmoresCore`, `SmoresItems`, `SmoresFactions` | `economy.md` |
+| `SmoresEconomy` | **Value primitives only**: currency/wallet, pricing interface, buy/sell transactions | `SmoresCore`, `SmoresItems` | `economy.md` |
+| `SmoresMarkets` | Market simulation proper: supply/demand, emergent regional pricing, trade routes, caravans | `SmoresCore`, `SmoresItems`, `SmoresEconomy`, `SmoresFactions`, `SmoresWorld` | `economy.md` |
 | `SmoresWorld` | Map data, regions/biomes, POIs, fog of war/travel, wildlife, environmental events | `SmoresCore`, `SmoresFactions` (territory overlay) | `open-world.md`, `world-map-and-travel.md` |
 | `SmoresBaseBuilding` | Outpost/town-building placement, Building Mode, supply chains/upkeep | `SmoresCore`, `SmoresItems`, `SmoresWorld`, `SmoresFactions` | `base-building.md` |
 | `SmoresTechCrafting` | Tech tree, research, crafting | `SmoresCore`, `SmoresItems`, `SmoresCharacters` | `tech-and-crafting.md` |
@@ -141,8 +236,20 @@ it actually earns its cost.
 | `SmoresEditor` (Editor-only, `TargetAllowList: Editor`) | Any custom asset editors/validation tooling (e.g. tech-tree or building-placement authoring tools) | varies, never shipped | — |
 
 This table is a target shape, not a literal migration order — several of these modules
-correspond to systems that don't exist in any form yet (factions, economy, base building,
+correspond to systems that don't exist in any form yet (factions, markets, base building,
 tech/crafting are all still design-only per `game-design`).
+
+**Why `SmoresEconomy` is split in two.** An earlier version of this table had one
+`SmoresEconomy` covering "markets, emergent pricing, trade routes, caravans" and depending
+on `SmoresFactions`. That conflates two layers with very different dependencies, and it bit
+in practice: a player's *wallet* is an `int32` that needs nothing but items, yet the table
+as written would have dragged a whole faction simulation onto it — which is part of why
+Slice 4's gold ended up inline on `AStrategyPlayerState` instead. The low layer (currency,
+a price, a transaction) is buildable today and is what Slice 8 actually needs; the high
+layer (a simulated market that *sets* those prices) genuinely does need factions and world
+and is years out. Keep them apart so the cheap half isn't held hostage by the expensive
+one, and so the pricing interface has a home that a market sim can later implement from
+above.
 
 **Known discrepancy**: the table above lists `SmoresCombat` depending on `SmoresCharacters`,
 but the actual `AStrategyUnit`/`AStrategyPlayerUnit` move (see "Migrating Today's Prototype
@@ -159,9 +266,14 @@ unresolved, tracked here rather than silently left wrong.
 This guards against collisions with engine modules (`Core` is already taken by the engine
 itself) and future third-party plugins, at negligible cost. Not open for re-litigation.
 
-The primary module's name (`smores`, no prefix) is a separate, unrelated fact — it's fixed
-to the project name (`smores.uproject`), since Unreal requires the primary module to share
-it. Renaming it means renaming the whole project, which is out of scope here.
+The primary module's name (`smores`, no prefix) is a separate, unrelated fact — it matches
+the project name only because Epic's project template names them identically. Unreal does
+**not** require the two to agree: the primary module's name just has to be consistent across
+`IMPLEMENT_PRIMARY_GAME_MODULE`, the `.uproject`'s `Modules` array, and both `Target.cs`
+files. Epic's own Lyra sample proves it — project `LyraStarterGame.uproject`, primary module
+`LyraGame`. So renaming `smores` → `SmoresGame` for consistency with the prefix convention is
+a real option costing four files in lockstep, not the whole-project rename previously claimed
+here. Not worth doing today, but don't decline it on the grounds that it's impossible.
 
 ## Modules vs. Plugins: Where DLC and Mods Fit
 
@@ -189,6 +301,36 @@ Trigger conditions, not a schedule:
 - A real ownership seam appears in practice — two areas of code that turn out not to need
   each other's internals, discovered through actual development rather than predicted from
   a design doc's table of contents.
+
+### The junk drawer is a class, not a module
+
+Measure before worrying. As of 2026-09-12, `smores` is 3250 lines — but **2433 of them are
+`AStrategyPlayerController`** (1832 `.cpp` + 601 `.h`). Subtract it and the primary module
+is ~800 lines of game mode, pawn, player state, EQS context, main menu, and dead template
+classes: an ordinary primary module, not a bloated one.
+
+`StrategyPlayerController.cpp` is meanwhile more than twice the size of the next-largest
+file in the project and larger than `SmoresCombat` or `SmoresCharacters` *in their
+entirety*. It currently owns camera control, unit selection, unit commands, inventory
+windows, container/loot windows, touch input, and the debug execs — at least four unrelated
+responsibilities. **That, not the module, is the thing actually trending toward
+unmaintainable.**
+
+The fix is extraction into components, same as everywhere else in this document, and the
+obvious first cut is **camera control** (~400 lines, and the only part with no entanglement
+with selection state). `IStrategyCameraCommands` already marks that seam. This is a
+refactor to do opportunistically when camera work comes up anyway, not a scheduled project
+— but don't let "`smores` is the biggest module" send anyone off cutting a new module when
+the real problem is one file inside it.
+
+### Dead template classes
+
+`smoresCharacter`, `smoresGameMode`, and `smoresPlayerController` have **zero references**
+— no C++ subclass, nothing in `Content/` (verified 2026-09-12 by grep over both). CLAUDE.md
+describes them as kept "for potential reuse," but the template's `Lvl_TopDown` map and its
+Blueprints were already deleted, so nothing remains that could reuse them. Deleting them is
+pure subtraction from the primary module whenever someone wants a free win; re-check the
+grep first in case a later variant picked them up.
 
 **`Variant_Strategy` is currently doing double duty.** It's simultaneously "the current
 RTS-style control-scheme prototype" and the closest thing the codebase has today to a
@@ -378,6 +520,13 @@ first:
   guess, not a settled interface.
 - Whether an automation/test module should exist to match `Automation_smores.slnx` isn't
   decided — no such module exists today despite that solution file's name.
+- **Breaking up `AStrategyPlayerController`** (2433 lines across four-plus responsibilities)
+  — camera control is the natural first extraction. Not scheduled; see "The junk drawer is a
+  class, not a module."
+- **Moving `AStrategyPlayerState::Gold` into a `UWalletComponent`** once `SmoresEconomy`
+  exists. Slice 8 of `inventory-roadmap.md` is the natural moment, since it builds the
+  pricing interface and the transaction alongside. Would also let `IStrategyResourceHost`
+  be deleted — see "Framework Classes vs. Feature Modules."
 - Migration is underway — `SmoresCore`, `SmoresCombat`, `SmoresItems`, `SmoresCharacters`,
   and now `SmoresUI` (steps 1-4, see "Migrating Today's Prototype Code") are all done. All
   four migration steps originally scoped are complete; no further step is currently

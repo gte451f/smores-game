@@ -270,6 +270,13 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
   getter; the C++-fills-it shape matches `UInventoryWidget`'s and needs no graph work to wire.
 - `SmoresAddGold <Amount>` / `SmoresSpendGold <Amount>` are the console execs, and
   `SmoresDumpInventory` now logs carried weight against capacity too.
+- **`Gold` is inline on `AStrategyPlayerState`, and that's a known temporary shape.** One
+  `int32` didn't justify a component, but it's the first of several per-player values headed
+  for that class (squad roster, faction standing, research progress). Slice 8 moves it into
+  a `UWalletComponent` in a new `SmoresEconomy`; see `unreal-module-organization.md`'s
+  "Framework Classes vs. Feature Modules" for why per-player state belongs in a component
+  rather than on the framework class. Don't add a *second* inline field here in the
+  meantime — write the component instead.
 
 ### Slice 5 — Equipment component and paperdoll
 
@@ -327,15 +334,37 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
 
 ### Slice 8 — Storefront, purchase, and trade
 
+- **Stand up `SmoresEconomy` as part of this slice, and move gold into it.** This is the
+  slice where a currency module stops being speculative: it brings `IPricingProvider`, the
+  transaction, and the existing balance together into one coherent domain, which is exactly
+  the "a real ownership seam appeared in practice" trigger `unreal-module-organization.md`
+  requires before cutting a module. Scope it to **value primitives only** — wallet, pricing,
+  transactions, depending on `SmoresItems` and not on factions; the market simulation that
+  eventually *sets* prices is a separate, much later `SmoresMarkets`.
+  - Convert `AStrategyPlayerState::Gold` into a `UWalletComponent` hosted on the player
+    state, per that topic's "Framework Classes vs. Feature Modules". Slice 4 put `Gold`
+    inline because one `int32` didn't justify a component; by this slice it's carrying a
+    transaction API and is no longer the only thing headed for that class.
+  - Doing so lets `IStrategyResourceHost` be **deleted**: with the wallet in a module
+    `SmoresUI` already depends on, `AStrategyHUD` can reach it via
+    `PC->PlayerState->FindComponentByClass<UWalletComponent>()` (cache the pointer), since
+    `APlayerState` is an engine type visible everywhere. Prefer that to extending the
+    interface with price/affordability reads.
 - **Build:** `IPricingProvider` (base value × buy markup / sell markdown, flat for now) and
   `AStrategyStorefront : AStrategyContainer` (or a `UStorefrontComponent`) whose entries are
   for sale. Server-side transaction: verify proximity, verify `TrySpendGold`, move the item,
   debit/credit — all-or-nothing. UI: price shown on hover; dragging store → pawn triggers
   purchase, pawn → store triggers sale. Trading with a live NPC is the same two-way flow
   against the NPC's inventory.
-- **Touches:** new `PricingProvider.h`, new `StrategyStorefront.*`,
-  `StrategyPlayerState.*`, `InventoryMoveHost.h`, `StrategyPlayerController.*`,
-  `InventoryWidget.*`/item widget (price display), a `BP_Storefront`.
+- **Touches:** new `SmoresEconomy` module (`WalletComponent.*`, `PricingProvider.h`), new
+  `StrategyStorefront.*`, `StrategyPlayerState.*` (loses `Gold`, gains the component),
+  `StrategyHUD.*`/`StrategyUI.*` (read through the component), `InventoryMoveHost.h`,
+  `StrategyPlayerController.*`, `InventoryWidget.*`/item widget (price display), a
+  `BP_Storefront`. Deletes `StrategyResourceHost.h`.
+- **Note:** standing up a module plus moving replicated state off a framework class is a
+  lot to carry alongside the storefront itself. If it turns out too big for one clean
+  session, split it — the module + wallet move first (mechanical, verifiable via the
+  existing gold execs), the storefront second.
 - **Done when:** buying debits gold and moves the item; insufficient gold rejects with no
   state change; selling credits gold; all replicated.
 
