@@ -201,6 +201,15 @@ bool UInventoryComponent::FindFreePlacement(const FInventoryItem& Item, FIntPoin
 
 bool UInventoryComponent::AddItem(const FInventoryItem& Item)
 {
+	int32 QuantityAdded = 0;
+
+	return AddItemCounted(Item, QuantityAdded);
+}
+
+bool UInventoryComponent::AddItemCounted(const FInventoryItem& Item, int32& OutQuantityAdded)
+{
+	OutQuantityAdded = 0;
+
 	// shared gameplay state - only the server may mutate it
 	if (!HasOwnerAuthority())
 	{
@@ -215,7 +224,9 @@ bool UInventoryComponent::AddItem(const FInventoryItem& Item)
 
 	const int32 MaxStack = GetEffectiveMaxStack(Item.Definition);
 
-	int32 Remaining = FMath::Max(Item.Quantity, 1);
+	const int32 Requested = FMath::Max(Item.Quantity, 1);
+
+	int32 Remaining = Requested;
 	bool bChanged = false;
 
 	// merge into existing stacks of the same type before consuming any new grid space
@@ -266,6 +277,8 @@ bool UInventoryComponent::AddItem(const FInventoryItem& Item)
 		Remaining -= Chunk.Quantity;
 		bChanged = true;
 	}
+
+	OutQuantityAdded = Requested - Remaining;
 
 	if (bChanged)
 	{

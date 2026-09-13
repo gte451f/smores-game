@@ -85,19 +85,14 @@ underlying move/copy operation rather than inventing its own UI:
   `characters-and-squads.md`. Territory recognition and expiry depend on faction/world
   systems that don't exist yet — this round only carries the flag.
 
-## World Pickups
+## World Pickups — **SHIPPED (Slice 6)**
 
-- Loose item actors scattered in the world, collected via **double-click**, distinct from
-  the existing container-actor interaction pattern (`AStrategyContainer` is a whole
-  inventory holder with a mesh and interaction sphere; a world pickup is a single item
-  instance on a much lighter-weight actor).
-- Uses the item definition's **3D representation**, not its 2D icon, for its world
-  appearance.
-- **Decided:** double-click is gated by the same proximity check as every other transfer
-  (nearest player pawn must be in range); no separate auto-pickup radius. The item
-  auto-places into the nearest in-range player pawn's grid (trying both rotations) and the
-  actor is destroyed on success; if nothing fits, the pickup fails and the item stays in
-  the world.
+`AWorldItem`, double-click-to-collect, and the proximity gate all shipped in Slice 6; see
+`inventory.md`. The deliberate deferral stands: **the player can't yet put an item back**.
+`AWorldItem::SpawnWorldItem` and a `WorldItemClass` on the controller exist and are exercised by
+the `SmoresDropItem` debug exec, but the drag-an-item-onto-the-world gesture is unbuilt — the
+obvious hook (`UDragDropOperation::DragCancelled`) fires for *every* unhandled drop including an
+Escape-cancelled one, so it needs a designed confirmation before it's safe to wire.
 
 ## Sort & Filter (Inventory UI)
 
@@ -141,7 +136,9 @@ entry id + cell + rotation + quantity). Already reworked in Slice 3: the interim
 one-widget-per-cell UI (now a `UGridPanel` with a cell layer and a footprint-spanning item
 layer, one grid-level drop target, and a drop preview). What still needs real rework:
 `AStrategyContainer`/loot's `InteractionRange` proximity pattern (→ generalized to every
-transfer context via `IInventoryHolder`, not reimplemented per context).
+transfer context via `IInventoryHolder`, not reimplemented per context) — Slice 6 added a
+*third* copy of that same three-line distance test on `AWorldItem` rather than inventing a
+fourth pattern, which is exactly the duplication Slice 7 collapses.
 
 ## Implementation Order
 
@@ -325,18 +322,46 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
 - Verify with the `SmoresDumpEquipment` / `SmoresEquipItem <EntryIndex>` / `SmoresUnequipItem
   <SlotIndex>` console execs on `AStrategyPlayerController` — all server-side, like the grid ones.
 
-### Slice 6 — World pickups
+### Slice 6 — World pickups — **DONE**
 
-- **Build:** `AWorldItem` in `SmoresItems`: one `FInventoryItem` instance, a static mesh
-  from the definition's 3D representation, implements `IInventoryHolder`-style range check.
-  Double-click (extend `SelectAllDoubleClick`'s existing container/Downed branches) → nearest
-  in-range player pawn → `Server_PickUpWorldItem` → `AddItem` on the pawn → destroy on
-  success, no-op on failure. Optional stretch: dragging an item out of a window onto the
-  world spawns an `AWorldItem` at the pawn's feet.
-- **Touches:** new `WorldItem.*`, `StrategyPlayerController.*`, a `BP_WorldItem` and a few
-  placed instances in `LVL_Strategy`.
-- **Done when:** double-clicking a placed item with a pawn in range moves it into that
-  pawn's grid; out of range does nothing.
+Shipped; see `inventory.md`. Notes worth carrying forward:
+
+- **`AddItem`'s bool return is a trap for any caller that still holds the source.** It returns
+  true only when the *entire* quantity landed, but a partial add keeps what fit — so
+  "`if (AddItem(...)) Destroy();`" silently deletes the units that didn't make it, and
+  "`else` leave it alone" duplicates the ones that did. Slice 6 split out `AddItemCounted`,
+  which reports the quantity actually taken, and `AddItem` is now a one-line forwarder.
+  **Slice 8's purchase must use `AddItemCounted` too** — the same trap, with gold attached.
+- **The stretch was deliberately left out, and the reason is the hook, not the effort.**
+  Dragging an item onto the world would ride `UDragDropOperation::DragCancelled`, which fires
+  for *every* unhandled drop — a drag cancelled with Escape, or one whose window closed
+  mid-drag, is indistinguishable from a deliberate release over the ground. Wiring it naively
+  turns a stray click into a dropped item. The authority-side half (`SpawnWorldItem`,
+  `WorldItemClass`, spawn-then-remove ordering) is built and exercised by `SmoresDropItem`, so
+  whenever the gesture is designed only the front half remains.
+- **Double-click now means four things, resolved by type.** The order is world item →
+  container → Downed NPC → select-all-on-screen, and the world item goes first because it's the
+  smallest target and the only one with no selection state to set. It also gets its own tighter
+  `WorldItemSelectionRadius` (100 vs. the container's 250): sharing one radius let an item lying
+  near a chest swallow every double-click meant for the chest. **Any later double-click meaning
+  needs both a position in that order and a radius sized to the thing it hits.**
+- **`Server_PickUpWorldItem` is the first inventory RPC that validates anything.**
+  `Server_MoveInventoryItem`/`Server_EquipItem` deliberately do none, deferring to
+  `MoveItem`/`Equip`; a pickup has no such validator behind it, because proximity *is* the rule
+  and `TryPickUp` can't know how far away the asking pawn was. It re-checks range and that the
+  destination is a player pawn's own pack. Slice 7's holder-generic transfers inherit that
+  shape.
+- **A spawned actor has to replicate; a placed one gets away without it.** `AWorldItem` sets
+  `bReplicates` because it appears and vanishes during play. `AStrategyContainer` never has —
+  which nobody has noticed because placed actors exist on clients regardless, and multiplayer
+  isn't testable yet. Noted in `inventory.md`'s Known Gaps as a holder-wide multiplayer pass,
+  not a Slice 6 fix.
+- **`OnConstruction`, not just `BeginPlay`, drives the mesh.** A placed `AWorldItem` picks its
+  mesh from whatever definition the instance holds, so authoring `Item` in the level has to show
+  up in the viewport immediately — otherwise every placed instance looks identical until PIE.
+- Verify with the `SmoresDropItem <EntryIndex>` console exec, which drops a carried entry on the
+  ground in front of the pawn — server-side, like the other item execs. It spawns *first* and
+  removes the grid entry only on success, so a refused spawn can't destroy the item.
 
 ### Slice 7 — `IInventoryHolder` and loot-dead
 
@@ -417,7 +442,8 @@ Recorded so future sessions don't reopen them:
 - **Encumbrance** — tracked and displayed only; effects deferred to a characters/combat
   pass. (Rejected: soft slowdown now, hard cap.)
 - **World pickup range** — double-click gated by the shared proximity check; no auto-pickup
-  radius.
+  radius. Shipped in Slice 6, along with a *click*-precision radius separate from the
+  container's (`WorldItemSelectionRadius`), which is a different question from reach.
 - **Drop orientation** — a drag lands at the orientation the player is holding; an ill-fitting
   drop is rejected, not auto-rotated. The rotate key plus a red drop preview is the answer.
   (Rejected: falling back to the other orientation when the literal one doesn't fit.)

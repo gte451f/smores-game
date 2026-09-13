@@ -330,6 +330,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool AddItem(const FInventoryItem& Item);
 
+	/**
+	 *  AddItem, additionally reporting how many units actually landed. A caller that still holds
+	 *  the source copy - a world pickup, a storefront purchase - needs the count rather than the
+	 *  bool: a partial add keeps what fit, so destroying the source on anything short of the full
+	 *  quantity would silently delete the units that didn't make it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	bool AddItemCounted(const FInventoryItem& Item, int32& OutQuantityAdded);
+
 	/** Places an item at an explicit cell/rotation, without any stack merging. Returns false if it doesn't fit. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool AddItemAt(const FInventoryItem& Item, FIntPoint Cell, bool bRotated);

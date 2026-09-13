@@ -28,6 +28,8 @@
 #include "InventoryComponent.h"
 #include "EquipmentComponent.h"
 #include "StrategyContainer.h"
+#include "WorldItem.h"
+#include "Components/CapsuleComponent.h"
 #include "Blueprint/UserWidget.h"
 #include "smores.h"
 
@@ -837,6 +839,25 @@ void AStrategyPlayerController::SelectAllDoubleClick(const FInputActionValue& Va
 
 	if (GetLocationUnderCursor(CursorLocation))
 	{
+		// loose world items are checked first, on their own tighter radius: a pickup is the most
+		// precisely-aimed of the three gestures, and unlike a container or an NPC the item carries
+		// no selection state, so finding one either collects it or does nothing at all
+		if (AWorldItem* ClickedItem = FindWorldItemAtLocation(CursorLocation))
+		{
+			// collect it with whichever player pawn is nearest and close enough. Checked against
+			// every player pawn (not just ControlledUnits) for the same reason the container branch
+			// below is: the plain SelectClickAction fires alongside this gesture and, being
+			// non-additive, may have just cleared the current selection.
+			if (AStrategyPlayerUnit* Collector = FindPlayerPawnInRangeOfWorldItem(ClickedItem))
+			{
+				Server_PickUpWorldItem(ClickedItem, Collector->GetInventory());
+			}
+
+			// out of range does nothing at all, and still swallows the select-all - same as an
+			// out-of-range container or corpse, where the gesture means "that thing", not "everyone"
+			return;
+		}
+
 		if (AStrategyContainer* Clicked = FindContainerAtLocation(CursorLocation))
 		{
 			// highlight it dark green, same as a single click, regardless of range
@@ -1323,6 +1344,30 @@ void AStrategyPlayerController::Server_EquipItem_Implementation(UInventoryCompon
 	Equipment->Equip(SourceInventory, EntryId, Slot);
 }
 
+void AStrategyPlayerController::Server_PickUpWorldItem_Implementation(AWorldItem* WorldItem, UInventoryComponent* DestInventory)
+{
+	if (!IsValid(WorldItem) || !IsValid(DestInventory))
+	{
+		return;
+	}
+
+	// the destination has to be a player pawn's own pack - nothing else is a legal pickup target,
+	// and the client picked it
+	if (!Cast<AStrategyPlayerUnit>(DestInventory->GetOwner()))
+	{
+		return;
+	}
+
+	// proximity is the whole gate on a pickup, so it gets re-checked here rather than being left
+	// to the requesting client, which may have moved (or lied) since
+	if (!WorldItem->IsUnitInRange(DestInventory->GetOwner()))
+	{
+		return;
+	}
+
+	WorldItem->TryPickUp(DestInventory);
+}
+
 void AStrategyPlayerController::Server_UnequipItem_Implementation(UEquipmentComponent* Equipment, EEquipSlot Slot, UInventoryComponent* DestInventory)
 {
 	if (!Equipment)
@@ -1481,6 +1526,73 @@ void AStrategyPlayerController::SmoresUnequipItem(int32 SlotIndex)
 void AStrategyPlayerController::SmoresDumpEquipment()
 {
 	DebugEquipmentForSelection(INDEX_NONE, INDEX_NONE);
+}
+
+void AStrategyPlayerController::SmoresDropItem(int32 EntryIndex)
+{
+	// same shape as the other item execs: resolve the pawn from the local selection, then hop to
+	// the server, which owns both the grid being emptied and the actor being spawned
+	for (AStrategyUnit* CurrentUnit : ControlledUnits)
+	{
+		if (AStrategyPlayerUnit* PlayerUnit = Cast<AStrategyPlayerUnit>(CurrentUnit))
+		{
+			Server_DebugDropItem(PlayerUnit, PlayerUnit->GetInventory(), EntryIndex);
+			return;
+		}
+	}
+
+	UE_LOG(Logsmores, Warning, TEXT("[DropDebug] No player pawn selected."));
+}
+
+void AStrategyPlayerController::Server_DebugDropItem_Implementation(APawn* DroppingPawn, UInventoryComponent* Inventory, int32 EntryIndex)
+{
+	if (!DroppingPawn || !Inventory)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[DropDebug] No pawn/inventory to drop from."));
+		return;
+	}
+
+	if (!WorldItemClass)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[DropDebug] No WorldItemClass assigned on %s - set it on the player controller Blueprint."), *GetName());
+		return;
+	}
+
+	const TArray<FInventoryEntry>& Entries = Inventory->GetEntries();
+
+	if (!Entries.IsValidIndex(EntryIndex))
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[DropDebug] No grid entry at index %d (%d placed)."), EntryIndex, Entries.Num());
+		return;
+	}
+
+	// copy before removing - the entry reference dies with it
+	const FInventoryItem Dropped = Entries[EntryIndex].Item;
+	const int32 EntryId = Entries[EntryIndex].EntryId;
+
+	// place it on the ground just in front of the pawn rather than inside it
+	constexpr float DropDistance = 120.0f;
+
+	const UCapsuleComponent* Capsule = DroppingPawn->FindComponentByClass<UCapsuleComponent>();
+	const float FootOffset = Capsule ? Capsule->GetScaledCapsuleHalfHeight() : 0.0f;
+
+	const FVector DropLocation = DroppingPawn->GetActorLocation()
+		+ DroppingPawn->GetActorForwardVector() * DropDistance
+		- FVector(0.0f, 0.0f, FootOffset);
+
+	// spawn first: if the world refuses the actor, the item stays safely in the grid
+	AWorldItem* Spawned = AWorldItem::SpawnWorldItem(this, WorldItemClass, Dropped, DropLocation, FRotator::ZeroRotator);
+
+	if (!Spawned)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[DropDebug] Failed to spawn %s for '%s'."), *GetNameSafe(WorldItemClass), *GetNameSafe(Dropped.Definition));
+		return;
+	}
+
+	Inventory->RemoveEntry(EntryId);
+
+	UE_LOG(Logsmores, Warning, TEXT("[DropDebug] Dropped %d x '%s' from %s at %s."),
+		Dropped.Quantity, *GetNameSafe(Dropped.Definition), *GetNameSafe(Inventory->GetOwner()), *DropLocation.ToCompactString());
 }
 
 void AStrategyPlayerController::DebugEquipmentForSelection(int32 EquipEntryIndex, int32 UnequipSlotIndex)
@@ -1865,6 +1977,70 @@ AStrategyPlayerUnit* AStrategyPlayerController::FindClosestPlayerPawn(const FVec
 		}
 
 		const float DistSq = FVector::DistSquared(PlayerPawn->GetActorLocation(), Location);
+
+		if (!Closest || DistSq < ClosestDistSq)
+		{
+			Closest = PlayerPawn;
+			ClosestDistSq = DistSq;
+		}
+	}
+
+	return Closest;
+}
+
+AWorldItem* AStrategyPlayerController::FindWorldItemAtLocation(const FVector& Location) const
+{
+	// mirrors FindContainerAtLocation's shape - gather every loose item, keep the nearest one
+	// within click range. The radius is WorldItemSelectionRadius rather than the container one
+	// (see that property for why), and an item holding no definition is skipped as unpickable.
+	TArray<AActor*> FoundItems;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AWorldItem::StaticClass(), FoundItems);
+
+	AWorldItem* Nearest = nullptr;
+	float NearestDistSq = FMath::Square(WorldItemSelectionRadius);
+
+	for (AActor* CurrentActor : FoundItems)
+	{
+		AWorldItem* CurrentItem = Cast<AWorldItem>(CurrentActor);
+
+		if (!CurrentItem || CurrentItem->GetItem().IsEmpty())
+		{
+			continue;
+		}
+
+		const float DistSq = FVector::DistSquared(CurrentItem->GetActorLocation(), Location);
+
+		if (DistSq <= NearestDistSq)
+		{
+			Nearest = CurrentItem;
+			NearestDistSq = DistSq;
+		}
+	}
+
+	return Nearest;
+}
+
+AStrategyPlayerUnit* AStrategyPlayerController::FindPlayerPawnInRangeOfWorldItem(const AWorldItem* WorldItem)
+{
+	if (!WorldItem)
+	{
+		return nullptr;
+	}
+
+	// checks every player-controlled pawn, not just ControlledUnits - see FindClosestPlayerPawn
+	RefreshPlayerPawns();
+
+	AStrategyPlayerUnit* Closest = nullptr;
+	float ClosestDistSq = 0.0f;
+
+	for (const TObjectPtr<AStrategyPlayerUnit>& PlayerPawn : PlayerPawns)
+	{
+		if (!IsValid(PlayerPawn) || !WorldItem->IsUnitInRange(PlayerPawn))
+		{
+			continue;
+		}
+
+		const float DistSq = FVector::DistSquared(PlayerPawn->GetActorLocation(), WorldItem->GetActorLocation());
 
 		if (!Closest || DistSq < ClosestDistSq)
 		{

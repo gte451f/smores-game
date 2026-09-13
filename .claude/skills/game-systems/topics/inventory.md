@@ -18,9 +18,13 @@ neither *does* anything yet: weight applies no penalty, and nothing spends gold.
 
 Alongside the carried grid, every unit has a **paperdoll**: `UEquipmentComponent`, a small set
 of named worn slots that is deliberately *not* a region of the grid. An item goes in only if
-its definition says that's its slot; nothing else gates an equip. This system does **not** yet
-handle: trading/purchase, theft, or world-loose item pickups. See `inventory-roadmap.md` for
-the target design covering all of that — this topic only documents what's actually built.
+its definition says that's its slot; nothing else gates an equip.
+
+Items also exist *outside* any grid: an `AWorldItem` is a single item instance lying on the
+ground, drawn with its definition's 3D mesh and collected by double-clicking it with a pawn in
+range. It is the one holder shape with no grid and no window behind it. This system does
+**not** yet handle: trading/purchase or theft. See `inventory-roadmap.md` for the target design
+covering both — this topic only documents what's actually built.
 
 ## Player Surface
 
@@ -96,6 +100,20 @@ the target design covering all of that — this topic only documents what's actu
   Previously only a single left-click was consumed, so right-clicking a window also marched the
   squad to whatever was behind it, and a *fast second* click of any button leaked through even
   after the first was caught.
+- **Double-click a loose item lying in the world to pick it up.** It goes into the grid of
+  whichever player pawn is nearest and close enough, trying both orientations to find room, and
+  the item disappears from the ground. No pawn in range means nothing happens at all — there's
+  no "walk over and get it" order, and no auto-pickup radius: the player has to have somebody
+  standing there already.
+- A loose item has to be clicked **more precisely than a chest** — a tighter click radius, so an
+  apple lying beside a chest doesn't swallow every double-click meant for the chest. As with a
+  chest or a corpse, a double-click that lands on one means *that item*, so it never falls
+  through to the select-all-on-screen gesture even when the pickup fails.
+- **A pickup that only partly fits takes what fits.** Double-clicking a pile of 20 apples with
+  room for 8 leaves 12 on the ground rather than refusing the whole pile or quietly destroying
+  the rest. A grid with no room at all leaves the pile untouched.
+- Loose items show their **3D mesh**, not their inventory icon — and since no `DA_Item_*` has a
+  `WorldMesh` authored yet, one is currently an invisible actor you can still click.
 - Deselecting all units, or having no player pawn selected/in range, closes any open
   inventory window — and the equipment window with it.
 
@@ -174,8 +192,24 @@ the target design covering all of that — this topic only documents what's actu
   so `UInventoryComponent::GetTotalWeight` no longer counts it and
   `UEquipmentComponent::GetTotalWeight` does. Harmless while weight is inert; the pass that
   gives weight a consequence has to sum both.
+- **A world pickup is one item instance, not a holder.** `AWorldItem` carries a single
+  `FInventoryItem` and no `UInventoryComponent` at all — deliberately *not* an
+  `AStrategyContainer`, which owns a whole grid and opens into a window. The whole interaction is
+  "double-click it and it's yours", so there is nothing to open and nothing to drag out of. Its
+  mesh is read from the held definition's `WorldMesh` rather than authored on the actor, which is
+  what lets one Blueprint subclass serve every item type: contents are set per placed instance
+  (or at spawn time), and the mesh follows.
+- **Pickup is gated by proximity and nothing else**, through the same `InteractionRange` sphere
+  and default radius a container uses — the roadmap's one proximity rule for every transfer
+  context. The client picks the nearest in-range pawn, and the server re-checks both that
+  proximity and that the named inventory really belongs to an `AStrategyPlayerUnit` before
+  touching anything; range is the whole gate, so it can't be left on the requesting machine.
+- **A pickup takes what fits and leaves the rest.** `AddItem` is already allowed to place part of
+  a stack, so a pickup that read only its bool return would silently destroy the units that
+  didn't land. `AddItemCounted` reports the quantity actually taken: the actor is destroyed only
+  when the whole stack moved, and otherwise just shrinks. Taking nothing leaves it untouched.
 - All mutation (`AddItem`, `AddItemAt`, `RemoveEntry`, `SetEntryQuantity`, `RepositionEntry`,
-  `SetGridSize`, `Equip`, `Unequip`) is authority-only; called on a non-authority machine, each is a silent no-op.
+  `SetGridSize`, `Equip`, `Unequip`, `AWorldItem::SetItem`/`TryPickUp`) is authority-only; called on a non-authority machine, each is a silent no-op.
   `Entries`, `GridWidth`, `GridHeight` and `StackMultiplier` all replicate; `OnRep_Entries`
   re-broadcasts `OnInventoryChanged` on clients (authority already broadcasts it directly from
   the mutators, so it isn't double-fired there). `UEquipmentComponent` is the same shape one
@@ -280,7 +314,9 @@ the target design covering all of that — this topic only documents what's actu
     `UInventoryComponent`, `FEquippedItem` + `UEquipmentComponent` (the paperdoll),
     `AStrategyContainer` (abstract base for world containers),
     `AStrategyChest` (first concrete container type — no added behavior of its own, exists
-    so future chest-specific behavior like locks/keys has a home)
+    so future chest-specific behavior like locks/keys has a home),
+    `AWorldItem` (one loose item lying in the world — a replicated actor with a mesh and an
+    interaction sphere, and no inventory component at all)
   - `SmoresUI`: `UWindowWidget` (reusable floating-window chrome), `UInventoryWidget`,
     `UInventoryCellWidget` (+ the `EInventoryCellHighlight` enum), `UInventoryItemWidget`,
     `UEquipmentWidget` (the paperdoll window), `UEquipmentSlotWidget`,
@@ -370,6 +406,34 @@ the target design covering all of that — this topic only documents what's actu
     first entry holds and then dumps, exercising stack-merge, auto-placement and the rotation
     fallback. Both hop to the server via `Server_DebugInventory`, since the local replicated
     copy isn't the authoritative one
+  - `UInventoryComponent::AddItemCounted` — `AddItem` plus the quantity that actually landed.
+    `AddItem` is now a one-line forwarder that discards the count. Any caller still holding the
+    source copy (a world pickup today; a storefront purchase later) needs the count rather than
+    the bool, since a partial add keeps what fit
+  - `AWorldItem::TryPickUp` — authority-only; moves as much as will fit into the destination
+    grid, destroys the actor when the whole stack moved and shrinks `Item` when only part did.
+    Returns false having changed nothing when nothing fit
+  - `AWorldItem::SpawnWorldItem` (static) — the authority-only spawn path, deferred so the
+    item is in place before `OnConstruction` picks the mesh. The drop debug exec is its only
+    caller today; the drag-an-item-onto-the-world gesture will be the second
+  - `AWorldItem::SetItem` / `GetItem` / `RefreshMesh` / `OnRep_Item` — the item and its mesh.
+    `RefreshMesh` runs from `OnConstruction` as well as `BeginPlay`, so setting `Item` on a placed
+    instance updates the editor viewport immediately; `SetItem` refreshes directly because
+    `OnRep_Item` only fires on the *other* machines
+  - `AWorldItem::IsUnitInRange` — proximity gate, the same shape as the container's
+  - `AStrategyPlayerController::FindWorldItemAtLocation` — nearest loose item within
+    `WorldItemSelectionRadius` (100, deliberately tighter than `ContainerSelectionRadius`) of the
+    double-clicked world location; mirrors `FindContainerAtLocation`
+  - `AStrategyPlayerController::FindPlayerPawnInRangeOfWorldItem` — nearest player pawn actually
+    close enough to collect it. Unlike `FindClosestPlayerPawn`, range is a filter here rather
+    than a tiebreak, since proximity is the whole gate on a pickup
+  - `AStrategyPlayerController::Server_PickUpWorldItem` — the authoritative pickup, and the one
+    inventory RPC that *does* validate: it re-checks proximity and that the destination is a
+    player pawn's own pack before calling `TryPickUp`
+  - `AStrategyPlayerController::SmoresDropItem <EntryIndex>` (console exec) — debug-only; spawns
+    the pawn's EntryIndex'th grid entry on the ground in front of it via `Server_DebugDropItem`,
+    so the pickup path has something to pick up without hand-placing actors. Spawns first and
+    removes the entry only on success, so a refused spawn can't destroy the item
   - `AStrategyContainer::IsUnitInRange` — proximity gate, same shape used for loot
   - `AStrategyPlayerController::ToggleInventory` / `OpenInventoryForPawn` / `CloseInventory`
     — pawn inventory window lifecycle; requires exactly one selected `AStrategyPlayerUnit`
@@ -380,6 +444,10 @@ the target design covering all of that — this topic only documents what's actu
     the toggle-key path (checks `ControlledUnits`/`SelectedNPC` only)
   - `AStrategyPlayerController::FindContainerAtLocation` / `FindLootableNPCAtLocation` —
     used by the double-click path (checks every player pawn, within `ContainerSelectionRadius`)
+  - `AStrategyPlayerController::SelectAllDoubleClick` — the one gesture behind four meanings,
+    resolved by type in order: loose world item, container, Downed NPC, then select-all-on-screen.
+    The world item goes first because it's the smallest thing under the cursor and the only one
+    of the three with no selection state to set — finding one either collects it or does nothing
   - `AStrategyPlayerController::GetPlayerGold` (`IStrategyResourceHost`) —
     `AStrategyHUD::DrawHUD` polls it each frame and pushes the result into
     `UStrategyUI::SetGold`. The interface exists because the balance lives on a `smores`
@@ -518,6 +586,13 @@ the target design covering all of that — this topic only documents what's actu
   `GridWidth`/`GridHeight`/`StackMultiplier`/`WeightCapacity` are the per-holder knobs to
   override on any new holder Blueprint; `Entries` itself is not editable, so starting contents
   always go through `StartingItems` and `AddItem`'s auto-placement.
+- **`BP_WorldItem`** — the concrete `AWorldItem` subclass, assigned to
+  `AStrategyPlayerController::WorldItemClass` (which the drop debug exec spawns, and which logs a
+  warning naming the controller if it's unset). One Blueprint serves every item type: `ItemMesh`
+  is driven from the held definition, so the only thing worth authoring per placed instance is
+  `Item` (its definition and quantity). The mesh is set to `NoCollision` in C++ — a dropped item
+  should never shove a pawn around or block a selection trace, and the interaction sphere is what
+  actually gates reaching it.
 - **`DA_Item_*` weights and values are authored** (Apple 0.2/2g, GoldCoin 0.01/1g,
   HealthPotion 0.5/25g, PocketKnife 0.3/15g, Torch 0.8/5g, Rope 2.0/12g, IronSword 3.5/90g,
   TrapKit 4.0/60g) — a definition with a zero `Weight` contributes nothing to the readout, so
@@ -533,9 +608,21 @@ the target design covering all of that — this topic only documents what's actu
   it with `GridWidth`/`GridHeight` and set `StackMultiplier` above 1.0 for a holder meant to
   stack deeper than a pawn's pack (a storefront shelf, a warehouse chest). Nothing else needs
   a per-holder code path.
-- **Trading, theft, world pickups, sort/filter** — none of this exists in code yet, though
-  `UItemDefinition` already carries the fields they'll read (`BaseValue`, `WorldMesh`,
-  `Category`). Full target design and rationale live in `inventory-roadmap.md`.
+- **Trading, theft, sort/filter** — none of this exists in code yet, though `UItemDefinition`
+  already carries the fields they'll read (`BaseValue`, `Category`). Full target design and
+  rationale live in `inventory-roadmap.md`.
+- **Dropping an item into the world from the UI** — the authority-side half is built and
+  verified: `AWorldItem::SpawnWorldItem` plus a `WorldItemClass` on the controller. What's
+  missing is only the gesture. Dragging an item out of a window and releasing it over the world
+  is the obvious one, and the hook is `UDragDropOperation::DragCancelled` — but that fires for
+  *every* unhandled drop, including a drag cancelled with Escape or by a window closing
+  mid-drag, so wiring it naively turns a stray click into a dropped item. Design the confirmation
+  before the plumbing; `SmoresDropItem` covers testing in the meantime.
+- **A holder-generic proximity check** — `AWorldItem::IsUnitInRange`,
+  `AStrategyContainer::IsUnitInRange` and `AStrategyUnit::IsUnitInRange` are now three copies of
+  the same three-line distance test against an `InteractionRange` sphere. That's the
+  `IInventoryHolder` interface the roadmap's Slice 7 collapses them into, not three separate
+  things that happen to look alike.
 - **New worn slots** — add to `EEquipSlot` *and* to `UEquipmentComponent::GetAllEquipSlots`,
   which is a deliberate hand-written roster rather than an enum iteration: it fixes the
   paperdoll's display order and keeps `None` out of it. Nothing else needs a code change — the
@@ -604,6 +691,18 @@ the target design covering all of that — this topic only documents what's actu
   equipped item disappears from view entirely rather than showing on the pawn.
 - No starting equipment — every pawn starts with empty worn slots; only `StartingItems` is
   seeded.
+- **A loose world item is invisible.** `AWorldItem` draws the definition's `WorldMesh`, and no
+  `DA_Item_*` has one authored — so a placed or dropped item is a clickable actor with nothing to
+  look at. The pickup works; there's just no art behind it.
+- **A world item can't be reached, only collected.** There's no "go pick that up" order — if no
+  pawn is already in range the double-click does nothing, silently. Routing the pickup through a
+  move command is a unit-commands change, not an inventory one.
+- **`AWorldItem` replicates but `AStrategyContainer` doesn't.** The pickup actor sets
+  `bReplicates` because it's spawned and destroyed during play, so a client that never received
+  it would have nothing to click. The container class has never set it — harmless while
+  multiplayer isn't testable, but it means a chest's replicated `Inventory` currently has no
+  replicated actor to ride on. Fixing it belongs to a multiplayer pass over all the holders at
+  once, not to this slice.
 - No item art — every `DA_Item_*` has a null `Icon` and `WorldMesh`, so the UI shows names
   only. The item widget draws no icon at all yet, which is why the label's 90° turn for tall
   footprints matters as much as it does.

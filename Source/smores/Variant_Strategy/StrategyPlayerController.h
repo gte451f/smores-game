@@ -24,6 +24,7 @@ class UWindowWidget;
 class UInventoryWidget;
 class UEquipmentWidget;
 class AStrategyContainer;
+class AWorldItem;
 class UInventoryComponent;
 class UEquipmentComponent;
 class AStrategyPlayerState;
@@ -163,6 +164,12 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input", meta = (ClampMin = 0, ClampMax = 10000, Units = "cm"))
 	float ContainerSelectionRadius = 250.0f;
 
+	/** Max distance to look for a loose world item when double-clicking. Deliberately tighter than
+	 *  ContainerSelectionRadius: a dropped item is a small thing to aim at, and a generous radius
+	 *  would let one lying near a chest swallow every double-click meant for the chest. */
+	UPROPERTY(EditAnywhere, Category="Input", meta = (ClampMin = 0, ClampMax = 10000, Units = "cm"))
+	float WorldItemSelectionRadius = 100.0f;
+
 	/** Cached starting position for camera drag scrolling */
 	FVector2D StartingDragScrollPosition;
 
@@ -294,6 +301,11 @@ protected:
 	/** Active paperdoll widget, if one is open. Opens and closes with the pawn inventory window it belongs to. */
 	UPROPERTY()
 	TObjectPtr<UEquipmentWidget> EquipmentWidget;
+
+	/** World pickup class spawned when an item leaves a grid for the ground. Only the drop debug
+	 *  exec uses it today; the drag-an-item-onto-the-world gesture is a later slice. */
+	UPROPERTY(EditAnywhere, Category="World Item")
+	TSubclassOf<AWorldItem> WorldItemClass;
 
 	/** All player-controllable pawns in the level. Rebuilt on demand by RefreshPlayerPawns() */
 	UPROPERTY(Transient)
@@ -551,6 +563,14 @@ public:
 	//~ End IInventoryMoveHost interface
 
 	/**
+	 *  Server-side entry point for collecting a loose world item into a pawn's grid. Re-checks
+	 *  proximity and that the destination really is a player pawn's own inventory rather than
+	 *  trusting the requesting client's own check, since range is the whole gate on a pickup.
+	 */
+	UFUNCTION(Server, Reliable)
+	void Server_PickUpWorldItem(AWorldItem* WorldItem, UInventoryComponent* DestInventory);
+
+	/**
 	 *  Debug exec: dumps the selected pawn's inventory grid to the log as an ASCII occupancy map
 	 *  plus a per-entry list. The authoritative grid only exists on the server, so this hops there
 	 *  via Server_DebugInventory rather than reading the local replicated copy.
@@ -578,6 +598,15 @@ public:
 	UFUNCTION(Exec)
 	void SmoresDumpEquipment();
 
+	/**
+	 *  Debug exec: drops the selected pawn's EntryIndex'th placed grid entry on the ground in front
+	 *  of it as an AWorldItem, so the pickup path has something to pick up without hand-placing
+	 *  actors in the level. The player-facing drop gesture is a later slice; this exercises the
+	 *  same authority-side spawn it will use.
+	 */
+	UFUNCTION(Exec)
+	void SmoresDropItem(int32 EntryIndex = 0);
+
 protected:
 
 	/** Server side of the inventory debug execs - optionally adds AddCount items, then logs the grid */
@@ -591,6 +620,11 @@ protected:
 	 *  (either index negative to skip it), then logs the paperdoll */
 	UFUNCTION(Server, Reliable)
 	void Server_DebugEquipment(UEquipmentComponent* Equipment, UInventoryComponent* Inventory, int32 EquipEntryIndex, int32 UnequipSlotIndex);
+
+	/** Server side of the drop debug exec - removes one grid entry and spawns it as a world pickup
+	 *  at the pawn's feet, since both the grid and the spawned actor are server-owned */
+	UFUNCTION(Server, Reliable)
+	void Server_DebugDropItem(APawn* DroppingPawn, UInventoryComponent* Inventory, int32 EntryIndex);
 
 public:
 
@@ -632,6 +666,15 @@ protected:
 
 	/** Returns whichever player-controlled pawn is closest to the given world location, or nullptr if none exist */
 	AStrategyPlayerUnit* FindClosestPlayerPawn(const FVector& Location);
+
+	/** Returns the loose world item within WorldItemSelectionRadius of the given world location, or nullptr.
+	 *  Mirrors FindContainerAtLocation's shape, on its own tighter radius. */
+	AWorldItem* FindWorldItemAtLocation(const FVector& Location) const;
+
+	/** Returns the nearest player-controlled pawn close enough to pick the given world item up, or nullptr.
+	 *  Unlike FindClosestPlayerPawn this applies the item's own InteractionRange, since proximity is the
+	 *  whole gate on a pickup rather than a tiebreak. */
+	AStrategyPlayerUnit* FindPlayerPawnInRangeOfWorldItem(const AWorldItem* WorldItem);
 
 	/** Updates SelectedContainer, toggling the old and new container's highlight material to match */
 	void SetSelectedContainer(AStrategyContainer* NewContainer);

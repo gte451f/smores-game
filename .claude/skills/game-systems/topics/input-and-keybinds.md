@@ -20,7 +20,7 @@ Amend this topic in the same change as any new binding.
 
 | Key | Action asset | Does |
 |---|---|---|
-| Left mouse | `IA_Strategy_SelectClick`, `_SelectHold`, `_SelectClickAdditive`, `_SelectAllDoubleClick` | Select; hold to drag a selection box; additive select; double-click to select all on screen |
+| Left mouse | `IA_Strategy_SelectClick`, `_SelectHold`, `_SelectClickAdditive`, `_SelectAllDoubleClick` | Select; hold to drag a selection box; additive select; double-click a loose world item to pick it up, a container or Downed NPC to open it, or empty ground to select all on screen |
 | Right mouse | `IA_Strategy_InteractClick` | Move order / interact at the cursor |
 | Middle mouse (hold) | `IA_Strategy_InteractHold` | Rotate the camera |
 | Mouse wheel | `IA_Strategy_Zoom` | Camera zoom |
