@@ -7,6 +7,7 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "Components/SphereComponent.h"
 #include "InventoryComponent.h"
+#include "EquipmentComponent.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "EnvironmentQuery/EnvQueryManager.h"
 #include "EnvironmentQuery/EnvQueryInstanceBlueprintWrapper.h"
@@ -34,6 +35,9 @@ AStrategyUnit::AStrategyUnit()
 
 	// create the inventory component
 	Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
+
+	// create the equipment component - the worn slots, separate from the carried grid
+	Equipment = CreateDefaultSubobject<UEquipmentComponent>(TEXT("Equipment"));
 
 	// create the health component
 	Health = CreateDefaultSubobject<UHealthComponent>(TEXT("Health"));

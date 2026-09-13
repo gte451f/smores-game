@@ -48,14 +48,17 @@ void UOptionsWidget::NativeConstruct()
 
 void UOptionsWidget::RequestClose_Implementation()
 {
-	Super::RequestClose_Implementation();
-
 	if (IsInViewport())
 	{
 		RemoveFromParent();
 	}
 
 	OnOptionsClosed.Broadcast();
+
+	// last, so UWindowWidget::OnWindowClosed listeners see a window that has already gone -
+	// the same order the inventory and equipment windows use. Nothing subscribes to it here
+	// (this widget has its own OnOptionsClosed), but the contract is worth keeping uniform.
+	Super::RequestClose_Implementation();
 }
 
 void UOptionsWidget::HandleKeybindingsClicked()

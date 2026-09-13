@@ -68,6 +68,7 @@ Source/
     SmoresItems.Build.cs
     SmoresItems.cpp / SmoresItems.h
     InventoryComponent.*          # moved from smores/Variant_Strategy/Inventory/
+    EquipmentComponent.*          # the paperdoll; born here, never lived in smores/
     StrategyChest.* StrategyContainer.*   # moved from smores/Variant_Strategy/
   SmoresCombat/
     SmoresCombat.Build.cs
@@ -169,7 +170,8 @@ implements none of health, combat, or inventory:
 AStrategyUnit                      <- thin host; ~780 lines for the WHOLE module
   |-- UHealthComponent     (SmoresCombat)
   |-- UCombatComponent     (SmoresCombat)
-  +-- UInventoryComponent  (SmoresItems)
+  |-- UInventoryComponent  (SmoresItems)
+  +-- UEquipmentComponent  (SmoresItems)
 ```
 
 `AStrategyPlayerState` should be the identical shape and currently isn't: Slice 4 put `Gold`

@@ -36,6 +36,15 @@ void UInventoryWidget::ClearInventory()
 	}
 
 	BoundInventory.Reset();
+
+	// cleared with the inventory so a window reused for a different holder (the container window
+	// serves both chests and loot) can never carry the previous pawn's paperdoll across
+	EquipmentTarget.Reset();
+}
+
+void UInventoryWidget::SetEquipmentTarget(UEquipmentComponent* InEquipment)
+{
+	EquipmentTarget = InEquipment;
 }
 
 FIntPoint UInventoryWidget::GetGridSize() const
@@ -534,6 +543,9 @@ void UInventoryWidget::RequestClose_Implementation()
 	{
 		RemoveFromParent();
 	}
+
+	// after the window is actually gone, so a listener reacting to this sees it that way
+	Super::RequestClose_Implementation();
 }
 
 #undef LOCTEXT_NAMESPACE

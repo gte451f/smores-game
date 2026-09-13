@@ -46,10 +46,18 @@ control scheme, not a targeted platform.
 
 ### Not bindings
 
-Modifier + mouse-button interactions **inside a widget** (Ctrl+click to split a stack,
-Shift+click to quick-transfer) are not keybinds and take no slot in the tables above — the
-click event already carries `IsControlDown()`/`IsShiftDown()`/`IsAltDown()`. They still need
-to be *consistent*, so they have their own convention below.
+Mouse-button interactions **inside a widget** — with or without a modifier — are not keybinds
+and take no slot in the tables above; the click event already carries the button and
+`IsControlDown()`/`IsShiftDown()`/`IsAltDown()`. They still need to be *consistent*, so they
+have their own convention below. In use today:
+
+| Gesture | Where | Does |
+|---|---|---|
+| Right-click | An item in a pawn's own inventory window | Wear it (into the slot its definition names) |
+| Right-click | A filled paperdoll slot | Take it off, back into that pawn's pack |
+
+Right-click means "move order" in the world and "equip" over a window, which works only
+because a window now swallows the *press* of every button that lands on it — see Core Rules.
 
 ## Core Rules
 
@@ -74,6 +82,26 @@ to be *consistent*, so they have their own convention below.
 - **One key, one meaning per context.** Several actions may share a key inside one context
   when their triggers differ (the four left-mouse selection actions do exactly this), but two
   *unrelated* behaviours must not.
+- **A floating window swallows the press of every mouse button over it, and lets the release
+  through** (`UWindowWidget::NativeOnMouseButtonDown`). Swallowing the press is what lets a
+  mouse button mean one thing over a window and another in the world — without it, right-click
+  to equip would also issue a move order to whatever is behind the panel. Swallowing the
+  *release* would be actively harmful: Enhanced Input never saw the press the window ate, so an
+  action bound on `Completed` has nothing to complete anyway, whereas eating a release whose
+  press the viewport *did* see (a drag-select begun on the world, ended over a window) leaves
+  that button stuck down in `UPlayerInput`. Slate bubbles from the deepest widget up, so a child
+  that wants the button still gets it first.
+- **A double-click is a different Slate event, and claiming the press does not claim it.**
+  Windows sends `WM_xBUTTONDBLCLK` instead of `WM_xBUTTONDOWN` for the second click of a rapid
+  pair; `FWindowsApplication` turns that into `OnMouseDoubleClick`, which Slate routes as
+  `OnMouseButtonDoubleClick` on its own bubble pass. A widget overriding only
+  `NativeOnMouseButtonDown` therefore eats the first click of a double-click and lets the second
+  reach the viewport — where it registers as a press, and the release completes whatever world
+  action that button is bound to. **Any widget that claims a mouse button must override
+  `NativeOnMouseButtonDoubleClick` too**; routing it straight into the press handler is the
+  right default, since it makes a fast second click mean what a slow one does. This is easy to
+  miss because it only reproduces inside the OS double-click time *and* slop rectangle — a
+  slightly slower repeat comes through as two ordinary presses and behaves correctly.
 - **Modifier conventions** — keep these consistent everywhere so they're learnable:
   `Shift` = whole/all (take all, queue an order), `Ctrl` = part/split (split a stack),
   `Alt` = inspect/info. `Shift` is already the in-world selection modifier, which matches.
@@ -91,9 +119,10 @@ to be *consistent*, so they have their own convention below.
   continuous input (camera pan, zoom). `Triggered` on a held *key* fires every frame — that
   would, for instance, spin a dragged item once per tick.
 - **`AStrategyPlayerController::UpdateInventoryInputContext`** is the worked example of a
-  scoped context: it adds `InventoryMappingContext` at priority 1 when an inventory or
-  container window opens and removes it when the last one closes. It is called from all five
-  window open/close paths, so a new path that opens a window must call it too.
+  scoped context: it adds `InventoryMappingContext` at priority 1 when an inventory, container
+  or equipment window opens and removes it when the last one closes. Every path that opens or
+  closes a window must call it — including `HandleWindowClosed`, which is how a window shut with
+  its own close button gets back here at all (`UWindowWidget::OnWindowClosed`).
 - **`UInventoryDragDropOperation::GetActiveDrag`** (`SmoresUI`) is how a controller-bound
   action reaches an in-flight drag. Slate owns the drag — no widget or controller holds a
   reference — so this static is the only bridge, and it lives in `SmoresUI` so the UMG drag
@@ -181,10 +210,6 @@ players build muscle memory:
   something a player can do.
 - **`IA_Strategy_ResetCamera` is bound in C++ but mapped to no key** in either context, so
   camera reset is currently unreachable. Either map it or drop the action.
-- **`UWindowWidget` swallows only left clicks.** Every other mouse button falls through to
-  the world, so right-clicking an open window issues a move order to the squad. This blocks
-  right-click-to-equip (inventory roadmap Slice 5) and any Ctrl/Shift+right-click transfer,
-  and should be fixed button-agnostically rather than by special-casing a second button.
 - **No gamepad bindings.** Basic controller support is a pre-launch goal per
   `input-and-platforms.md`; nothing is wired yet.
 - **No conflict detection anywhere but this document.** Two mappings of the same key in the

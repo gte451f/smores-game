@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "WindowWidget.h"
 #include "InventoryComponent.h"
+#include "EquipmentComponent.h"
 #include "InventoryCellWidget.h"
 #include "InventoryItemWidget.h"
 #include "InventoryWidget.generated.h"
@@ -38,6 +39,11 @@ protected:
 
 	/** Inventory this widget is currently displaying */
 	TWeakObjectPtr<UInventoryComponent> BoundInventory;
+
+	/** Where a right-click-to-equip from this window sends the item, or null when this window's
+	 *  holder has no paperdoll to send it to. Set by whoever opened the window, which is what
+	 *  keeps right-click inert over a chest or a loot panel - see SetEquipmentTarget. */
+	TWeakObjectPtr<UEquipmentComponent> EquipmentTarget;
 
 	/** Optional text block that lists the placed entries. Name it "SlotListText" in the WBP to auto-bind. */
 	UPROPERTY(meta = (BindWidgetOptional))
@@ -94,8 +100,21 @@ public:
 	/** Binds this widget to an inventory and refreshes the display */
 	void SetInventory(UInventoryComponent* InInventory);
 
-	/** Unbinds this widget from its inventory */
+	/** Unbinds this widget from its inventory, and from any equipment target with it */
 	void ClearInventory();
+
+	/**
+	 *  Points right-click-to-equip from this window at a pawn's worn slots. Call it *after*
+	 *  SetInventory, which clears the target along with the previous binding.
+	 *
+	 *  A window opened against a chest or a Downed NPC deliberately leaves this null: right-click
+	 *  there does nothing rather than dressing the corpse. The paperdoll itself is a separate
+	 *  window (UEquipmentWidget); this is only the routing.
+	 */
+	void SetEquipmentTarget(UEquipmentComponent* InEquipment);
+
+	/** Worn slots a right-click in this window equips into, or null if this window has none */
+	UEquipmentComponent* GetEquipmentTarget() const { return EquipmentTarget.Get(); }
 
 	/** Grid dimensions of the bound inventory (zero if none) */
 	UFUNCTION(BlueprintPure, Category = "Inventory")

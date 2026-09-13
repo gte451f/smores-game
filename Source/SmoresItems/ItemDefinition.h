@@ -27,8 +27,9 @@ enum class EItemCategory : uint8
 };
 
 /**
- *  Worn/equipped slot an item can occupy, if any. Nothing reads this yet - the equipment
- *  component and paperdoll that consume it are a later slice.
+ *  Worn/equipped slot an item can occupy, if any. EEquipSlot::None means the item isn't
+ *  wearable at all. Read by UEquipmentComponent, whose only equip-time gate is matching this
+ *  against the slot being filled.
  */
 UENUM(BlueprintType)
 enum class EEquipSlot : uint8
@@ -51,9 +52,8 @@ enum class EEquipSlot : uint8
  *  references other assets (icon texture, world mesh), is Blueprint- and MCP-friendly to
  *  author, and is naturally moddable as content.
  *
- *  Several fields below (footprint, stack size, equip slot, world mesh) are authored now but
- *  not read by anything yet - the grid, stacking, and equipment systems that consume them
- *  are later slices of the inventory roadmap.
+ *  One field below (world mesh) is authored now but not read by anything yet - the world
+ *  pickup actor that consumes it is a later slice of the inventory roadmap.
  */
 UCLASS(BlueprintType)
 class SMORESITEMS_API UItemDefinition : public UPrimaryDataAsset
@@ -94,19 +94,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Economy", meta = (ClampMin = 0))
 	int32 BaseValue = 0;
 
-	/** Width in grid cells of this item's rectangular footprint. Not read yet (grid storage is a later slice). */
+	/** Width in grid cells of this item's rectangular footprint - the game's stand-in for bulk, independent of Weight. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Storage", meta = (ClampMin = 1, ClampMax = 16))
 	int32 FootprintWidth = 1;
 
-	/** Height in grid cells of this item's rectangular footprint. Not read yet (grid storage is a later slice). */
+	/** Height in grid cells of this item's rectangular footprint (see FootprintWidth). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Storage", meta = (ClampMin = 1, ClampMax = 16))
 	int32 FootprintHeight = 1;
 
-	/** Base maximum stack size. A holder's StackMultiplier scales this into an effective cap. Not read yet (stacking is a later slice). */
+	/** Base maximum stack size. A holder's StackMultiplier scales this into an effective cap - see UInventoryComponent::GetEffectiveMaxStack. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Storage", meta = (ClampMin = 1))
 	int32 MaxStackSize = 1;
 
-	/** Which worn slot this item equips into, if any. Not read yet (equipment is a later slice). */
+	/** Which worn slot this item equips into, if any. None means it can't be worn - see UEquipmentComponent. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Equipment")
 	EEquipSlot EquipSlot = EEquipSlot::None;
 

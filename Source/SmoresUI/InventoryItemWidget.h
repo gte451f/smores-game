@@ -21,6 +21,10 @@ class USizeBox;
  *  another instance of it, resized to the footprint and re-drawn whenever the rotate key flips
  *  the orientation mid-flight. The rotate key itself belongs to the player controller (an
  *  Enhanced Input action, so it is player-rebindable); this widget only supplies the drag.
+ *
+ *  Right-clicking one wears it, when the window it sits in has a paperdoll to wear it into.
+ *  That's a modifier-free mouse interaction inside a widget, so it deliberately isn't a
+ *  UInputAction - the click event is all the state it needs.
  */
 UCLASS(abstract)
 class SMORESUI_API UInventoryItemWidget : public UUserWidget
@@ -87,8 +91,12 @@ protected:
 	/** Pushes the current entry and orientation to ItemLabel and the BP hook */
 	void RefreshVisuals();
 
+	/** Sends this entry to the owning window's equipment target, if it has one and the item is wearable */
+	void TryEquip();
+
 	//~ Begin UUserWidget interface
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
 	//~ End UUserWidget interface

@@ -94,7 +94,7 @@ deferred.
 Six runtime modules today: the primary `smores` module, plus `SmoresCore` (empty
 proving module), `SmoresCombat` (health/damage, attack-swing resolution, floating damage
 numbers, the attack-hit anim notify), `SmoresItems` (item definitions, inventory,
-container/chest actors), `SmoresCharacters` (the unit character classes), and `SmoresUI`
+equipment/worn slots, container/chest actors), `SmoresCharacters` (the unit character classes), and `SmoresUI`
 (HUD, strategy UI, the window/inventory widget stack) — each a sibling folder directly
 under `Source/`, per the `game-systems` skill's `unreal-module-organization` topic, which
 tracks the target module map and migration order. What's left in `smores` is the game
@@ -122,10 +122,11 @@ Source/
                                  StrategyPlayerState (per-player gold), StrategyPawn, EnvQueryContext_MoveGoal
   SmoresCore/                  – Empty proving module; no classes yet
   SmoresCombat/                – HealthComponent, CombatComponent, DamageNumberActor/Widget, AnimNotify_AttackHit, IAttackDamageDealer
-  SmoresItems/                 – ItemDefinition (shared item-type data asset), InventoryComponent (FInventoryItem/FInventoryEntry), StrategyContainer, StrategyChest
-  SmoresCharacters/            – StrategyUnit (owns the Inventory/Health/Combat subobjects), StrategyPlayerUnit
+  SmoresItems/                 – ItemDefinition (shared item-type data asset), InventoryComponent (FInventoryItem/FInventoryEntry), EquipmentComponent (worn slots), StrategyContainer, StrategyChest
+  SmoresCharacters/            – StrategyUnit (owns the Inventory/Equipment/Health/Combat subobjects), StrategyPlayerUnit
   SmoresUI/                    – StrategyHUD, StrategyUI, StrategyTouchControls, WindowWidget,
                                  InventoryWidget/CellWidget/ItemWidget, InventoryDragDropOperation,
+                                 EquipmentWidget/EquipmentSlotWidget (the paperdoll window),
                                  and the IStrategySelectionHost / IStrategyCameraCommands /
                                  IStrategyResourceHost / IInventoryMoveHost interfaces
 ```

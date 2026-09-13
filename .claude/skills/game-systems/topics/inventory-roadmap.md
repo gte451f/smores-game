@@ -38,18 +38,14 @@ The deliberate deferral stands: **effects are not this system's job**. Movement-
 stealth-noise penalties for a heavily-laden pawn belong to a later characters/combat pass,
 which owns those effects — `IsOverWeightCapacity` is the seam it reads.
 
-## Equipment / Worn Slots
+## Equipment / Worn Slots — **SHIPPED (Slice 5)**
 
-- A separate equipped-slot set per pawn, distinct from the general carried grid — a
-  paperdoll, not just another grid region.
-- Slot type must match item category (a weapon only fits a weapon slot, etc.).
-- **Right-click a carried item to auto-equip** it into its matching slot (swapping out
-  whatever's currently equipped there, which returns to the carried grid — auto-placed,
-  and the equip fails cleanly if the grid has no room for the displaced item).
-- **No skill gating at equip time.** Any pawn can equip any weapon or armor regardless of
-  training — this system's only job is slot-type matching. Performance consequences of an
-  untrained equip (per `combat.md`'s weapon-class mismatch penalty) are entirely
-  combat/skill-resolution's concern, never an inventory-system restriction.
+The paperdoll, right-click-to-equip, drag-onto-a-slot, and the clean-fail swap all shipped in
+Slice 5; see `inventory.md`. The deliberate deferrals stand: **no skill gating at equip time**
+(slot-type matching is the whole rule, and an untrained equip's penalty belongs to
+combat/skill resolution), and **no equipped visual** — attaching the definition's 3D mesh to a
+skeletal socket is cosmetic polish nobody has needed yet. Combat reading the equipped weapon
+is a combat-system change, not an inventory one; `GetEquippedItem` is the seam it reads.
 
 ## Currency — **SHIPPED (Slice 4)**
 
@@ -134,7 +130,8 @@ underlying move/copy operation rather than inventing its own UI:
 ## Relationship to the Current Implementation
 
 What carries forward largely unchanged: authority-gated mutation + replication, the
-`OnInventoryChanged` delegate pattern, `UWindowWidget` floating-panel chrome, and the
+`OnInventoryChanged` delegate pattern (Slice 5 cloned it wholesale for `OnEquipmentChanged`),
+`UWindowWidget` floating-panel chrome, and the
 overall "drag from one slot widget, drop on another, server validates and applies" shape —
 and now the narrow-interface seam between `smores` and `SmoresUI` (Slice 4 added a fourth,
 `IStrategyResourceHost`, rather than moving a gameplay class down a module).
@@ -278,33 +275,55 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
   rather than on the framework class. Don't add a *second* inline field here in the
   meantime — write the component instead.
 
-### Slice 5 — Equipment component and paperdoll
+### Slice 5 — Equipment component and paperdoll — **DONE**
 
-- **Blocker to clear first: right-click doesn't belong to the UI yet.** `UWindowWidget` swallows
-  only the **left** button; every other button falls straight through to the world, where
-  right-click issues a move order. So right-clicking an item widget today also marches the
-  squad to whatever is behind the window. Fix that before building right-click-to-equip, and fix
-  it button-agnostically rather than adding a second special case — Ctrl/Shift+right-click
-  transfer actions are coming behind it.
-- **Don't over-apply Slice 3's "one drop target for the whole grid" rule.** That exists because
-  item widgets overlap grid cells, which makes per-cell drop handlers ambiguous. Equipment slots
-  don't overlap, so a drop handler *per slot* is the right shape for the paperdoll.
-- **Any new key this slice adds goes through Enhanced Input**, mapped in
-  `IMC_Strategy_Inventory`. Check `input-and-keybinds.md` first for what's already taken and
-  what's reserved, and record the new binding there. Never a widget key handler, never a Slate
-  pre-processor — see the Slice 3 notes above for why.
-- **Build:** `EEquipSlot` enum (keep the roster small — e.g. MainHand, OffHand, Head, Body,
-  Feet) and `UEquipmentComponent` on `AStrategyUnit` with one replicated instance per slot;
-  server-only `Equip(fromInventory, entryId)` / `Unequip(slot)` that swap the displaced item
-  back into the grid via `FindFreePlacement` and fail cleanly if it doesn't fit.
-  `IInventoryMoveHost` gains `Server_EquipItem`/`Server_UnequipItem`; right-click on an item
-  widget calls it. New `UEquipmentWidget` paperdoll (drag from grid onto a slot also works).
-  Attaching the 3D mesh to skeletal sockets is optional cosmetic polish in this slice; combat
-  reading the equipped weapon is a later combat-system change, not this slice.
-- **Touches:** new `EquipmentComponent.*`, `StrategyUnit.*`, `InventoryMoveHost.h`,
-  `StrategyPlayerController.*`, new `EquipmentWidget.*`, new `WBP_Equipment`.
-- **Done when:** right-click equips into the correct slot, the paperdoll shows it, swapping
-  returns the old item to the grid, and it all replicates.
+Shipped; see `inventory.md`. Notes worth carrying forward:
+
+- **The `UWindowWidget` blocker is cleared, and the fix is asymmetric on purpose.** The *press*
+  is now swallowed for every mouse button; the *release* is deliberately still let through.
+  Swallowing the release too looks tidier and is actively dangerous: if the press reached the
+  viewport (a drag-select started on the world and ended over a window), eating the release
+  leaves that button stuck down in `UPlayerInput` forever. Letting it through is safe because
+  Enhanced Input never saw the press this window ate, so an action bound on release — which is
+  most of them — has nothing to complete.
+- **Claiming a mouse button takes two overrides, not one.** `NativeOnMouseButtonDown` does not
+  see the second click of a rapid pair — Windows sends `WM_xBUTTONDBLCLK`, which Slate routes as
+  `OnMouseButtonDoubleClick` on a separate pass. Found via a double right-click on an item
+  leaking a move order to the world *after* the press fix was already in. Every widget claiming
+  a button now routes its double-click handler into its press handler. Worth remembering because
+  the symptom is intermittent by construction: it only fires inside the OS double-click time and
+  slop rectangle, so a slightly slower repeat looks like the bug fixing itself.
+- **Right-click is routed by *which window* the item is in, not by what the item is.**
+  `UInventoryWidget::SetEquipmentTarget` is set by the controller only for a pawn's own window,
+  so right-clicking in a chest or a Downed NPC's loot panel does nothing rather than dressing
+  the holder. Every later right-click/modifier transfer gesture wants the same shape: the
+  controller decides what a window *is*, the widget only routes.
+- **The paperdoll is its own `UWindowWidget`, not a panel inside `WBP_Inventory`.** That avoided
+  widget-tree surgery on an existing WBP, and it matches how a container and a pawn inventory
+  already open side by side. Cross-window drag needs nothing special — Slate's drag is global.
+- **The paperdoll is scoped to the inventory key.** It first shipped opening with *any* pawn
+  inventory window, which meant opening a chest put three panels on screen. `OpenInventoryForPawn`
+  now takes `bOpenEquipment`, true only from `ToggleInventory`; the container and loot paths pass
+  false and *close* any open paperdoll, because those paths rebind the pack to the nearest pawn
+  rather than the selected one and would otherwise leave the paperdoll describing somebody else.
+- **A second window forced `UWindowWidget::OnWindowClosed` into existence.** With two windows
+  opening together, the X button became a real bug rather than a latent one: closing the pack
+  left the paperdoll floating alone, and neither close re-scoped the inventory input context.
+  The delegate is the general fix — a window announces its own close, the controller decides
+  what that means. Any future companion window should ride it rather than adding a second
+  mechanism.
+- **`Slot` is a reserved member name on any `UWidget`** (`UWidget::Slot`, its layout slot). UHT
+  rejects a shadowing `UPROPERTY` outright, and MSVC rejects even a loop variable named `Slot`
+  in a widget method as C4458-as-error. Name equipment-slot members/locals `EquipSlot`.
+- **Equipped weight is tracked but not folded into the carried total.** Wearing an item takes it
+  out of the grid, so the pawn's `Weight:` readout drops; `UEquipmentComponent::GetTotalWeight`
+  is reported separately in the paperdoll window. Harmless while weight is inert, but the
+  characters/combat pass that gives weight a *consequence* has to sum both — that's the moment
+  to decide whether the two readouts merge.
+- No new keybind was needed: right-click inside a widget reads straight off the click event and
+  is explicitly "not a binding" per `input-and-keybinds.md`.
+- Verify with the `SmoresDumpEquipment` / `SmoresEquipItem <EntryIndex>` / `SmoresUnequipItem
+  <SlotIndex>` console execs on `AStrategyPlayerController` — all server-side, like the grid ones.
 
 ### Slice 6 — World pickups
 
@@ -403,6 +422,16 @@ Recorded so future sessions don't reopen them:
   drop is rejected, not auto-rotated. The rotate key plus a red drop preview is the answer.
   (Rejected: falling back to the other orientation when the literal one doesn't fit.)
 - **Item definition storage** — `UPrimaryDataAsset` per item, not a `UDataTable`.
+- **Equipping takes one unit, not the whole entry** — wearing from a stack splits a single unit
+  off and leaves the rest in the grid, so one stack of knives can arm several pawns; unequip
+  returns one. (Rejected: moving the whole entry into the slot, which would make a slot hold a
+  stack.)
+- **Right-click's meaning comes from the window, not the item** — only a pawn's own inventory
+  window carries an equipment target, so right-click is inert in a chest or loot panel.
+  (Rejected: resolving the equipment component off the item's holder, which let the player
+  dress a corpse.)
+- **The paperdoll is a separate floating window**, opened and closed with the pawn inventory
+  window rather than embedded in it. (Rejected: a panel inside `WBP_Inventory`.)
 - **Currency ownership** — per-player on `AStrategyPlayerState`, shared across divisions;
   no possession restrictions yet. Shipped in Slice 4, including the module placement
   (`smores`, not `SmoresCore`) and the `IStrategyResourceHost` seam it required.

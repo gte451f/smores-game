@@ -3,7 +3,9 @@
 
 #include "InventoryItemWidget.h"
 #include "InventoryDragDropOperation.h"
+#include "InventoryMoveHost.h"
 #include "InventoryWidget.h"
+#include "EquipmentComponent.h"
 #include "Components/TextBlock.h"
 #include "Components/SizeBox.h"
 
@@ -64,6 +66,33 @@ void UInventoryItemWidget::RefreshVisuals()
 	BP_ItemUpdated();
 }
 
+void UInventoryItemWidget::TryEquip()
+{
+	// only a window opened against a pawn carries an equipment target, so right-clicking an item
+	// in a chest or a Downed NPC's loot panel does nothing rather than dressing the holder
+	const UInventoryWidget* OwnerWidget = GetTypedOuter<UInventoryWidget>();
+
+	if (!OwnerWidget || !OwningInventory.IsValid() || !Entry.IsValidEntry())
+	{
+		return;
+	}
+
+	UEquipmentComponent* Equipment = OwnerWidget->GetEquipmentTarget();
+
+	// no point sending an RPC the server will only reject - the item's own slot is the gate, and
+	// the client can read it off the same shared definition
+	if (!Equipment || UEquipmentComponent::GetSlotForItem(Entry.Item) == EEquipSlot::None)
+	{
+		return;
+	}
+
+	if (IInventoryMoveHost* MoveHost = Cast<IInventoryMoveHost>(GetOwningPlayer()))
+	{
+		// EEquipSlot::None means "whichever slot this belongs in" - a right-click never names one
+		MoveHost->Server_EquipItem(OwningInventory.Get(), Entry.EntryId, Equipment, EEquipSlot::None);
+	}
+}
+
 FReply UInventoryItemWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
 {
 	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton && Entry.IsValidEntry())
@@ -71,7 +100,25 @@ FReply UInventoryItemWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry
 		return FReply::Handled().DetectDrag(TakeWidget(), EKeys::LeftMouseButton);
 	}
 
+	// right-click wears it. Handled on press rather than release, matching the one-shot
+	// convention the keybinds use - and handled here rather than left to bubble up, since the
+	// window above only swallows what nothing inside it claimed.
+	if (InMouseEvent.GetEffectingButton() == EKeys::RightMouseButton)
+	{
+		TryEquip();
+
+		return FReply::Handled();
+	}
+
 	return Super::NativeOnMouseButtonDown(InGeometry, InMouseEvent);
+}
+
+FReply UInventoryItemWidget::NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	// a fast second click arrives as a double-click event, not a press (see
+	// UWindowWidget::NativeOnMouseButtonDoubleClick) - so it has to be claimed here too, or it
+	// reaches the world. Treated as a press, which makes a double right-click simply equip twice.
+	return NativeOnMouseButtonDown(InGeometry, InMouseEvent);
 }
 
 FReply UInventoryItemWidget::NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)

@@ -22,8 +22,11 @@
 #include "StrategyTouchControls.h"
 #include "Widgets/Input/SVirtualJoystick.h"
 #include "InventoryWidget.h"
+#include "EquipmentWidget.h"
+#include "WindowWidget.h"
 #include "InventoryDragDropOperation.h"
 #include "InventoryComponent.h"
+#include "EquipmentComponent.h"
 #include "StrategyContainer.h"
 #include "Blueprint/UserWidget.h"
 #include "smores.h"
@@ -450,10 +453,10 @@ void AStrategyPlayerController::ToggleInventory(const FInputActionValue& Value)
 		return;
 	}
 
-	OpenInventoryForPawn(SinglePlayerUnit);
+	OpenInventoryForPawn(SinglePlayerUnit, /*bOpenEquipment =*/ true);
 }
 
-void AStrategyPlayerController::OpenInventoryForPawn(AStrategyPlayerUnit* PlayerUnit)
+void AStrategyPlayerController::OpenInventoryForPawn(AStrategyPlayerUnit* PlayerUnit, bool bOpenEquipment)
 {
 	if (!PlayerUnit)
 	{
@@ -470,15 +473,107 @@ void AStrategyPlayerController::OpenInventoryForPawn(AStrategyPlayerUnit* Player
 		}
 
 		InventoryWidget = CreateWidget<UInventoryWidget>(this, InventoryWidgetClass);
+
+		if (InventoryWidget)
+		{
+			InventoryWidget->OnWindowClosed.AddUniqueDynamic(this, &AStrategyPlayerController::HandleWindowClosed);
+		}
 	}
 
 	if (InventoryWidget)
 	{
 		InventoryWidget->SetWindowTitle(FText::Format(LOCTEXT("PawnInventoryTitle", "{0} Inventory"), PlayerUnit->GetUnitDisplayName()));
 		InventoryWidget->SetInventory(PlayerUnit->GetInventory());
+
+		// after SetInventory, which clears the previous binding's target along with it. This is
+		// what makes right-click-to-equip work in a pawn's own window and nowhere else
+		InventoryWidget->SetEquipmentTarget(PlayerUnit->GetEquipment());
+
 		InventoryWidget->AddToViewport(0);
 	}
 
+	if (bOpenEquipment)
+	{
+		// its own floating window rather than part of the inventory panel, so the two can be moved
+		// and sized independently and either can be the drop target for the other
+		OpenEquipmentForPawn(PlayerUnit);
+	}
+	else
+	{
+		// a pack opened as a transfer partner doesn't bring a paperdoll - and any paperdoll
+		// already up may belong to a different pawn than the one this window just rebound to,
+		// which is the same staleness the cycle-pawn path closes the inventory to avoid
+		CloseEquipment();
+	}
+
+	UpdateInventoryInputContext();
+}
+
+void AStrategyPlayerController::OpenEquipmentForPawn(AStrategyPlayerUnit* PlayerUnit)
+{
+	if (!PlayerUnit)
+	{
+		return;
+	}
+
+	// spawn the widget on first use
+	if (!EquipmentWidget)
+	{
+		if (!EquipmentWidgetClass)
+		{
+			UE_LOG(Logsmores, Warning, TEXT("StrategyPlayerController has no EquipmentWidgetClass set; can't open the equipment screen."));
+			return;
+		}
+
+		EquipmentWidget = CreateWidget<UEquipmentWidget>(this, EquipmentWidgetClass);
+
+		if (EquipmentWidget)
+		{
+			EquipmentWidget->OnWindowClosed.AddUniqueDynamic(this, &AStrategyPlayerController::HandleWindowClosed);
+		}
+	}
+
+	if (EquipmentWidget)
+	{
+		EquipmentWidget->SetWindowTitle(FText::Format(LOCTEXT("PawnEquipmentTitle", "{0} Equipment"), PlayerUnit->GetUnitDisplayName()));
+		EquipmentWidget->SetEquipment(PlayerUnit->GetEquipment());
+		EquipmentWidget->AddToViewport(0);
+	}
+}
+
+void AStrategyPlayerController::CloseEquipment()
+{
+	if (EquipmentWidget)
+	{
+		EquipmentWidget->ClearEquipment();
+
+		if (EquipmentWidget->IsInViewport())
+		{
+			EquipmentWidget->RemoveFromParent();
+		}
+	}
+}
+
+void AStrategyPlayerController::HandleWindowClosed(UWindowWidget* Window)
+{
+	// the window has already removed itself by the time this fires; what it can't do on its own
+	// is take its companions with it, or drop the input context scoped to a window being open
+	if (Window == InventoryWidget)
+	{
+		// the paperdoll belongs to the pack it opened with
+		CloseInventory();
+	}
+	else if (Window == EquipmentWidget)
+	{
+		// closing just the paperdoll leaves the pack open, which is what the player asked for
+		CloseEquipment();
+	}
+	else if (Window == ContainerWidget)
+	{
+		CloseContainer();
+	}
+
+	// CloseEquipment is the one path above that doesn't already do this
 	UpdateInventoryInputContext();
 }
 
@@ -493,6 +588,11 @@ void AStrategyPlayerController::CloseInventory()
 			InventoryWidget->RemoveFromParent();
 		}
 	}
+
+	// the paperdoll belongs to the same pawn as the grid it opened with, so it goes with it -
+	// a stale paperdoll for a pawn that's no longer selected is exactly the failure the
+	// cycle-pawn path closes the inventory to avoid
+	CloseEquipment();
 
 	UpdateInventoryInputContext();
 }
@@ -524,7 +624,8 @@ void AStrategyPlayerController::UpdateInventoryInputContext()
 
 	const bool bAnyInventoryWindowOpen =
 		(InventoryWidget && InventoryWidget->IsInViewport()) ||
-		(ContainerWidget && ContainerWidget->IsInViewport());
+		(ContainerWidget && ContainerWidget->IsInViewport()) ||
+		(EquipmentWidget && EquipmentWidget->IsInViewport());
 
 	if (bAnyInventoryWindowOpen)
 	{
@@ -598,6 +699,11 @@ void AStrategyPlayerController::OpenContainer(AStrategyContainer* Container)
 		}
 
 		ContainerWidget = CreateWidget<UInventoryWidget>(this, ContainerWidgetClass);
+
+		if (ContainerWidget)
+		{
+			ContainerWidget->OnWindowClosed.AddUniqueDynamic(this, &AStrategyPlayerController::HandleWindowClosed);
+		}
 	}
 
 	if (ContainerWidget)
@@ -615,7 +721,7 @@ void AStrategyPlayerController::OpenContainer(AStrategyContainer* Container)
 	// regardless of current selection, so the two panels can be used together to transfer items
 	if (AStrategyPlayerUnit* ClosestPawn = FindClosestPlayerPawn(Container->GetActorLocation()))
 	{
-		OpenInventoryForPawn(ClosestPawn);
+		OpenInventoryForPawn(ClosestPawn, /*bOpenEquipment =*/ false);
 	}
 }
 
@@ -636,6 +742,11 @@ void AStrategyPlayerController::OpenLoot(AStrategyUnit* LootTarget)
 		}
 
 		ContainerWidget = CreateWidget<UInventoryWidget>(this, ContainerWidgetClass);
+
+		if (ContainerWidget)
+		{
+			ContainerWidget->OnWindowClosed.AddUniqueDynamic(this, &AStrategyPlayerController::HandleWindowClosed);
+		}
 	}
 
 	if (ContainerWidget)
@@ -651,7 +762,7 @@ void AStrategyPlayerController::OpenLoot(AStrategyUnit* LootTarget)
 	// regardless of current selection, so the two panels can be used together to transfer items
 	if (AStrategyPlayerUnit* ClosestPawn = FindClosestPlayerPawn(LootTarget->GetActorLocation()))
 	{
-		OpenInventoryForPawn(ClosestPawn);
+		OpenInventoryForPawn(ClosestPawn, /*bOpenEquipment =*/ false);
 	}
 }
 
@@ -1200,6 +1311,28 @@ void AStrategyPlayerController::Server_MoveInventoryItem_Implementation(UInvento
 	UInventoryComponent::MoveItem(SourceInventory, EntryId, DestInventory, DestCell, bRotated, Quantity);
 }
 
+void AStrategyPlayerController::Server_EquipItem_Implementation(UInventoryComponent* SourceInventory, int32 EntryId, UEquipmentComponent* Equipment, EEquipSlot Slot)
+{
+	if (!Equipment)
+	{
+		return;
+	}
+
+	// no validation of its own, same as the move RPC - UEquipmentComponent::Equip checks
+	// authority, slot matching and room for the displaced item, and mutates nothing if any fails
+	Equipment->Equip(SourceInventory, EntryId, Slot);
+}
+
+void AStrategyPlayerController::Server_UnequipItem_Implementation(UEquipmentComponent* Equipment, EEquipSlot Slot, UInventoryComponent* DestInventory)
+{
+	if (!Equipment)
+	{
+		return;
+	}
+
+	Equipment->Unequip(Slot, DestInventory);
+}
+
 AStrategyPlayerState* AStrategyPlayerController::GetStrategyPlayerState() const
 {
 	// keyed off this controller's own player state - there is no single "the" player in a co-op session
@@ -1332,6 +1465,96 @@ void AStrategyPlayerController::Server_DebugInventory_Implementation(UInventoryC
 			TCHAR(TEXT('a') + (EntryIndex % 26)), Entry.EntryId, *GetNameSafe(Entry.Item.Definition), Entry.Item.Quantity,
 			Entry.AnchorCell.X, Entry.AnchorCell.Y, Footprint.X, Footprint.Y,
 			Entry.bRotated ? TEXT(" rotated") : TEXT(""), Inventory->GetEffectiveMaxStack(Entry.Item.Definition));
+	}
+}
+
+void AStrategyPlayerController::SmoresEquipItem(int32 EntryIndex)
+{
+	DebugEquipmentForSelection(EntryIndex, INDEX_NONE);
+}
+
+void AStrategyPlayerController::SmoresUnequipItem(int32 SlotIndex)
+{
+	DebugEquipmentForSelection(INDEX_NONE, SlotIndex);
+}
+
+void AStrategyPlayerController::SmoresDumpEquipment()
+{
+	DebugEquipmentForSelection(INDEX_NONE, INDEX_NONE);
+}
+
+void AStrategyPlayerController::DebugEquipmentForSelection(int32 EquipEntryIndex, int32 UnequipSlotIndex)
+{
+	// same shape as the inventory execs: resolve the pawn from the local selection, then hop to
+	// the server, where the authoritative equipment and grid actually live
+	for (AStrategyUnit* CurrentUnit : ControlledUnits)
+	{
+		if (AStrategyPlayerUnit* PlayerUnit = Cast<AStrategyPlayerUnit>(CurrentUnit))
+		{
+			Server_DebugEquipment(PlayerUnit->GetEquipment(), PlayerUnit->GetInventory(), EquipEntryIndex, UnequipSlotIndex);
+			return;
+		}
+	}
+
+	UE_LOG(Logsmores, Warning, TEXT("[EquipDebug] No player pawn selected."));
+}
+
+void AStrategyPlayerController::Server_DebugEquipment_Implementation(UEquipmentComponent* Equipment, UInventoryComponent* Inventory, int32 EquipEntryIndex, int32 UnequipSlotIndex)
+{
+	if (!Equipment || !Inventory)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[EquipDebug] No equipment/inventory to inspect."));
+		return;
+	}
+
+	const TArray<EEquipSlot> AllSlots = UEquipmentComponent::GetAllEquipSlots();
+
+	if (EquipEntryIndex >= 0)
+	{
+		const TArray<FInventoryEntry>& Entries = Inventory->GetEntries();
+
+		if (!Entries.IsValidIndex(EquipEntryIndex))
+		{
+			UE_LOG(Logsmores, Warning, TEXT("[EquipDebug] No grid entry at index %d (%d placed)."), EquipEntryIndex, Entries.Num());
+		}
+		else
+		{
+			const FInventoryEntry Entry = Entries[EquipEntryIndex];
+
+			// EEquipSlot::None exercises the same "wherever it belongs" path right-click uses
+			const bool bEquipped = Equipment->Equip(Inventory, Entry.EntryId, EEquipSlot::None);
+
+			UE_LOG(Logsmores, Warning, TEXT("[EquipDebug] Equip(%s) -> %s"),
+				*GetNameSafe(Entry.Item.Definition), bEquipped ? TEXT("worn") : TEXT("REJECTED"));
+		}
+	}
+
+	if (UnequipSlotIndex >= 0)
+	{
+		if (!AllSlots.IsValidIndex(UnequipSlotIndex))
+		{
+			UE_LOG(Logsmores, Warning, TEXT("[EquipDebug] No slot at index %d (%d slots)."), UnequipSlotIndex, AllSlots.Num());
+		}
+		else
+		{
+			const EEquipSlot Slot = AllSlots[UnequipSlotIndex];
+			const bool bRemoved = Equipment->Unequip(Slot, Inventory);
+
+			UE_LOG(Logsmores, Warning, TEXT("[EquipDebug] Unequip(%s) -> %s"),
+				*UEquipmentComponent::GetSlotDisplayName(Slot).ToString(), bRemoved ? TEXT("stowed") : TEXT("REJECTED"));
+		}
+	}
+
+	UE_LOG(Logsmores, Warning, TEXT("[EquipDebug] %s: %d worn, equipped weight %.2f"),
+		*GetNameSafe(Equipment->GetOwner()), Equipment->GetEquippedItems().Num(), Equipment->GetTotalWeight());
+
+	for (int32 SlotIndex = 0; SlotIndex < AllSlots.Num(); ++SlotIndex)
+	{
+		const FInventoryItem Worn = Equipment->GetEquippedItem(AllSlots[SlotIndex]);
+
+		UE_LOG(Logsmores, Warning, TEXT("[EquipDebug]   %d %s: %s"),
+			SlotIndex, *UEquipmentComponent::GetSlotDisplayName(AllSlots[SlotIndex]).ToString(),
+			Worn.IsEmpty() ? TEXT("(empty)") : *GetNameSafe(Worn.Definition));
 	}
 }
 

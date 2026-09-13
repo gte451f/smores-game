@@ -10,6 +10,9 @@
 class UTextBlock;
 class UButton;
 
+/** Broadcast when a window closes itself (its own close button), so whoever opened it can react */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnWindowClosedDelegate, UWindowWidget*, Window);
+
 /**
  *  Reusable floating-window chrome for a UUserWidget: an optional title bar with a close
  *  button, plus drag-to-move and resize-from-corner. All parts are optional so a WBP that
@@ -83,8 +86,18 @@ public:
 	void SetWindowTitle(const FText& NewTitle);
 
 	/**
-	 *  Requests that this window close. Base implementation does nothing - subclasses
-	 *  override to actually remove/hide themselves.
+	 *  Fired when this window closes itself. The owner that spawned it can't see its close
+	 *  button, so without this a window shut that way leaves whatever was opened alongside it
+	 *  (a pawn's paperdoll beside its pack) stranded, and leaves input scoped to a window that
+	 *  is no longer there.
+	 */
+	UPROPERTY(BlueprintAssignable, Category = "Window")
+	FOnWindowClosedDelegate OnWindowClosed;
+
+	/**
+	 *  Requests that this window close. The base implementation only announces it - subclasses
+	 *  override to actually remove/hide themselves, and should call Super *after* doing so, so
+	 *  listeners see a window that has already gone.
 	 */
 	UFUNCTION(BlueprintNativeEvent, Category = "Window")
 	void RequestClose();
@@ -99,6 +112,7 @@ protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	//~ End UUserWidget interface

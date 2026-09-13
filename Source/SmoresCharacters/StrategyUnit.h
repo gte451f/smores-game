@@ -12,6 +12,7 @@ class USphereComponent;
 class UEnvQuery;
 class UEnvQueryInstanceBlueprintWrapper;
 class UInventoryComponent;
+class UEquipmentComponent;
 class UHealthComponent;
 class UCombatComponent;
 
@@ -44,6 +45,11 @@ private:
 	/** Inventory carried by this unit. Present on NPC and player units alike. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UInventoryComponent> Inventory;
+
+	/** Worn/equipped items of this unit - the paperdoll, distinct from the carried grid above.
+	 *  Present on NPC and player units alike. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UEquipmentComponent> Equipment;
 
 	/** Health carried by this unit. Present on NPC and player units alike. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
@@ -98,6 +104,9 @@ public:
 
 	/** Returns this unit's inventory component */
 	UInventoryComponent* GetInventory() const { return Inventory; }
+
+	/** Returns this unit's equipment (worn slots) component */
+	UEquipmentComponent* GetEquipment() const { return Equipment; }
 
 	/** Returns this unit's display name */
 	FText GetUnitDisplayName() const { return UnitDisplayName; }

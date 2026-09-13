@@ -14,10 +14,13 @@ particular holder's grid lives in the `FInventoryEntry` placement that wraps it.
 Items occupy a rectangular footprint of cells rather than one uniform slot, may be rotated 90°
 to fit, and merge into stacks capped per holder. Carried weight is tracked and displayed
 alongside the grid, and the player has a gold balance on their `AStrategyPlayerState` — but
-neither *does* anything yet: weight applies no penalty, and nothing spends gold. This system
-does **not** yet handle: equipment/worn slots, trading/purchase, theft, or world-loose item
-pickups. See `inventory-roadmap.md` for the target design covering all of that — this topic
-only documents what's actually built.
+neither *does* anything yet: weight applies no penalty, and nothing spends gold.
+
+Alongside the carried grid, every unit has a **paperdoll**: `UEquipmentComponent`, a small set
+of named worn slots that is deliberately *not* a region of the grid. An item goes in only if
+its definition says that's its slot; nothing else gates an equip. This system does **not** yet
+handle: trading/purchase, theft, or world-loose item pickups. See `inventory-roadmap.md` for
+the target design covering all of that — this topic only documents what's actually built.
 
 ## Player Surface
 
@@ -67,8 +70,34 @@ only documents what's actually built.
 - The HUD carries a **gold readout** ("Gold: 250") next to the selection count. Gold isn't an
   item — it has no weight, no footprint, and never appears in a grid — and today nothing in the
   game spends or earns it outside the debug console.
+- The **inventory key** also opens that pawn's **Equipment window** beside the pack — a second
+  floating panel listing its five worn slots (Main Hand, Off Hand, Head, Body, Feet) and the
+  combined weight of what's in them. The two open and close together and are moved and resized
+  independently. Only the inventory key brings it up: a pack opened as a transfer partner for a
+  container or a corpse comes on its own, and closes any paperdoll already showing — that pack
+  may have just rebound to the nearest pawn rather than the selected one, which would leave the
+  paperdoll describing somebody else.
+- **Right-click a carried item to wear it.** It goes into whichever slot its definition names,
+  and whatever was already in that slot comes back to the grid. If the grid has no room for the
+  displaced item, nothing happens at all — the swap never half-lands. Right-clicking an item
+  that isn't wearable does nothing, and so does right-clicking inside a chest or a Downed NPC's
+  loot panel: only a pawn's own inventory window equips.
+- **Dragging a carried item onto a paperdoll slot** does the same thing, and the slot lights up
+  green or red on hover exactly like a grid cell does — red for the wrong kind of item, or for
+  a swap whose displaced item wouldn't fit back in the grid.
+- **Right-click a filled paperdoll slot to take the item off.** It returns to that pawn's own
+  pack, never to whatever other window happens to be open. A full pack means it stays worn.
+- **Wearing one out of a stack takes one.** Equipping from a stack of five knives leaves four
+  in the grid, so one stack can arm several pawns.
+- A worn item **leaves the carried grid**, so the pawn's `Weight:` readout drops when something
+  is equipped; the paperdoll window reports the worn weight separately. Neither figure does
+  anything yet.
+- **Clicks no longer fall through an open window** — any mouse button, single or double.
+  Previously only a single left-click was consumed, so right-clicking a window also marched the
+  squad to whatever was behind it, and a *fast second* click of any button leaked through even
+  after the first was caught.
 - Deselecting all units, or having no player pawn selected/in range, closes any open
-  inventory window.
+  inventory window — and the equipment window with it.
 
 ## Core Rules
 
@@ -119,11 +148,39 @@ only documents what's actually built.
   organization layer rather than a separate economy. `AddGold` credits and `TrySpendGold`
   debits-if-affordable, both authority-only; `TrySpendGold` returning false is what a later
   purchase flow checks *before* touching any item, so a transaction can't half-apply.
+- **Worn slots are a paperdoll, not a region of the grid.** `UEquipmentComponent` holds an
+  `FEquippedItem` per *occupied* slot — a slot name plus one `FInventoryItem`, with no anchor
+  cell and no rotation, because a slot is a named place rather than a rectangle. An absent slot
+  is an empty one; there is no "empty slot" object, the same way `Entries` has no empty cells.
+  A worn item is always quantity 1.
+- **Slot-type matching is the only equip gate there is.** `CanEquipItem` is one comparison:
+  the item's `Definition->EquipSlot` against the slot being filled, with `EEquipSlot::None`
+  meaning "not wearable at all". No skill, attribute or condition check belongs here — any pawn
+  may wear any weapon regardless of training, and the performance consequence of an untrained
+  equip is combat/skill resolution's business (`combat.md`'s weapon-class mismatch penalty),
+  never an inventory-side restriction.
+- **`Equip` and `Unequip` are all-or-nothing.** Both find the displaced item a home with
+  `FindFreePlacement` *before* mutating anything, and bail out having changed nothing if there
+  isn't one — so running out of grid room can never destroy an item. `Equip` splits one unit off
+  the source entry (removing it outright when that empties it) rather than moving the whole
+  stack, so a stack of five knives arms five pawns. When the whole entry *is* consumed, the
+  displaced item may be placed back onto the cells that entry is vacating; when it isn't, it
+  can't.
+- **A slot is filled from `EEquipSlot::None` or from a named slot, and both end up in the same
+  place.** `None` means "wherever this item belongs", which is what right-click-to-equip sends;
+  a drop on a specific paperdoll slot names that slot and still has to match it. There is no
+  path that forces an item into a slot it doesn't belong in.
+- **Equipped weight is tracked separately and folded into nothing.** A worn item leaves the grid,
+  so `UInventoryComponent::GetTotalWeight` no longer counts it and
+  `UEquipmentComponent::GetTotalWeight` does. Harmless while weight is inert; the pass that
+  gives weight a consequence has to sum both.
 - All mutation (`AddItem`, `AddItemAt`, `RemoveEntry`, `SetEntryQuantity`, `RepositionEntry`,
-  `SetGridSize`) is authority-only; called on a non-authority machine, each is a silent no-op.
+  `SetGridSize`, `Equip`, `Unequip`) is authority-only; called on a non-authority machine, each is a silent no-op.
   `Entries`, `GridWidth`, `GridHeight` and `StackMultiplier` all replicate; `OnRep_Entries`
   re-broadcasts `OnInventoryChanged` on clients (authority already broadcasts it directly from
-  the mutators, so it isn't double-fired there).
+  the mutators, so it isn't double-fired there). `UEquipmentComponent` is the same shape one
+  level down: `EquippedItems` replicates, `OnRep_EquippedItems` re-broadcasts
+  `OnEquipmentChanged` on non-authority machines only.
 - `AddItem` **merges before it places**: it fills existing stacks of the same type up to the
   effective cap first, then auto-places whatever's left via `FindFreePlacement`, splitting into
   as many entries as the cap requires. It returns `true` only if the *entire* quantity was
@@ -162,6 +219,33 @@ only documents what's actually built.
   `UInventoryItemWidget` per placed entry above it, spanning its footprint via the grid slot's
   row/column spans. A `UUniformGridPanel` can't host the upper layer at all — `UUniformGridSlot`
   has no span — which is why the panel type is a hard requirement rather than a preference.
+- **A window swallows the press of every mouse button that lands on it — including a
+  double-click — and lets the release through.** The double-click half is a separate override,
+  not a consequence of the press one: Windows sends `WM_xBUTTONDBLCLK` rather than
+  `WM_xBUTTONDOWN` for the second click of a rapid pair, which reaches Slate as
+  `OnMouseButtonDoubleClick`, an event with its own routing. A widget that overrides only
+  `NativeOnMouseButtonDown` therefore catches the first click of a double-click and lets the
+  second through to the viewport, where it registers as a press and completes whatever world
+  action is bound to that button on release. Every widget in the stack that claims a button
+  (`UWindowWidget`, `UInventoryItemWidget`, `UEquipmentSlotWidget`) routes its double-click
+  handler straight into its press handler, so a fast second click means exactly what a slow one
+  does. The release asymmetry is separate, and also deliberate. Swallowing the press is what stops a right-click on
+  an inventory panel from also issuing a move order to the squad. Swallowing the *release* as
+  well would be worse than useless: Enhanced Input never saw the press this window ate, so an
+  action bound on release (most of them are) has nothing to complete anyway — whereas eating a
+  release whose press the viewport *did* see (a drag-select begun on the world and ended over a
+  window) would leave that button stuck down in `UPlayerInput` permanently. Slate bubbles up
+  from the deepest widget, so the window only ever catches what nothing inside it claimed.
+- **A window that closes itself says so.** `UWindowWidget::OnWindowClosed` fires after the
+  window has removed itself, and the controller subscribes to every window it spawns. A close
+  button can only remove its own widget; it can't take the companions that were opened with it
+  (a pawn's paperdoll beside its pack), and it can't drop the input context scoped to a window
+  being open. That's what this delegate is for, and it's why both window subclasses call
+  `Super::RequestClose_Implementation()` *after* removing themselves.
+- **Paperdoll slots handle their own drops, one per slot** — the opposite of the grid's rule
+  below, and for the reason that rule exists: grid item widgets overlap grid cell widgets, so a
+  per-cell handler can't tell which cell was hit. Equipment slots never overlap, so there's
+  nothing to disambiguate.
 - **One drop target serves the whole grid**, not one per cell. With item widgets sitting on top
   of cell widgets, per-cell drop handlers get ambiguous about which cell was actually hit; the
   drop bubbles up to the window instead, which recovers the cell from the panel's own geometry.
@@ -193,14 +277,16 @@ only documents what's actually built.
 
 - **Primary classes:**
   - `SmoresItems`: `UItemDefinition` (+ `EItemCategory` / `EEquipSlot`), `FInventoryItem`,
-    `UInventoryComponent`, `AStrategyContainer` (abstract base for world containers),
+    `UInventoryComponent`, `FEquippedItem` + `UEquipmentComponent` (the paperdoll),
+    `AStrategyContainer` (abstract base for world containers),
     `AStrategyChest` (first concrete container type — no added behavior of its own, exists
     so future chest-specific behavior like locks/keys has a home)
   - `SmoresUI`: `UWindowWidget` (reusable floating-window chrome), `UInventoryWidget`,
     `UInventoryCellWidget` (+ the `EInventoryCellHighlight` enum), `UInventoryItemWidget`,
+    `UEquipmentWidget` (the paperdoll window), `UEquipmentSlotWidget`,
     `UInventoryDragDropOperation`, `IInventoryMoveHost`
-  - `SmoresCharacters`: `AStrategyUnit` (owns the `Inventory` subobject shared by NPCs and
-    player units alike), `AStrategyPlayerUnit`
+  - `SmoresCharacters`: `AStrategyUnit` (owns the `Inventory` and `Equipment` subobjects shared
+    by NPCs and player units alike), `AStrategyPlayerUnit`
   - `smores` (`Variant_Strategy`): `AStrategyPlayerController`, `AStrategyPlayerState` (the
     per-player gold balance)
 - **Important methods:**
@@ -231,6 +317,52 @@ only documents what's actually built.
     `OnInventoryChanged`
   - `UInventoryComponent::MoveItem` (static) — the single move/merge entry point for both
     repacking and cross-inventory transfer
+  - `UEquipmentComponent::Equip` / `Unequip` — the two authority-only mutators, both validating
+    (authority on *both* components, slot match, room for the displaced item) before touching
+    anything, so neither can half-apply. `Equip` takes one unit off the source entry;
+    `SetEntryQuantity` removes it outright if that was the last one
+  - `UEquipmentComponent::CanEquipItem` — the whole equip gate, one comparison. The client-side
+    drop preview and the server both call it, so the green/red slot can't promise a refusal
+  - `UEquipmentComponent::GetSlotForItem` / `GetAllEquipSlots` / `GetSlotDisplayName` (all
+    static) — the item's own slot, the fixed five-slot paperdoll roster in display order, and
+    the slot's player-facing label read straight off the enum's `UMETA(DisplayName)` so there's
+    no second name list to keep in step
+  - `UEquipmentComponent::GetEquippedItem` / `IsSlotOccupied` / `GetTotalWeight` /
+    `GetOwnerInventory` — the read side. `GetOwnerInventory` is the sibling lookup that decides
+    where an unequipped item lands; `GetEquippedItem` is the seam a later combat pass reads the
+    equipped weapon through
+  - `UInventoryWidget::SetEquipmentTarget` / `GetEquipmentTarget` — what makes right-click mean
+    "equip" in a pawn's own window and nothing anywhere else. The controller sets it when it
+    opens a pawn window and never for a container or loot window, and `ClearInventory` drops it
+    along with the inventory binding so a reused window can't carry the previous pawn's
+    paperdoll across
+  - `UInventoryItemWidget::TryEquip` — the right-click path: reaches the owning window through
+    `GetTypedOuter<UInventoryWidget>()`, checks there's a target and that the item is wearable at
+    all, then hops to the server. No target (a chest, a corpse) means silently nothing
+  - `UEquipmentSlotWidget::WouldAcceptDrop` — the paperdoll's green/red, deliberately mirroring
+    `Equip`'s checks *including* the displaced item's placement test, for the same reason
+    `UInventoryWidget::WouldAcceptDrop` mirrors `MoveItem`'s
+  - `UEquipmentWidget::RebuildSlots` / `RefreshDisplay` — the slot roster is fixed, so the slot
+    widgets are built once per bound pawn and merely refreshed afterwards. That's the opposite of
+    `RebuildGrid`, which rebuilds wholesale: a rebuild here would destroy the very widget a drag
+    is hovering
+  - `AStrategyPlayerController::Server_EquipItem` / `Server_UnequipItem` (`IInventoryMoveHost`) —
+    the authoritative callers, doing no validation of their own for the same reason
+    `Server_MoveInventoryItem` doesn't
+  - `AStrategyPlayerController::OpenEquipmentForPawn` / `CloseEquipment` — the paperdoll window's
+    lifecycle, driven entirely from `OpenInventoryForPawn`/`CloseInventory` so the two windows
+    can't get out of step. `OpenInventoryForPawn`'s `bOpenEquipment` is what scopes the paperdoll
+    to the inventory key: true only from `ToggleInventory`, false from the container and loot
+    paths, which close any open paperdoll instead of leaving a stale one
+  - `AStrategyPlayerController::HandleWindowClosed` — bound to every window this controller
+    spawns (`UWindowWidget::OnWindowClosed`). Closing the pack with its X button takes the
+    paperdoll with it; closing the paperdoll leaves the pack, which is what the player asked
+    for; either way the scoped input context is re-evaluated
+  - `AStrategyPlayerController::SmoresDumpEquipment` / `SmoresEquipItem <EntryIndex>` /
+    `SmoresUnequipItem <SlotIndex>` (console execs) — debug-only, all three routed through one
+    `Server_DebugEquipment` hop and all three ending in a per-slot dump plus the worn weight.
+    `SmoresEquipItem` passes `EEquipSlot::None`, so it exercises the same "wherever it belongs"
+    path right-click uses
   - `AStrategyPlayerController::SmoresDumpInventory` / `SmoresAddItem` (console execs) —
     debug-only. `SmoresDumpInventory` logs the selected pawn's **server-side** grid as an
     ASCII occupancy map plus a per-entry list (id, quantity, anchor, footprint, rotation,
@@ -294,7 +426,9 @@ only documents what's actually built.
     that scopes every inventory key to a window actually being open
 - **Runtime ownership:** `UInventoryComponent` is a default subobject of `AStrategyUnit`
   (every unit, NPC or player-controlled) and of `AStrategyContainer` (every world
-  container). The two `UInventoryWidget` instances (`InventoryWidget`, `ContainerWidget`)
+  container); `UEquipmentComponent` is a default subobject of `AStrategyUnit` only — a chest
+  wears nothing. The two `UInventoryWidget` instances (`InventoryWidget`, `ContainerWidget`)
+  and the one `UEquipmentWidget` (`EquipmentWidget`)
   are lazy-created and owned by `AStrategyPlayerController` directly — **not** by
   `AStrategyHUD`, which today only spawns the general `UStrategyUI` widget, pushes the
   selection count / target label / gold balance into it each frame, and draws the
@@ -311,6 +445,15 @@ only documents what's actually built.
   observing client. A rejected move mutates nothing, so the refresh redraws the unchanged
   state and the item appears to snap back — the client is never told "no" explicitly, which
   is exactly why the red drop preview exists.
+- **Data flow (equip):** `UInventoryItemWidget::NativeOnMouseButtonDown` (right button) →
+  `TryEquip` → the owning window's `GetEquipmentTarget` →
+  `IInventoryMoveHost::Server_EquipItem` (client → server RPC) → `UEquipmentComponent::Equip` →
+  `EquippedItems` *and* `Entries` both replicate back down → `OnRep_EquippedItems` /
+  `OnRep_Entries` → `OnEquipmentChanged` / `OnInventoryChanged` → the paperdoll window and the
+  inventory window each refresh independently. A drop onto a paperdoll slot is the same path
+  from `UEquipmentSlotWidget::NativeOnDrop`, differing only in naming the slot instead of
+  sending `EEquipSlot::None`; unequip is the mirror through `Server_UnequipItem`. A rejected
+  equip is silent on the wire, exactly like a rejected move.
 
 ## Blueprint / Asset Dependencies
 
@@ -390,10 +533,22 @@ only documents what's actually built.
   it with `GridWidth`/`GridHeight` and set `StackMultiplier` above 1.0 for a holder meant to
   stack deeper than a pawn's pack (a storefront shelf, a warehouse chest). Nothing else needs
   a per-holder code path.
-- **Equipment, trading, theft, world pickups, sort/filter** — none of this exists in code
-  yet, though `UItemDefinition` already carries the fields they'll read (`EquipSlot`,
-  `BaseValue`, `WorldMesh`, `Category`). Full target design and rationale live in
-  `inventory-roadmap.md`.
+- **Trading, theft, world pickups, sort/filter** — none of this exists in code yet, though
+  `UItemDefinition` already carries the fields they'll read (`BaseValue`, `WorldMesh`,
+  `Category`). Full target design and rationale live in `inventory-roadmap.md`.
+- **New worn slots** — add to `EEquipSlot` *and* to `UEquipmentComponent::GetAllEquipSlots`,
+  which is a deliberate hand-written roster rather than an enum iteration: it fixes the
+  paperdoll's display order and keeps `None` out of it. Nothing else needs a code change — the
+  paperdoll builds one slot widget per entry in that list.
+- **Combat reading the equipped weapon** — `UEquipmentComponent::GetEquippedItem(MainHand)` is
+  the seam, and it's readable on any machine since `EquippedItems` replicates. That's a
+  `SmoresCombat` change, not an inventory one; nothing here should learn what a weapon *does*.
+- **Equipped visuals** — `UItemDefinition::WorldMesh` is authored for it and nothing reads it
+  yet. Attaching a mesh to a skeletal socket on `OnEquipmentChanged` is purely cosmetic and
+  belongs on the character/animation side.
+- **Starting equipment** — there's no `StartingEquipment` counterpart to `StartingItems`; a pawn
+  starts wearing nothing. Seed it the same way if it's wanted: a Blueprint-authored array, applied
+  once server-side in `BeginPlay`, never hard-coded in C++.
 - **Spending gold** — `AStrategyPlayerState::TrySpendGold` is the seam a purchase runs
   through: verify proximity, call it, and only move the item if it returned true, all inside
   one server-side call so the transaction can't half-apply. Nothing calls it yet outside the
@@ -423,11 +578,6 @@ only documents what's actually built.
 
 ## Known Gaps
 
-- **`UWindowWidget` swallows only left clicks.** Every other mouse button passes through to the
-  world underneath, so right-clicking on an open inventory window issues a move order to the
-  selected squad. This blocks right-click-to-equip (Slice 5) and any Ctrl/Shift+right-click
-  transfer, and should be fixed button-agnostically rather than by special-casing a second
-  button.
 - No partial-stack drag — the UI always moves the whole stack even though `MoveItem` already
   takes a quantity and supports the split. Splitting needs a player-facing way to say "how
   many", which hasn't been designed.
@@ -440,8 +590,20 @@ only documents what's actually built.
   they can end up overlapping until something moves them.
 - `SetGridSize` drops entries that no longer fit rather than re-packing them; it's an
   authoring/debug operation, not something gameplay calls.
-- No equipment/worn slots distinct from the general carried grid — `EquipSlot` is authored
-  but unread.
+- **Equipped weight is reported but never summed with carried weight.** Wearing an item takes it
+  out of the grid, so a pawn's `Weight:` readout *drops* when it equips something and the worn
+  total is shown in a different window. Nothing reads either figure, so it costs nothing today —
+  but the pass that gives weight a gameplay consequence has to add the two, and decide whether
+  the readouts merge.
+- **Equipment has no ownership check on the wire.** `Server_EquipItem`/`Server_UnequipItem` do no
+  more validation than `Server_MoveInventoryItem` does — a client could name any pawn's
+  equipment component. Consistent with the existing inventory RPCs rather than a new hole, and
+  the fix belongs to all of them at once (see the multiplayer-discipline notes in
+  `unreal-module-organization.md`), not to equipment alone.
+- No equipped visuals — `WorldMesh` is authored but nothing attaches it to a socket, so an
+  equipped item disappears from view entirely rather than showing on the pawn.
+- No starting equipment — every pawn starts with empty worn slots; only `StartingItems` is
+  seeded.
 - No item art — every `DA_Item_*` has a null `Icon` and `WorldMesh`, so the UI shows names
   only. The item widget draws no icon at all yet, which is why the label's 90° turn for tall
   footprints matters as much as it does.

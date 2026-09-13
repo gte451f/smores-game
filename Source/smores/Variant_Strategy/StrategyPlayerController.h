@@ -20,9 +20,12 @@ struct FInputActionInstance;
 class AStrategyUnit;
 class AStrategyPlayerUnit;
 class UStrategyTouchControls;
+class UWindowWidget;
 class UInventoryWidget;
+class UEquipmentWidget;
 class AStrategyContainer;
 class UInventoryComponent;
+class UEquipmentComponent;
 class AStrategyPlayerState;
 
 /**
@@ -284,6 +287,14 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UInventoryWidget> ContainerWidget;
 
+	/** Paperdoll screen widget class, spawned alongside a pawn's inventory window */
+	UPROPERTY(EditAnywhere, Category="UI")
+	TSubclassOf<UEquipmentWidget> EquipmentWidgetClass;
+
+	/** Active paperdoll widget, if one is open. Opens and closes with the pawn inventory window it belongs to. */
+	UPROPERTY()
+	TObjectPtr<UEquipmentWidget> EquipmentWidget;
+
 	/** All player-controllable pawns in the level. Rebuilt on demand by RefreshPlayerPawns() */
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<AStrategyPlayerUnit>> PlayerPawns;
@@ -375,8 +386,26 @@ protected:
 	/** Closes the inventory screen if one is open */
 	void CloseInventory();
 
-	/** Opens (or rebinds) the pawn inventory screen for the given pawn, spawning the widget on first use */
-	void OpenInventoryForPawn(AStrategyPlayerUnit* PlayerUnit);
+	/**
+	 *  Opens (or rebinds) the pawn inventory screen for the given pawn, spawning the widget on
+	 *  first use. bOpenEquipment brings the paperdoll up alongside it, which only the inventory
+	 *  key does - a pack opened as a transfer partner for a chest or a corpse comes on its own,
+	 *  and closes any paperdoll already up, since this call may have just rebound the window to a
+	 *  different pawn than the one that paperdoll belongs to.
+	 */
+	void OpenInventoryForPawn(AStrategyPlayerUnit* PlayerUnit, bool bOpenEquipment);
+
+	/** Opens (or rebinds) the paperdoll window for the given pawn, spawning the widget on first use.
+	 *  Reached only from the inventory key's OpenInventoryForPawn - see that method. */
+	void OpenEquipmentForPawn(AStrategyPlayerUnit* PlayerUnit);
+
+	/** Closes the paperdoll window if one is open */
+	void CloseEquipment();
+
+	/** Bound to every window this controller opens. A window's own close button removes only that
+	 *  window, so this is what closes its companions and re-scopes the inventory input context. */
+	UFUNCTION()
+	void HandleWindowClosed(UWindowWidget* Window);
 
 	/** Opens the inventory screen for a nearby container, or closes it if already open */
 	void ToggleContainer(const FInputActionValue& Value);
@@ -510,6 +539,15 @@ public:
 	UFUNCTION(Server, Reliable)
 	virtual void Server_MoveInventoryItem(UInventoryComponent* SourceInventory, int32 EntryId, UInventoryComponent* DestInventory, FIntPoint DestCell, bool bRotated, int32 Quantity) override;
 
+	/** Server-side entry point for wearing a carried item (right-click on an item widget, or a drop on a
+	 *  paperdoll slot). Forwards to UEquipmentComponent::Equip, which does all the validation. */
+	UFUNCTION(Server, Reliable)
+	virtual void Server_EquipItem(UInventoryComponent* SourceInventory, int32 EntryId, UEquipmentComponent* Equipment, EEquipSlot Slot) override;
+
+	/** Server-side entry point for taking a worn item off (right-click on a paperdoll slot) */
+	UFUNCTION(Server, Reliable)
+	virtual void Server_UnequipItem(UEquipmentComponent* Equipment, EEquipSlot Slot, UInventoryComponent* DestInventory) override;
+
 	//~ End IInventoryMoveHost interface
 
 	/**
@@ -528,11 +566,31 @@ public:
 	UFUNCTION(Exec)
 	void SmoresAddItem(int32 Count = 1);
 
+	/** Debug exec: wears the selected pawn's EntryIndex'th placed grid entry, then dumps the paperdoll. */
+	UFUNCTION(Exec)
+	void SmoresEquipItem(int32 EntryIndex = 0);
+
+	/** Debug exec: takes off whatever is in the SlotIndex'th paperdoll slot (see UEquipmentComponent::GetAllEquipSlots), then dumps. */
+	UFUNCTION(Exec)
+	void SmoresUnequipItem(int32 SlotIndex = 0);
+
+	/** Debug exec: logs the selected pawn's worn slots. Server-side, like the grid dump. */
+	UFUNCTION(Exec)
+	void SmoresDumpEquipment();
+
 protected:
 
 	/** Server side of the inventory debug execs - optionally adds AddCount items, then logs the grid */
 	UFUNCTION(Server, Reliable)
 	void Server_DebugInventory(UInventoryComponent* Inventory, int32 AddCount);
+
+	/** Client side of the equipment debug execs - resolves the selected pawn locally, then hops to the server */
+	void DebugEquipmentForSelection(int32 EquipEntryIndex, int32 UnequipSlotIndex);
+
+	/** Server side of the equipment debug execs - optionally equips one grid entry and/or unequips one slot
+	 *  (either index negative to skip it), then logs the paperdoll */
+	UFUNCTION(Server, Reliable)
+	void Server_DebugEquipment(UEquipmentComponent* Equipment, UInventoryComponent* Inventory, int32 EquipEntryIndex, int32 UnequipSlotIndex);
 
 public:
 
