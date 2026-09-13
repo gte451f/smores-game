@@ -112,8 +112,9 @@ covering both — this topic only documents what's actually built.
 - **A pickup that only partly fits takes what fits.** Double-clicking a pile of 20 apples with
   room for 8 leaves 12 on the ground rather than refusing the whole pile or quietly destroying
   the rest. A grid with no room at all leaves the pile untouched.
-- Loose items show their **3D mesh**, not their inventory icon — and since no `DA_Item_*` has a
-  `WorldMesh` authored yet, one is currently an invisible actor you can still click.
+- Loose items show their **3D mesh**, not their inventory icon. Every item type currently points
+  at the same placeholder — a plain black 100-unit sphere, about half a pawn's height — so items
+  on the ground are visible and clickable but tell each other apart only by position.
 - Deselecting all units, or having no player pawn selected/in range, closes any open
   inventory window — and the equipment window with it.
 
@@ -199,6 +200,12 @@ covering both — this topic only documents what's actually built.
   mesh is read from the held definition's `WorldMesh` rather than authored on the actor, which is
   what lets one Blueprint subclass serve every item type: contents are set per placed instance
   (or at spawn time), and the mesh follows.
+- **`ItemMesh` is the actor's root, and `InteractionRange` hangs off it** — which means the mesh
+  can't be scaled without scaling the pickup radius with it (a 0.3 mesh scale silently drops the
+  312.5 reach to 94). That's why the placeholder shapes are left at their full 100 units rather
+  than shrunk to something daintier. Making world items smaller means giving `AWorldItem` a plain
+  `USceneComponent` root with the mesh and sphere as siblings — a C++ change, and one that moves
+  the root component out from under already-placed instances, so it isn't free.
 - **Pickup is gated by proximity and nothing else**, through the same `InteractionRange` sphere
   and default radius a container uses — the roadmap's one proximity rule for every transfer
   context. The client picks the nearest in-range pawn, and the server re-checks both that
@@ -528,8 +535,10 @@ covering both — this topic only documents what's actually built.
 - **`DA_Item_*`** (`Content/Items/`) — `UItemDefinition` assets, one per item type.
   Footprints and stack sizes are authored: `Apple` 1×1 stack 10, `GoldCoin` 1×1 stack 100,
   `HealthPotion` 1×1 stack 5, `PocketKnife` 1×1, `Torch` 1×2, `Rope` 2×2, `TrapKit` 2×2,
-  `IronSword` 1×3. `Icon` and `WorldMesh` are unassigned on all of them — no item art exists
-  yet. Because a definition is the only thing a carried item references, **deleting one
+  `IronSword` 1×3. `Icon` is unassigned on all of them — no 2D item art exists yet. `WorldMesh`
+  is assigned on all of them, but to the *same* placeholder (`/Engine/BasicShapes/Sphere`) rather
+  than to real art: a uniform shape with a predictable centre pivot, which is what lets one ground
+  offset serve every item. Because a definition is the only thing a carried item references, **deleting one
   empties every entry holding it**, and **changing a footprint doesn't re-validate already
   placed entries** — an item grown larger can leave overlapping placements until something
   moves them.
@@ -592,7 +601,18 @@ covering both — this topic only documents what's actually built.
   is driven from the held definition, so the only thing worth authoring per placed instance is
   `Item` (its definition and quantity). The mesh is set to `NoCollision` in C++ — a dropped item
   should never shove a pawn around or block a selection trace, and the interaction sphere is what
-  actually gates reaching it.
+  actually gates reaching it. `ItemMesh`'s `OverrideMaterials[0]` is set to **`MI_WorldItem_Black`**
+  in the Blueprint's class defaults, which is what makes every world item black regardless of which
+  mesh its definition supplies: a component-level material override survives the runtime
+  `SetStaticMesh` in `RefreshMesh`, so the colour doesn't have to be a per-definition field.
+  `ItemMesh`'s `StaticMesh` class default is **also** set (to the same placeholder sphere), and it
+  looks redundant because it is overwritten on construction — but **don't remove it**. A static
+  mesh component with a null mesh reports zero material slots, so it silently discards any
+  `OverrideMaterials` entry written to it: the write returns success and nothing lands. The default
+  mesh exists to give the override a slot to stick to, not because its value is ever used.
+- **`MI_WorldItem_Black`** (`Content/Variant_Strategy/Materials/`) — a `M_ContainerColor` instance
+  with its `Color` vector parameter set to black, alongside the chests' `MI_Container_Green`
+  pair. Placeholder colouring only; real item art would drop the override.
 - **`DA_Item_*` weights and values are authored** (Apple 0.2/2g, GoldCoin 0.01/1g,
   HealthPotion 0.5/25g, PocketKnife 0.3/15g, Torch 0.8/5g, Rope 2.0/12g, IronSword 3.5/90g,
   TrapKit 4.0/60g) — a definition with a zero `Weight` contributes nothing to the readout, so
@@ -691,9 +711,10 @@ covering both — this topic only documents what's actually built.
   equipped item disappears from view entirely rather than showing on the pawn.
 - No starting equipment — every pawn starts with empty worn slots; only `StartingItems` is
   seeded.
-- **A loose world item is invisible.** `AWorldItem` draws the definition's `WorldMesh`, and no
-  `DA_Item_*` has one authored — so a placed or dropped item is a clickable actor with nothing to
-  look at. The pickup works; there's just no art behind it.
+- **Every loose world item looks identical.** All eight definitions point `WorldMesh` at the same
+  black placeholder sphere, so an apple and a sword on the ground are indistinguishable until
+  picked up. Deliberate — it makes the pickup testable without committing to art — but it is
+  placeholder, not a design.
 - **A world item can't be reached, only collected.** There's no "go pick that up" order — if no
   pawn is already in range the double-click does nothing, silently. Routing the pickup through a
   move command is a unit-commands change, not an inventory one.
@@ -703,8 +724,7 @@ covering both — this topic only documents what's actually built.
   multiplayer isn't testable, but it means a chest's replicated `Inventory` currently has no
   replicated actor to ride on. Fixing it belongs to a multiplayer pass over all the holders at
   once, not to this slice.
-- No item art — every `DA_Item_*` has a null `Icon` and `WorldMesh`, so the UI shows names
-  only. The item widget draws no icon at all yet, which is why the label's 90° turn for tall
+- No 2D item art — every `DA_Item_*` has a null `Icon`, so the UI shows names only. The item widget draws no icon at all yet, which is why the label's 90° turn for tall
   footprints matters as much as it does.
 - No trading or purchase flow — gold exists and replicates, but the only things that move it
   are the `SmoresAddGold`/`SmoresSpendGold` debug execs. It also isn't persisted anywhere,

@@ -356,6 +356,24 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
   which nobody has noticed because placed actors exist on clients regardless, and multiplayer
   isn't testable yet. Noted in `inventory.md`'s Known Gaps as a holder-wide multiplayer pass,
   not a Slice 6 fix.
+- **A world item can't be scaled down without breaking its own reach.** `ItemMesh` is the root
+  and `InteractionRange` is attached to it, so shrinking the mesh shrinks the pickup sphere with
+  it — silently, since nothing reports a reduced radius. The placeholder spheres are therefore
+  left at full size. If world items ever need to be smaller than their reach, `AWorldItem` needs
+  a plain `USceneComponent` root with the mesh and sphere as siblings; doing that after instances
+  are placed moves the root out from under them, so it's cheapest to do before there's much
+  placed content.
+- **Colour rides on the component, not the definition.** `UItemDefinition` has a `WorldMesh` and
+  deliberately no material field; `BP_WorldItem` sets `OverrideMaterials[0]` in its class defaults
+  instead, and that override survives `RefreshMesh`'s runtime `SetStaticMesh`. Any later
+  per-item-type visual (a rarity tint, a stolen-goods shader) should ask whether it really needs a
+  new definition field before adding one.
+  - The catch, found the hard way: **a material override won't stick to a component whose
+    `StaticMesh` is null.** Zero mesh means zero material slots, so the engine drops the entry and
+    the write reports success anyway — the same silent-write shape `mcp-workflow` records for
+    clearing an IMC's mappings. The fix is to give the component template a default mesh purely so
+    the slot exists; `RefreshMesh` overwrites the mesh itself on construction, so the default's
+    *value* never matters and the whole thing reads as dead weight to anyone tidying up later.
 - **`OnConstruction`, not just `BeginPlay`, drives the mesh.** A placed `AWorldItem` picks its
   mesh from whatever definition the instance holds, so authoring `Item` in the level has to show
   up in the viewport immediately — otherwise every placed instance looks identical until PIE.

@@ -109,6 +109,24 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   And never confirm an IMC's contents with `get_properties`, which reports `[]` either way;
   grep the saved `.uasset` binary for `IA_` names instead:
   `python -c "import re,io;print(sorted(set(re.findall(rb'IA_[A-Za-z_]+', io.open('<asset>.uasset','rb').read()))))"`.
+- **A material override silently won't stick to a mesh component with no mesh.** Setting
+  `OverrideMaterials[0]` on a `UStaticMeshComponent` template whose `StaticMesh` is null returns
+  `true` and writes nothing — a component with no mesh reports zero material slots, so
+  `UMeshComponent` drops the entry. Same silent-write shape as the IMC bullet above, and engine
+  behavior rather than an MCP bug. **Give the component template a default `StaticMesh` first**,
+  then set the override; both then survive `compile_blueprint` and the save. Hit while making
+  `BP_WorldItem` render black placeholders, where `AWorldItem::RefreshMesh` overwrites the mesh at
+  runtime anyway — so the default mesh is pure slot-scaffolding whose value is never used, and
+  reads as removable dead weight to anyone tidying up later. Note it wherever it's set.
+- **When checking `__ExternalActors__` for stale overrides, grep the referenced *asset* name, not
+  the property name.** Property names like `OverrideMaterials` sit in the serialized name table of
+  essentially every static-mesh actor in the level whether or not anything overrides them —
+  `grep -arl "OverrideMaterials" Content/__ExternalActors__/` returned 114 files against 4 actually
+  changed. A per-instance override is only real if the instance serializes the object reference
+  (`MI_WorldItem_Black`, `BasicShapes/Sphere`, a `DA_Item_*` name), so grep for that. The
+  property-name grep in the stale-override bullets above works for `StartingItems`/`WeightCapacity`
+  because those names are *not* carried by unrelated actors — it isn't a general rule, and
+  `git status` on `Content/` is the cheaper first check either way.
 - **`get_properties` and `set_properties` take different argument shapes.** Read is
   `instance` + `properties` (a list of names). Write is `instance` + **`values`, a JSON
   *string***, and `instance` wants the `{"refPath": "..."}` object form. Passing `properties`
