@@ -26,18 +26,27 @@ documented as part of each system topic, in its "Player Surface" section, plus t
 | [`topics/game-modes.md`](topics/game-modes.md) | Visible game modes and what they let the player do |
 | [`topics/terminology.md`](topics/terminology.md) | Player-surface terms used across topics (Controlled Units, Drag Selection, Interaction Radius, Lead Unit, Player Surface) |
 | [`topics/unreal-module-organization.md`](topics/unreal-module-organization.md) | *(forward-looking)* Current single-module state, a proposed target module map sized against the full `game-design` scope, DLC/mod-as-Plugin guidance, and concrete triggers for when to actually split |
+| [`topics/testing.md`](topics/testing.md) | How to run the automated test suite (in-editor and headless), what it covers, the standing rule for when finished work should add a test, and the conventions for writing one. **Read when finishing work that changes a counted return, an all-or-nothing operation, or a state machine.** |
+| [`topics/testing-roadmap.md`](topics/testing-roadmap.md) | *(forward-looking)* Target design for automated testing — the harness choice (in-module automation tests, no new module or build plumbing), the catalogue of what's worth asserting across inventory/economy/combat/equipment, what stays in PIE permanently, and a dependency-ordered, one-slice-per-session Implementation Order with a Resolved Design Decisions log |
 
 ## Working in this skill
 
 - **Describe current implementation, not aspiration.** Put future ideas under a "Known
   Gaps" section in the relevant topic, not into the main description. The deliberate
-  exceptions are `topics/unreal-module-organization.md` and `topics/inventory-roadmap.md`,
-  each explicitly a forward-looking reference rather than a record of built behavior — both
-  say so up front. When a roadmap topic's content ships, move it into the paired
-  current-implementation topic and trim the roadmap accordingly.
+  exceptions are `topics/unreal-module-organization.md`, `topics/inventory-roadmap.md` and
+  `topics/testing-roadmap.md`, each explicitly a forward-looking reference rather than a
+  record of built behavior — all three say so up front. When a roadmap topic's content
+  ships, move it into the paired current-implementation topic and trim the roadmap
+  accordingly.
 - **Update when behavior changes.** Any change to gameplay behavior, controls, camera
   behavior, selection rules, or UI-visible rules should be reflected here in the same
   change, alongside the code.
+- **Consider a test when finishing gameplay logic.** `topics/testing.md` holds the standing
+  rule and the run commands. A function returning a count or a "did it work" bool, an
+  all-or-nothing operation, a state-machine transition, arithmetic on money/weight/quantity,
+  a rule a comment calls deliberate, or a bug just fixed — each warrants a test, written in
+  the same commit as the code. Anything needing a mesh, a montage, a widget, or a human's
+  eyes does not; that stays in PIE.
 - **Prefer concrete references** — actual C++ classes, Blueprint assets, maps, and input
   assets — over vague descriptions. Don't document binary asset internals unless
   confirmed in the editor or via source-controlled asset metadata.

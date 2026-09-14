@@ -141,6 +141,18 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   `ValueType` (`IA_Strategy_CyclePawn` is `Boolean`) — but hand the IMC key-binding step to
   the user. InputAction `UPROPERTY` asset paths use `/Game/Path/IA_Name.IA_Name` (no `_C` —
   that suffix is only for Blueprint-generated classes).
+- **Two editors open on the project makes every save of a *pre-existing* asset fail, and the
+  failure doesn't look like a locking problem.** A second `UnrealEditor.exe` with
+  `smores.uproject` open (a stray `.uproject` double-click is the usual cause) holds read locks
+  on the `.uasset` files it has loaded, so the MCP-connected editor's `AssetTools.save_assets`
+  fails with `MoveFile ... Error Code 32` after an 8-attempt retry loop. The tell is that **new**
+  assets save perfectly and **overwrites** don't — which reads as "my write didn't take" rather
+  than "something else has the file", especially since the in-memory value reads back correctly
+  through `get_properties` the whole time. Check `Get-Process UnrealEditor` before diagnosing a
+  save failure any other way; the MCP-connected instance is whichever one the server is bound to,
+  not necessarily the newest. Close the duplicate **without saving** (it may hold a stale copy of
+  the level), then re-run `save_assets([])` — the first editor's in-memory changes are still
+  there, so nothing has to be redone.
 - **`SceneTools.save_actor` is broken for World Partition external actors.** It builds a
   `/Game/__ExternalActors__/...` path that doesn't resolve and raises "Asset does not
   exist". Use `AssetTools.save_assets([])` (save-all-dirty) instead — that does flush
