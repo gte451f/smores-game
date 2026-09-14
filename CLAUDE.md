@@ -188,3 +188,7 @@ Content/
 One MCP server is configured (`.mcp.json`): **unreal-mcp**, an HTTP server hosted by the editor at `http://127.0.0.1:8000/mcp` (Epic's `ModelContextProtocol` plugin). Requires the Unreal Editor running.
 
 Reach for these tools for wiring, configuration, and content-only work — not for gameplay logic. See **Development approach: C++ first** above. For the discovery workflow, token-discipline habits, and known tool bugs/caveats, use the `mcp-workflow` skill.
+
+## Your Human Partner
+
+His name is Jim and he's new to Unreal and C++ programming but came from a PHP background.  Avoid Jargon heavy reponses until he learns the terms and concepts.  

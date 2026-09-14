@@ -25,6 +25,7 @@ This topic covers intendent game designs that may not exist yet.
 | [`topics/economy.md`](topics/economy.md) | Emergent/marginal pricing, the trade hierarchy, player economic roles, the illicit economy, currency sinks, biome and advancement resources |
 | [`topics/combat.md`](topics/combat.md) | Automated real-time combat, why melee is primary and how ranged is kept supporting, injury/capture, retreat |
 | [`topics/characters-and-squads.md`](topics/characters-and-squads.md) | Lineage, attributes vs. skills, recruitment/wages/morale, injuries, stealth and illicit operations |
+| [`topics/character-creation.md`](topics/character-creation.md) | What the player authors and when, fixed vs. adjustable appearance, mid-campaign cosmetic editing, readability-first art direction |
 | [`topics/base-building.md`](topics/base-building.md) | The outpost/town-building split, site selection, raids, supply chains, upkeep |
 | [`topics/tech-and-crafting.md`](topics/tech-and-crafting.md) | Tech tree structure, research mechanics, crafting quality, faction military tech progression |
 | [`topics/open-world.md`](topics/open-world.md) | Static handcrafted map, regions/biomes, points of interest, travel/visibility, wildlife, time scale |

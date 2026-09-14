@@ -62,7 +62,9 @@ starting squad**, which the player creates directly at new-game setup instead (s
 `tutorial-and-scenario-start.md`'s Starting Squad Creation) — that's the one point in the
 campaign where a character is player-authored rather than found, and even there, creation
 is scoped to lineage/cosmetic choice only, not stats or skills (every fresh squad starts
-from the same common baseline).
+from the same common baseline). Recruited characters are never authored this way, but their
+surface cosmetics can be adjusted after they join — see `character-creation.md` for the full
+fixed-vs-adjustable split.
 
 Recruits are found in settlements, faction-gated locations, criminal networks, slave
 markets, or out in the field. Joining costs an upfront hire fee with a skill-based floor

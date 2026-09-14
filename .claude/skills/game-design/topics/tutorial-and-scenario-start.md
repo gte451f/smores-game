@@ -63,7 +63,10 @@ This resolves `characters-and-squads.md`'s open question of whether player-creat
 characters are supported — they are, but scoped specifically to the starting squad at
 new-game setup, and scoped further to lineage/cosmetic choice only, not stat/skill choice.
 Every character recruited later in the campaign remains found/recruited per that file's
-Recruitment, Wages, and Morale section, not player-authored.
+Recruitment, Wages, and Morale section, not player-authored — though a recruit's surface
+cosmetics (hair, complexion) can be adjusted once they have joined, without reopening lineage
+or gender. `character-creation.md` owns that whole surface: what the player picks here, what
+stays fixed for the campaign, and what can be touched up later.
 
 ## Open Design Questions Worth Tracking
 
