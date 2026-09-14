@@ -65,20 +65,20 @@ underlying move/copy operation rather than inventing its own UI:
 | Context | Direction | Currency? | Extra gating |
 |---|---|---|---|
 | Pawn ↔ pawn | free move | no | proximity only |
-| Loot Downed or dead body | free take | no | proximity; target must be Downed **or dead** — **decided:** same code path and same actor, the lootable check just becomes "Downed or Dead"; no corpse-container actor. Requires a Dead state in `UHealthComponent` first (only Downed exists today) |
+| Loot Downed or dead body | free take | no | proximity; target must be Downed **or dead** — **SHIPPED (Slice 7)**, exactly as decided: same actor, same code path, no corpse container |
 | Container transfer | free move | no | proximity (already implemented, `InteractionRange`) |
 | Trade with an NPC / sell to a storefront | two-way exchange | yes | proximity; **decided:** price = the definition's base resale value behind a small pricing interface (`IPricingProvider`-style), with a fixed buy markup / sell markdown, so the real market system (`economy.md`) can replace it later without touching transfer code |
 | Storefront purchase | one-directional (buy) | yes | proximity; storefront's stock is flagged "for sale" and priced through the same pricing interface; distinct from an NPC's personal belongings |
 | Steal from an unsuspecting NPC | free take | no | proximity; gated by detection/awareness rules per `characters-and-squads.md`'s pickpocketing design (skill vs. target awareness/crowd density, immediate witnessed-failure consequence); sets the stolen flag on the taken item(s). Blocked on NPC awareness systems that don't exist yet |
 
-- **All transfers require proximity to the target** — this generalizes the existing
-  container `InteractionRange`/`IsUnitInRange` pattern (currently container- and
-  Downed-NPC-specific) to pawns, live NPCs, storefronts, bodies, and world pickups
-  uniformly, through one `IInventoryHolder` interface (inventory pointer, display name,
-  in-range check) implemented by every holder type. `characters-and-squads.md` is explicit
-  that inventory transfer during theft requires physical proximity too (no handing stolen
-  goods to a mule waiting outside) — the same rule already fits every other context, so one
-  proximity check serves all of them.
+- **All transfers require proximity to the target** — **SHIPPED (Slice 7)**. The
+  `IInventoryHolder` interface (`GetHolderDisplayName` + `IsInRangeOf`, and deliberately no
+  grid accessor) is implemented by pawns, containers and world pickups, and every proximity
+  path on the controller is now holder-generic. A storefront or a traded-with NPC implements
+  the same two methods and inherits the whole thing; see `inventory.md`.
+  `characters-and-squads.md` is explicit that inventory transfer during theft requires physical
+  proximity too (no handing stolen goods to a mule waiting outside) — the same rule already
+  fits every other context, so one proximity check serves all of them.
 - **Stolen-item flag** — set on an item taken via theft; recognized within the origin
   faction's territory (sellable at a discount through fences, full price to distant
   factions unaware of the theft), and quietly expires after enough in-game time per
@@ -134,11 +134,13 @@ Already reworked in Slice 2: `UInventoryComponent`'s flat index model (now a 2D 
 placement/collision) and `IInventoryMoveHost::Server_MoveInventoryItem`'s signature (now
 entry id + cell + rotation + quantity). Already reworked in Slice 3: the interim
 one-widget-per-cell UI (now a `UGridPanel` with a cell layer and a footprint-spanning item
-layer, one grid-level drop target, and a drop preview). What still needs real rework:
-`AStrategyContainer`/loot's `InteractionRange` proximity pattern (→ generalized to every
-transfer context via `IInventoryHolder`, not reimplemented per context) — Slice 6 added a
-*third* copy of that same three-line distance test on `AWorldItem` rather than inventing a
-fourth pattern, which is exactly the duplication Slice 7 collapses.
+layer, one grid-level drop target, and a drop preview). Already reworked in Slice 7: the three
+duplicated `IsUnitInRange` distance tests and three
+differently-named display-name getters (→ one `IInventoryHolder` with one shared static test),
+the controller's six ad-hoc finder methods (→ one `FindHolderActorAtLocation` plus
+`FindPlayerPawnInRangeOfHolder`/`IsHolderInRangeOfSelection` and thin per-type wrappers), and
+`UHealthComponent`'s `bIsDowned` bool (→ an `EHealthState` enum, so a body can be Dead).
+Nothing structural is left needing rework — what remains in the list below is new building.
 
 ## Implementation Order
 
@@ -381,63 +383,57 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
   ground in front of the pawn — server-side, like the other item execs. It spawns *first* and
   removes the grid entry only on success, so a refused spawn can't destroy the item.
 
-### Slice 7 — `IInventoryHolder` and loot-dead
+### Slice 7 — `IInventoryHolder` and loot-dead — **DONE**
 
-- **Build:** `IInventoryHolder` interface in `SmoresItems` — `GetHolderDisplayName` and
-  `IsInRangeOf(const AActor*)`, and **no grid accessor** (settled; see below) — implemented by
-  `AStrategyUnit`, `AStrategyContainer`, and `AWorldItem`; collapse the PC's holder-finding
-  methods into holder-generic versions. Add a Dead state to `UHealthComponent`
-  (`SmoresCombat` — coordinate with `combat.md`) and make the lootable check "Downed or Dead."
-- **Touches:** new `InventoryHolder.h`, `StrategyUnit.*`, `StrategyContainer.*`,
-  `WorldItem.*`, `StrategyPlayerController.*`, `HealthComponent.*`.
-- **Done when:** the PC has one proximity path for every holder type and a killed NPC is
-  lootable exactly like a Downed one.
+Shipped; see `inventory.md` (the holder interface and the finder collapse) and `combat.md` (the
+`EHealthState` enum). Notes worth carrying forward:
 
-**The interface's shape is settled — don't reopen it.** See Resolved Design Decisions:
-`IInventoryHolder` carries `GetHolderDisplayName` and `IsInRangeOf(const AActor*)` and nothing
-else. **There is deliberately no `GetInventory` on it.** `AWorldItem` holds a bare
-`FInventoryItem` and no `UInventoryComponent` by design (Slice 6: a pickup is one item on a
-light actor, not a holder), so a grid accessor would be unimplementable by one of the
-interface's three implementers. Code that needs a grid casts to the concrete type — only two
-classes have one, and there is no duplication there to collapse. The duplication this slice
-exists to remove is entirely in the proximity half.
+- **The interface shipped exactly as designed: two methods, no grid accessor, no click radius.**
+  Both exclusions earned their keep immediately. `AWorldItem` still has no `UInventoryComponent`,
+  so a `GetInventory` would have had to lie from one of the three implementers; and the click
+  radius stayed on the controller, which is what let `FindHolderActorAtLocation` take it as a
+  parameter rather than every holder type having to carry an input-tuning field it has no
+  business owning.
+- **"They share a shape, not a policy" was the whole difficulty, and the fix is a predicate
+  parameter.** Six finder methods collapsed into one shared body plus thin wrappers, with each
+  method's own rule surviving as a lambda or an explicit branch: the container sweep still
+  prefers `SelectedContainer`; `FindLootableNPCInRange` still refuses to sweep at all (only
+  `SelectedNPC` is ever a candidate, so a key press can't open whichever corpse happened to be
+  nearest); the world-item finder still skips definition-less items. **A future holder that
+  needs a seventh rule adds a predicate, not a seventh method.**
+- **`FindClosestPlayerPawn` was correctly left out of the collapse.** It answers "who opens this
+  panel", not "who may touch this" — no proximity gate at all. It looks like the others and is
+  not one of them.
+- **`IsLootableNPC` is the one place "lootable" is written down** (not a player pawn, Downed or
+  Dead). Slice 10's theft context and any faction-based restriction extend that predicate rather
+  than each `Find*` method.
+- **The enum was the right call over a second bool, and the cost landed where predicted:** a
+  replicated property's type changed *and* its `OnRep` signature changed (`OnRep_IsDowned(bool)`
+  → `OnRep_HealthState(EHealthState)`), which is a cold-build-only change. The payoff is
+  `IsIncapacitated()` — every existing `IsDowned()` guard across `StrategyUnit`,
+  `CombatComponent` and the controller became an `IsIncapacitated()` guard, so Dead inherited
+  the entire inert-unit ruleset for free instead of needing a parallel check bolted on at each
+  of the eight call sites.
+- **Nothing in the damage path kills, deliberately.** `Kill()` exists, is authority-only and
+  terminal, and is reached only by the `SmoresKillNPC` exec. Wiring a lethal hit to it would
+  have meant deciding what kills a unit in play — a combat/characters question that
+  `character-death-and-permadeath.md` hasn't answered. This slice needed "a body can be
+  looted", and that's what it built.
+  - The one trap found while building it: a kill landing on an **already-Downed** unit must
+    cancel the recovery timer already in flight, or the corpse stands back up a few seconds
+    later. `Kill()` clears it and `Recover()` also refuses to run while Dead — two guards
+    because the failure is silent and delayed, which is the worst kind to debug.
+- **Downed and Dead are told apart in exactly one place: the loot window's title.** Everywhere
+  else they're deliberately indistinguishable. If a second place ever needs the distinction,
+  that's worth noticing — it probably means a real rule is being added, not a cosmetic one.
+- **The `AStrategyContainer::bReplicates` one-liner was taken** while the file was open, as the
+  entry allowed. It's no longer in `inventory.md`'s Known Gaps.
+- Verify with `SmoresKillNPC` (click an NPC to target it first) — server-side, like the other
+  execs. The killed NPC drops to the grounded pose, never recovers, and double-clicking it
+  opens "<Name> (Dead)" with its inventory intact.
 
-**Facts the entry above used to get wrong — check these against source before planning:**
-
-- **There are six finder methods now, not four.** Slice 6 added `FindWorldItemAtLocation` and
-  `FindPlayerPawnInRangeOfWorldItem` alongside `FindContainerInRange`,
-  `FindLootableNPCInRange`, `FindContainerAtLocation`, `FindLootableNPCAtLocation` (plus
-  `FindClosestPlayerPawn`, which finds a *collector*, not a holder, and shouldn't be swept in).
-- **They share a shape, not a policy** — a naive collapse silently loses behavior. Each has a
-  rule of its own: `FindContainerInRange` prefers `SelectedContainer` when it qualifies;
-  `FindLootableNPCInRange` *only* ever considers `SelectedNPC` and never sweeps the world;
-  `FindWorldItemAtLocation` skips items holding no definition;
-  `FindPlayerPawnInRangeOfWorldItem` uses range as a filter rather than a tiebreak. Whatever
-  replaces them has to keep each rule, probably as a predicate parameter.
-- **Click radius is per type and must stay that way.** `ContainerSelectionRadius` is 250,
-  `WorldItemSelectionRadius` is 100, and Slice 6 separated them on purpose — one radius let an
-  item lying near a chest swallow every double-click meant for the chest. A holder-generic
-  `Find*AtLocation` needs the radius to come from the holder type, not from one shared field.
-- **`IsUnitInRange`'s signature already disagrees across the three.** `AStrategyContainer` and
-  `AWorldItem` take `const AActor*`; `AStrategyUnit` takes `const AStrategyUnit*`. Widening the
-  unit's to `AActor*` is the obvious reconciliation, but check its callers first.
-- **The display-name getters are three different names** — `GetUnitDisplayName`,
-  `GetContainerDisplayName`, `GetItemDisplayName` — all returning `FText`. That part unifies
-  cleanly.
-
-**`UHealthComponent` has no state enum — Downed is a bool.** The entry's "add a Dead state"
-understates it: today there is `bool bIsDowned` with `ReplicatedUsing = OnRep_IsDowned(bool
-bOldIsDowned)`, plus a `DownedDurationSeconds` timer that auto-recovers. Adding Dead means
-either a second bool (two bools encoding three states, one of them impossible) or converting to
-an `EHealthState { Alive, Downed, Dead }` enum — which changes a replicated property's type
-*and* its `OnRep` signature, and has to gate the auto-recovery timer so a dead pawn doesn't
-stand back up. Prefer the enum; budget for it, and coordinate with `combat.md` since combat
-owns what Dead *means* (this slice only needs "lootable").
-
-**Opportunistic, only if you're already in the file:** `AStrategyContainer` never sets
-`bReplicates`, so its replicated `Inventory` currently has no replicated actor to ride on.
-`AWorldItem` sets it (Slice 6). Recorded in `inventory.md`'s Known Gaps as a holder-wide
-multiplayer pass — don't let it expand this slice, but it's a one-liner if the file is open.
+**Left undone on purpose:** a dead unit never despawns and keeps its pack forever. Body lifetime
+is a combat/characters design question, recorded in `combat.md`'s Known Gaps.
 
 ### Slice 8 — Storefront, purchase, and trade
 
@@ -500,10 +496,11 @@ Recorded so future sessions don't reopen them:
 - **Pricing before the economy exists** — flat base resale value behind a pricing interface
   with fixed buy/sell markups; the market simulation swaps in behind that interface later.
   (Rejected: stubbing a market table now, deferring trade entirely.)
-- **Loot dead vs. Downed** — same actor, same code path; lootable = Downed or Dead.
-  Requires a Dead state in `UHealthComponent`. (Rejected: corpse-container actor.)
-- **`IInventoryHolder` carries proximity, not grid access** — the interface promises
-  `GetHolderDisplayName` and `IsInRangeOf(const AActor*)` only; a caller that needs a
+- **Loot dead vs. Downed** — same actor, same code path; lootable = Downed or Dead. Shipped in
+  Slice 7, along with the `EHealthState { Alive, Downed, Dead }` enum it required. (Rejected:
+  corpse-container actor; a second bool alongside `bIsDowned`.)
+- **`IInventoryHolder` carries proximity, not grid access** — shipped in Slice 7. The interface
+  promises `GetHolderDisplayName` and `IsInRangeOf(const AActor*)` only; a caller that needs a
   `UInventoryComponent` casts to the concrete holder type. `AWorldItem` holds a bare
   `FInventoryItem` and no grid, so a `GetInventory` on the interface would be unimplementable by
   one of its three implementers. Proximity is where the real duplication is (three copies of the

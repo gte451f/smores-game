@@ -6,6 +6,7 @@
 #include "GameFramework/Character.h"
 #include "AIController.h"
 #include "EnvironmentQuery/EnvQueryTypes.h"
+#include "InventoryHolder.h"
 #include "StrategyUnit.generated.h"
 
 class USphereComponent;
@@ -32,7 +33,7 @@ enum class EStrategyDisposition : uint8
  *  Rather than react to inputs, it's controlled indirectly by the Strategy Player Controller
  */
 UCLASS(abstract)
-class SMORESCHARACTERS_API AStrategyUnit : public ACharacter
+class SMORESCHARACTERS_API AStrategyUnit : public ACharacter, public IInventoryHolder
 {
 	GENERATED_BODY()
 
@@ -108,23 +109,35 @@ public:
 	/** Returns this unit's equipment (worn slots) component */
 	UEquipmentComponent* GetEquipment() const { return Equipment; }
 
+	//~ Begin IInventoryHolder interface
+
 	/** Returns this unit's display name */
-	FText GetUnitDisplayName() const { return UnitDisplayName; }
+	virtual FText GetHolderDisplayName() const override { return UnitDisplayName; }
+
+	/** Returns true if the given actor is close enough to this one to loot or interact with it */
+	virtual bool IsInRangeOf(const AActor* Other) const override;
+
+	//~ End IInventoryHolder interface
 
 	/** Returns this unit's health component */
 	UHealthComponent* GetHealth() const { return Health; }
 
-	/** True while this unit is Downed (at zero health, awaiting recovery) */
+	/** True while this unit is Downed (at zero health, awaiting recovery) - but not while Dead */
 	bool IsDowned() const;
+
+	/** True once this unit has been killed. Terminal: unlike Downed, it never recovers. */
+	bool IsDead() const;
+
+	/** True while this unit is Downed or Dead - i.e. inert. This, not IsDowned(), is what almost
+	 *  every gameplay check wants: a unit that can't move, fight, be fought, or stand up on its
+	 *  own, and that can be looted. */
+	bool IsIncapacitated() const;
 
 	/** True while this unit is Aggressive (self-hunting, or actively engaged via a player attack command) */
 	bool IsAggressive() const { return Disposition == EStrategyDisposition::Aggressive; }
 
 	/** Sets this unit's disposition. Turning Aggressive starts self-initiated hunting; turning Passive stops it and clears any attack target. */
 	void SetAggressive(bool bAggressive);
-
-	/** Returns true if the given unit is close enough to this one to loot or interact with it */
-	bool IsUnitInRange(const AStrategyUnit* Unit) const;
 
 	/** Engages the given target: attacks immediately if already in range, otherwise moves into range first */
 	void AttackTarget(AStrategyUnit* Target);
@@ -154,6 +167,11 @@ protected:
 	/** Bound to Health->OnRecovered */
 	UFUNCTION()
 	void OnHealthRecovered();
+
+	/** Bound to Health->OnDied. Leaves this unit inert exactly as OnHealthDowned does - the
+	 *  difference is entirely that no recovery is coming. */
+	UFUNCTION()
+	void OnHealthDied();
 
 	/** Bound to Health->OnDamaged; auto-retaliates against the instigator if not already fighting someone else */
 	UFUNCTION()

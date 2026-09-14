@@ -85,6 +85,7 @@ void AStrategyUnit::BeginPlay()
 	// react to our own health going Downed/recovering
 	Health->OnDowned.AddDynamic(this, &AStrategyUnit::OnHealthDowned);
 	Health->OnRecovered.AddDynamic(this, &AStrategyUnit::OnHealthRecovered);
+	Health->OnDied.AddDynamic(this, &AStrategyUnit::OnHealthDied);
 	Health->OnDamaged.AddDynamic(this, &AStrategyUnit::OnHealthDamaged);
 
 	// react to our own attack requests that turned out to be out of range
@@ -134,8 +135,9 @@ void AStrategyUnit::Interact(AStrategyUnit* Interactor)
 	// ensure the interactor is valid
 	if (IsValid(Interactor))
 	{
-		// a Downed unit stays in its Downed pose - don't rotate to face whoever's interacting with it
-		if (!IsDowned())
+		// a Downed or Dead unit stays in its grounded pose - don't rotate to face whoever's
+		// interacting with it
+		if (!IsIncapacitated())
 		{
 			SetActorRotation(UKismetMathLibrary::FindLookAtRotation(GetActorLocation(), Interactor->GetActorLocation()));
 		}
@@ -157,11 +159,12 @@ void AStrategyUnit::MoveToLocation(const FVector& Location, bool bInteract, cons
 		return;
 	}
 
-	// a Downed unit can't move - without this guard, a move command issued while Downed still
-	// kicks off the EQS/AIController move, which visibly slides the ragdoll-posed unit around
-	if (IsDowned())
+	// an incapacitated unit can't move - without this guard, a move command issued while Downed
+	// or Dead still kicks off the EQS/AIController move, which visibly slides the grounded unit around
+	if (IsIncapacitated())
 	{
-		UE_LOG(LogSmoresCharacters, Warning, TEXT("[Combat] %s MoveToLocation bailed early: unit is Downed"), *GetName());
+		UE_LOG(LogSmoresCharacters, Warning, TEXT("[Combat] %s MoveToLocation bailed early: unit is %s"),
+			*GetName(), IsDead() ? TEXT("Dead") : TEXT("Downed"));
 		return;
 	}
 
@@ -300,6 +303,16 @@ bool AStrategyUnit::IsDowned() const
 	return Health->IsDowned();
 }
 
+bool AStrategyUnit::IsDead() const
+{
+	return Health->IsDead();
+}
+
+bool AStrategyUnit::IsIncapacitated() const
+{
+	return Health->IsIncapacitated();
+}
+
 void AStrategyUnit::SetAggressive(bool bAggressive)
 {
 	// drives shared AI state (Disposition, the self-aggro timer) - only the server may mutate it
@@ -326,9 +339,9 @@ void AStrategyUnit::SetAggressive(bool bAggressive)
 	}
 }
 
-bool AStrategyUnit::IsUnitInRange(const AStrategyUnit* Unit) const
+bool AStrategyUnit::IsInRangeOf(const AActor* Other) const
 {
-	return Unit && FVector::Dist(GetActorLocation(), Unit->GetActorLocation()) <= InteractionRange->GetScaledSphereRadius();
+	return IInventoryHolder::IsActorWithinSphere(this, InteractionRange, Other);
 }
 
 void AStrategyUnit::TryEngageNearestPlayerPawn()
@@ -345,7 +358,7 @@ void AStrategyUnit::TryEngageNearestPlayerPawn()
 	{
 		AStrategyPlayerUnit* CurrentUnit = Cast<AStrategyPlayerUnit>(CurrentActor);
 
-		if (!IsValid(CurrentUnit) || CurrentUnit->IsDowned())
+		if (!IsValid(CurrentUnit) || CurrentUnit->IsIncapacitated())
 		{
 			continue;
 		}
@@ -432,6 +445,22 @@ void AStrategyUnit::OnHealthRecovered()
 	}
 }
 
+void AStrategyUnit::OnHealthDied()
+{
+	UE_LOG(LogSmoresCharacters, Warning, TEXT("[Combat] %s OnHealthDied"), *GetName());
+
+	// identical treatment to going Downed - stop moving, drop out of every attack loop, play the
+	// grounded pose. What makes it death rather than a knockdown is entirely that no OnRecovered
+	// is coming, so nothing here ever gets undone.
+	StopMoving();
+
+	PendingAttackTarget = nullptr;
+	bAttackOnArrival = false;
+	Combat->NotifyOwnerDowned();
+
+	GetWorldTimerManager().ClearTimer(AggroRetargetTimerHandle);
+}
+
 void AStrategyUnit::OnHealthDamaged(AActor* DamageInstigator)
 {
 	// already mid-engagement (fighting in range, or moving in to engage) - don't hijack an
@@ -443,7 +472,7 @@ void AStrategyUnit::OnHealthDamaged(AActor* DamageInstigator)
 
 	AStrategyUnit* Attacker = Cast<AStrategyUnit>(DamageInstigator);
 
-	if (!IsValid(Attacker) || Attacker->IsDowned())
+	if (!IsValid(Attacker) || Attacker->IsIncapacitated())
 	{
 		return;
 	}

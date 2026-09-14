@@ -5,7 +5,7 @@
 `UInventoryComponent` gives any Actor a 2D cell grid of item storage, server-authoritative
 and replicated, with a shared drag-and-drop UI for moving items within one inventory or
 between two. The same component and UI back three different holders today: a squad unit's
-own carried items, a world container's contents, and a Downed NPC's loot.
+own carried items, a world container's contents, and a body's loot.
 
 What an item *is* lives in a shared `UItemDefinition` data asset; what a carried copy *is
 like* lives in the `FInventoryItem` instance that references it; *where that copy sits* in a
@@ -35,9 +35,10 @@ covering both — this topic only documents what's actually built.
   it to the new pawn.
 - Press the container key (`IA_Strategy_ToggleContainer`) to open the nearest world
   container within interaction range of a selected unit; pressing it again closes it. If no
-  container is in range, the same key opens a Downed NPC's loot instead — never a
-  Passive/Aggressive NPC (not yet Downed), and never a player-controlled unit.
-- Double-clicking a container or a Downed NPC in the world selects and highlights it, and
+  container is in range, the same key opens a body's loot instead — a Downed NPC or a dead
+  one, never an NPC still on its feet, and never a player-controlled unit. The window title
+  says which ("Bandit (Downed)" vs. "Bandit (Dead)"), but the two loot identically.
+- Double-clicking a container or a body in the world selects and highlights it, and
   opens it immediately if **any** player-controlled pawn (not just the current selection) is
   within interaction range. This rides on the same gesture as the normal select-all
   double-click, not a separate input.
@@ -84,7 +85,7 @@ covering both — this topic only documents what's actually built.
 - **Right-click a carried item to wear it.** It goes into whichever slot its definition names,
   and whatever was already in that slot comes back to the grid. If the grid has no room for the
   displaced item, nothing happens at all — the swap never half-lands. Right-clicking an item
-  that isn't wearable does nothing, and so does right-clicking inside a chest or a Downed NPC's
+  that isn't wearable does nothing, and so does right-clicking inside a chest or a body's
   loot panel: only a pawn's own inventory window equips.
 - **Dragging a carried item onto a paperdoll slot** does the same thing, and the slot lights up
   green or red on hover exactly like a grid cell does — red for the wrong kind of item, or for
@@ -207,7 +208,7 @@ covering both — this topic only documents what's actually built.
   `USceneComponent` root with the mesh and sphere as siblings — a C++ change, and one that moves
   the root component out from under already-placed instances, so it isn't free.
 - **Pickup is gated by proximity and nothing else**, through the same `InteractionRange` sphere
-  and default radius a container uses — the roadmap's one proximity rule for every transfer
+  and default radius a container uses — the one proximity rule for every transfer
   context. The client picks the nearest in-range pawn, and the server re-checks both that
   proximity and that the named inventory really belongs to an `AStrategyPlayerUnit` before
   touching anything; range is the whole gate, so it can't be left on the requesting machine.
@@ -248,9 +249,28 @@ covering both — this topic only documents what's actually built.
   0 today; partial-stack drags are a later slice.
 - This single method is what every current transfer path (reposition, pawn↔container,
   pawn↔loot) actually calls.
-- A container's `InteractionRange` (a `USphereComponent`, default 312.5 units) gates whether
-  a given unit may open it; the same proximity check shape (`IsUnitInRange`) is reused for
-  Downed-NPC loot.
+- **Every holder answers the same two questions, through `IInventoryHolder`.** A pawn's pack,
+  a container and a loose world pickup each implement `GetHolderDisplayName()` (the name shown
+  in the window title and the selection label) and `IsInRangeOf(const AActor*)` (may this actor
+  transfer items with me). Before the interface each carried its own private copy of both —
+  three identical distance tests all named `IsUnitInRange`, one of which took a narrower
+  parameter type than the other two, and three differently-named display-name getters. The
+  distance test itself is now written once, in `IInventoryHolder::IsActorWithinSphere`, and each
+  holder just hands it its own `InteractionRange` sphere, so reach stays per-type (a container's
+  and a world item's default to 312.5 units, a unit's to 100) while the rule is single-sourced.
+- **The interface deliberately carries no `GetInventory`.** `AWorldItem` holds one
+  `FInventoryItem` and no `UInventoryComponent` at all, so a grid accessor would either be
+  unimplementable by one of the three implementers or would have to return null from it, leaving
+  every caller to remember a check someone eventually won't. Code that needs a grid casts to the
+  concrete holder type; only two types have one, so there was no duplication there to collapse.
+- **Nor does it carry the player's click radius.** How precisely the player must aim at a thing
+  is a property of the input gesture, not of the thing, so `ContainerSelectionRadius` (250) and
+  the tighter `WorldItemSelectionRadius` (100) stay on `AStrategyPlayerController` next to the
+  other input tuning and are passed into the holder-generic finder.
+- **Reach and click precision are separate checks and always have been.** A double-click on a
+  chest highlights it from up to `ContainerSelectionRadius` away but only *opens* it if some
+  player pawn is inside the chest's own `InteractionRange`. The first is "did the player mean
+  this thing", the second is "may they touch it".
 - A client-side drag-and-drop widget can't mutate a replicated, authority-only inventory
   directly — the inventory window's drop handler instead calls into `IInventoryMoveHost`
   (implemented by `AStrategyPlayerController`), whose `Server_MoveInventoryItem` RPC is the
@@ -427,13 +447,11 @@ covering both — this topic only documents what's actually built.
     `RefreshMesh` runs from `OnConstruction` as well as `BeginPlay`, so setting `Item` on a placed
     instance updates the editor viewport immediately; `SetItem` refreshes directly because
     `OnRep_Item` only fires on the *other* machines
-  - `AWorldItem::IsUnitInRange` — proximity gate, the same shape as the container's
+  - `AWorldItem::IsInRangeOf` / `GetHolderDisplayName` (`IInventoryHolder`) — proximity gate and
+    display name, the same two every holder answers
   - `AStrategyPlayerController::FindWorldItemAtLocation` — nearest loose item within
     `WorldItemSelectionRadius` (100, deliberately tighter than `ContainerSelectionRadius`) of the
-    double-clicked world location; mirrors `FindContainerAtLocation`
-  - `AStrategyPlayerController::FindPlayerPawnInRangeOfWorldItem` — nearest player pawn actually
-    close enough to collect it. Unlike `FindClosestPlayerPawn`, range is a filter here rather
-    than a tiebreak, since proximity is the whole gate on a pickup
+    double-clicked world location; a thin wrapper over `FindHolderActorAtLocation`
   - `AStrategyPlayerController::Server_PickUpWorldItem` — the authoritative pickup, and the one
     inventory RPC that *does* validate: it re-checks proximity and that the destination is a
     player pawn's own pack before calling `TryPickUp`
@@ -441,18 +459,43 @@ covering both — this topic only documents what's actually built.
     the pawn's EntryIndex'th grid entry on the ground in front of it via `Server_DebugDropItem`,
     so the pickup path has something to pick up without hand-placing actors. Spawns first and
     removes the entry only on success, so a refused spawn can't destroy the item
-  - `AStrategyContainer::IsUnitInRange` — proximity gate, same shape used for loot
+  - `AStrategyContainer::IsInRangeOf` / `GetHolderDisplayName` (`IInventoryHolder`) — as above
+  - `AStrategyUnit::IsInRangeOf` / `GetHolderDisplayName` (`IInventoryHolder`) — as above. Its
+    range check previously took a narrower `const AStrategyUnit*`; the interface widened it to
+    `const AActor*`, which is what let one helper serve pawn, container and pickup alike
+  - `IInventoryHolder::IsActorWithinSphere` (static) — the single copy of the distance test all
+    three implementers forward to, each passing its own `InteractionRange` sphere
+  - `AStrategyPlayerController::FindHolderActorAtLocation` — the shared body of every
+    `Find*AtLocation`: nearest actor of a given class within a given radius that passes a given
+    predicate. Radius is a parameter because click precision is per-gesture; the predicate is a
+    parameter because each holder type qualifies on a rule of its own (an NPC must be lootable, a
+    world item must actually hold something, a container always qualifies)
+  - `AStrategyPlayerController::IsHolderInRangeOfSelection` — the selection-side counterpart:
+    is any currently selected unit inside this holder's own reach
+  - `AStrategyPlayerController::FindPlayerPawnInRangeOfHolder` — nearest player pawn actually
+    close enough to transfer with *any* holder. Unlike `FindClosestPlayerPawn`, range is a filter
+    here rather than a tiebreak, since proximity is the gate. Checks every player pawn rather
+    than just `ControlledUnits`, because the plain select click that fires alongside a
+    double-click may have just cleared the selection
+  - `AStrategyPlayerController::IsLootableNPC` (static) — the one place "lootable" is written
+    down: not a player pawn, and Downed or Dead
   - `AStrategyPlayerController::ToggleInventory` / `OpenInventoryForPawn` / `CloseInventory`
     — pawn inventory window lifecycle; requires exactly one selected `AStrategyPlayerUnit`
   - `AStrategyPlayerController::ToggleContainer` / `OpenContainer` / `OpenLoot` /
     `CloseContainer` — one shared window (`ContainerWidget`) reused for both world
-    containers and Downed-NPC loot; only the window title differs, set at open time
+    containers and body loot; only the window title differs, set at open time — and the loot
+    title is the only place Downed and Dead are told apart
   - `AStrategyPlayerController::FindContainerInRange` / `FindLootableNPCInRange` — used by
-    the toggle-key path (checks `ControlledUnits`/`SelectedNPC` only)
+    the toggle-key path (checks `ControlledUnits`/`SelectedNPC` only). These two share a shape
+    but *not* a policy: the container one sweeps every container in the level and prefers
+    `SelectedContainer` if it qualifies, while the NPC one never sweeps at all — only
+    `SelectedNPC` is ever a candidate, so a key press can't open whichever corpse happened to be
+    nearest
   - `AStrategyPlayerController::FindContainerAtLocation` / `FindLootableNPCAtLocation` —
-    used by the double-click path (checks every player pawn, within `ContainerSelectionRadius`)
+    used by the double-click path (within `ContainerSelectionRadius`), both thin wrappers over
+    `FindHolderActorAtLocation` differing only in class and predicate
   - `AStrategyPlayerController::SelectAllDoubleClick` — the one gesture behind four meanings,
-    resolved by type in order: loose world item, container, Downed NPC, then select-all-on-screen.
+    resolved by type in order: loose world item, container, body, then select-all-on-screen.
     The world item goes first because it's the smallest thing under the cursor and the only one
     of the three with no selection state to set — finding one either collects it or does nothing
   - `AStrategyPlayerController::GetPlayerGold` (`IStrategyResourceHost`) —
@@ -546,7 +589,7 @@ covering both — this topic only documents what's actually built.
   assigned to `AStrategyPlayerController::InventoryWidgetClass`. Shows the selected pawn's
   own inventory.
 - **`WBP_ContainerInventory`** — a second `UInventoryWidget` subclass, assigned to
-  `ContainerWidgetClass`. Reused for both world containers and Downed-NPC loot; only the
+  `ContainerWidgetClass`. Reused for both world containers and body loot; only the
   window title differs at open time.
   Both hold a `UGridPanel` named `SlotContainer` — **not** a `UUniformGridPanel`, which has no
   slot span and so cannot host a footprint-spanning item widget at all. C++ casts and logs a
@@ -638,11 +681,17 @@ covering both — this topic only documents what's actually built.
   *every* unhandled drop, including a drag cancelled with Escape or by a window closing
   mid-drag, so wiring it naively turns a stray click into a dropped item. Design the confirmation
   before the plumbing; `SmoresDropItem` covers testing in the meantime.
-- **A holder-generic proximity check** — `AWorldItem::IsUnitInRange`,
-  `AStrategyContainer::IsUnitInRange` and `AStrategyUnit::IsUnitInRange` are now three copies of
-  the same three-line distance test against an `InteractionRange` sphere. That's the
-  `IInventoryHolder` interface the roadmap's Slice 7 collapses them into, not three separate
-  things that happen to look alike.
+- **A fourth holder type** — implement `IInventoryHolder` (`GetHolderDisplayName` +
+  `IsInRangeOf`, the latter one line forwarding to `IInventoryHolder::IsActorWithinSphere` with
+  the actor's own range sphere) and every existing proximity path accepts it: the double-click
+  handler, `FindPlayerPawnInRangeOfHolder`, `IsHolderInRangeOfSelection`. A storefront or a
+  traded-with NPC needs no new proximity code at all, only its own gating layered *in front of*
+  the transfer. What a new type does still need is a position in `SelectAllDoubleClick`'s
+  type-resolution order and a click radius sized to how big a thing it is to aim at — neither is
+  inferable, both are deliberate.
+- **A new "lootable" rule** — `AStrategyPlayerController::IsLootableNPC` is the single place the
+  rule lives ("not a player pawn, and Downed or Dead"). Faction standing, a surrendered NPC, or
+  a protected corpse would all extend that one predicate rather than each `Find*` method.
 - **New worn slots** — add to `EEquipSlot` *and* to `UEquipmentComponent::GetAllEquipSlots`,
   which is a deliberate hand-written roster rather than an enum iteration: it fixes the
   paperdoll's display order and keeps `None` out of it. Nothing else needs a code change — the
@@ -718,12 +767,11 @@ covering both — this topic only documents what's actually built.
 - **A world item can't be reached, only collected.** There's no "go pick that up" order — if no
   pawn is already in range the double-click does nothing, silently. Routing the pickup through a
   move command is a unit-commands change, not an inventory one.
-- **`AWorldItem` replicates but `AStrategyContainer` doesn't.** The pickup actor sets
-  `bReplicates` because it's spawned and destroyed during play, so a client that never received
-  it would have nothing to click. The container class has never set it — harmless while
-  multiplayer isn't testable, but it means a chest's replicated `Inventory` currently has no
-  replicated actor to ride on. Fixing it belongs to a multiplayer pass over all the holders at
-  once, not to this slice.
+- **Nothing that a body drops is actually dropped.** A killed NPC keeps its inventory on the
+  corpse actor, which is exactly the design (`inventory-roadmap.md`: same actor, same code path,
+  no corpse container), but the actor also never despawns — a dead unit stands in the level
+  permanently holding its pack. Lifetime for bodies is a combat/characters question, not an
+  inventory one.
 - No 2D item art — every `DA_Item_*` has a null `Icon`, so the UI shows names only. The item widget draws no icon at all yet, which is why the label's 90° turn for tall
   footprints matters as much as it does.
 - No trading or purchase flow — gold exists and replicates, but the only things that move it
@@ -740,6 +788,4 @@ covering both — this topic only documents what's actually built.
 - `WeightCapacity` replicates but never changes at runtime, so no refresh is wired to it —
   a future system that varies capacity (a pack upgrade, a strength attribute) needs to
   broadcast `OnInventoryChanged` itself, since only entry changes redraw the window today.
-- No world-loose item pickups — only container- and unit-held inventories exist; nothing
-  can be dropped in or picked up directly from the world today.
 - No stolen-item flag or theft/detection mechanics.

@@ -29,17 +29,18 @@ void UCombatComponent::AttackTarget(AActor* Target)
 
 	const UHealthComponent* OwnerHealth = Owner->FindComponentByClass<UHealthComponent>();
 	const UHealthComponent* TargetHealth = IsValid(Target) ? Target->FindComponentByClass<UHealthComponent>() : nullptr;
-	const bool bOwnerDowned = OwnerHealth && OwnerHealth->IsDowned();
-	const bool bTargetDowned = TargetHealth && TargetHealth->IsDowned();
+	const bool bOwnerOut = OwnerHealth && OwnerHealth->IsIncapacitated();
+	const bool bTargetOut = TargetHealth && TargetHealth->IsIncapacitated();
 
-	// a Downed owner can't initiate or continue an attack - without this, a still-running
+	// an incapacitated owner can't initiate or continue an attack - without this, a still-running
 	// aggro/retarget loop on the owner could keep calling back in here forever, replaying an
-	// attack montage on top of the Downed pose on the same anim slot
-	if (bOwnerDowned || !IsValid(Target) || bTargetDowned)
+	// attack montage on top of the grounded pose on the same anim slot. Dead counts the same as
+	// Downed here: neither a corpse nor a knocked-down unit fights or is worth swinging at.
+	if (bOwnerOut || !IsValid(Target) || bTargetOut)
 	{
 		UE_LOG(LogSmoresCombat, Warning, TEXT("[Combat] %s AttackTarget(%s) bailed early: %s"),
 			*Owner->GetName(), Target ? *Target->GetName() : TEXT("null"),
-			bOwnerDowned ? TEXT("attacker is Downed") : (!IsValid(Target) ? TEXT("Target invalid") : TEXT("Target already Downed")));
+			bOwnerOut ? TEXT("attacker is down") : (!IsValid(Target) ? TEXT("Target invalid") : TEXT("Target already down")));
 		return;
 	}
 
@@ -219,19 +220,19 @@ void UCombatComponent::OnAttackMontageEnded(UAnimMontage* Montage, bool bInterru
 		return;
 	}
 
-	// keep re-swinging the same target automatically until it goes Downed, this attacker is
+	// keep re-swinging the same target automatically until it goes down, this attacker is
 	// invalid (CurrentAttackTarget is cleared by NotifyOwnerDowned), or this attacker is given a
 	// new command - symmetric for player-issued attacks and NPC self-attacks alike
 	AActor* Target = CurrentAttackTarget.Get();
 	const UHealthComponent* TargetHealth = IsValid(Target) ? Target->FindComponentByClass<UHealthComponent>() : nullptr;
 
-	if (IsValid(Target) && TargetHealth && !TargetHealth->IsDowned())
+	if (IsValid(Target) && TargetHealth && !TargetHealth->IsIncapacitated())
 	{
 		AttackTarget(Target);
 	}
 	else
 	{
 		UE_LOG(LogSmoresCombat, Warning, TEXT("[Combat] %s OnAttackMontageEnded: stopping the auto-attack loop (Target %s)"),
-			GetOwner() ? *GetOwner()->GetName() : TEXT("?"), !IsValid(Target) ? TEXT("invalid") : TEXT("Downed"));
+			GetOwner() ? *GetOwner()->GetName() : TEXT("?"), !IsValid(Target) ? TEXT("invalid") : TEXT("down"));
 	}
 }

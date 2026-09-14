@@ -64,9 +64,9 @@ void AWorldItem::RefreshMesh()
 	ItemMesh->SetStaticMesh(Item.Definition ? Item.Definition->WorldMesh : nullptr);
 }
 
-bool AWorldItem::IsUnitInRange(const AActor* Unit) const
+bool AWorldItem::IsInRangeOf(const AActor* Other) const
 {
-	return Unit && FVector::Dist(GetActorLocation(), Unit->GetActorLocation()) <= InteractionRange->GetScaledSphereRadius();
+	return IInventoryHolder::IsActorWithinSphere(this, InteractionRange, Other);
 }
 
 void AWorldItem::SetItem(const FInventoryItem& NewItem)

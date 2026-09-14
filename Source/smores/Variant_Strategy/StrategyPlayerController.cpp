@@ -29,6 +29,8 @@
 #include "EquipmentComponent.h"
 #include "StrategyContainer.h"
 #include "WorldItem.h"
+#include "InventoryHolder.h"
+#include "HealthComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Blueprint/UserWidget.h"
 #include "smores.h"
@@ -484,7 +486,7 @@ void AStrategyPlayerController::OpenInventoryForPawn(AStrategyPlayerUnit* Player
 
 	if (InventoryWidget)
 	{
-		InventoryWidget->SetWindowTitle(FText::Format(LOCTEXT("PawnInventoryTitle", "{0} Inventory"), PlayerUnit->GetUnitDisplayName()));
+		InventoryWidget->SetWindowTitle(FText::Format(LOCTEXT("PawnInventoryTitle", "{0} Inventory"), PlayerUnit->GetHolderDisplayName()));
 		InventoryWidget->SetInventory(PlayerUnit->GetInventory());
 
 		// after SetInventory, which clears the previous binding's target along with it. This is
@@ -537,7 +539,7 @@ void AStrategyPlayerController::OpenEquipmentForPawn(AStrategyPlayerUnit* Player
 
 	if (EquipmentWidget)
 	{
-		EquipmentWidget->SetWindowTitle(FText::Format(LOCTEXT("PawnEquipmentTitle", "{0} Equipment"), PlayerUnit->GetUnitDisplayName()));
+		EquipmentWidget->SetWindowTitle(FText::Format(LOCTEXT("PawnEquipmentTitle", "{0} Equipment"), PlayerUnit->GetHolderDisplayName()));
 		EquipmentWidget->SetEquipment(PlayerUnit->GetEquipment());
 		EquipmentWidget->AddToViewport(0);
 	}
@@ -710,7 +712,7 @@ void AStrategyPlayerController::OpenContainer(AStrategyContainer* Container)
 
 	if (ContainerWidget)
 	{
-		ContainerWidget->SetWindowTitle(FText::Format(LOCTEXT("ContainerInventoryTitle", "{0} Contents"), Container->GetContainerDisplayName()));
+		ContainerWidget->SetWindowTitle(FText::Format(LOCTEXT("ContainerInventoryTitle", "{0} Contents"), Container->GetHolderDisplayName()));
 		ContainerWidget->SetInventory(Container->GetInventory());
 		ContainerWidget->AddToViewport(0);
 
@@ -753,7 +755,13 @@ void AStrategyPlayerController::OpenLoot(AStrategyUnit* LootTarget)
 
 	if (ContainerWidget)
 	{
-		ContainerWidget->SetWindowTitle(FText::Format(LOCTEXT("LootInventoryTitle", "{0} (Downed)"), LootTarget->GetUnitDisplayName()));
+		// the two states loot identically, but the player should still be able to tell a body
+		// that will get up again from one that won't
+		const FText StateLabel = LootTarget->IsDead()
+			? LOCTEXT("LootStateDead", "Dead")
+			: LOCTEXT("LootStateDowned", "Downed");
+
+		ContainerWidget->SetWindowTitle(FText::Format(LOCTEXT("LootInventoryTitle", "{0} ({1})"), LootTarget->GetHolderDisplayName(), StateLabel));
 		ContainerWidget->SetInventory(LootTarget->GetInventory());
 		ContainerWidget->AddToViewport(0);
 	}
@@ -848,7 +856,7 @@ void AStrategyPlayerController::SelectAllDoubleClick(const FInputActionValue& Va
 			// every player pawn (not just ControlledUnits) for the same reason the container branch
 			// below is: the plain SelectClickAction fires alongside this gesture and, being
 			// non-additive, may have just cleared the current selection.
-			if (AStrategyPlayerUnit* Collector = FindPlayerPawnInRangeOfWorldItem(ClickedItem))
+			if (AStrategyPlayerUnit* Collector = FindPlayerPawnInRangeOfHolder(ClickedItem))
 			{
 				Server_PickUpWorldItem(ClickedItem, Collector->GetInventory());
 			}
@@ -863,40 +871,27 @@ void AStrategyPlayerController::SelectAllDoubleClick(const FInputActionValue& Va
 			// highlight it dark green, same as a single click, regardless of range
 			SetSelectedContainer(Clicked);
 
-			// open it if any player-controlled pawn is close enough. Checked against every player
-			// pawn (not just ControlledUnits) since the plain SelectClickAction fires alongside
-			// this gesture and, being non-additive, may have just cleared the current selection.
-			RefreshPlayerPawns();
-
-			for (const TObjectPtr<AStrategyPlayerUnit>& PlayerPawn : PlayerPawns)
+			// open it if any player-controlled pawn is close enough - see
+			// FindPlayerPawnInRangeOfHolder for why that's every pawn rather than the selection
+			if (FindPlayerPawnInRangeOfHolder(Clicked))
 			{
-				if (IsValid(PlayerPawn) && Clicked->IsUnitInRange(PlayerPawn))
-				{
-					OpenContainer(Clicked);
-					break;
-				}
+				OpenContainer(Clicked);
 			}
 
 			return;
 		}
 
-		// no container at this location - try a Downed NPC instead, same proximity rule
+		// no container at this location - try a body instead, same proximity rule. Downed and
+		// Dead are both lootable and indistinguishable here (see IsLootableNPC).
 		if (AStrategyUnit* Clicked = FindLootableNPCAtLocation(CursorLocation))
 		{
 			// highlight it, same as a single click, regardless of range
 			SetSelectedNPC(Clicked);
 
-			// open it if any player-controlled pawn is close enough. Checked against every player
-			// pawn (not just ControlledUnits), for the same reason as the container branch above.
-			RefreshPlayerPawns();
-
-			for (const TObjectPtr<AStrategyPlayerUnit>& PlayerPawn : PlayerPawns)
+			// open it if any player-controlled pawn is close enough, same as the container branch
+			if (FindPlayerPawnInRangeOfHolder(Clicked))
 			{
-				if (IsValid(PlayerPawn) && Clicked->IsUnitInRange(PlayerPawn))
-				{
-					OpenLoot(Clicked);
-					break;
-				}
+				OpenLoot(Clicked);
 			}
 
 			return;
@@ -1300,10 +1295,10 @@ void AStrategyPlayerController::DoMoveUnitsCommand(const FVector& GoalLocation)
 
 void AStrategyPlayerController::DoAttackCommand(AStrategyUnit* Target)
 {
-	if (!IsValid(Target) || Target->IsDowned())
+	if (!IsValid(Target) || Target->IsIncapacitated())
 	{
 		UE_LOG(Logsmores, Warning, TEXT("[Combat] DoAttackCommand bailed early: Target %s"),
-			!IsValid(Target) ? TEXT("invalid") : TEXT("already Downed"));
+			!IsValid(Target) ? TEXT("invalid") : TEXT("already down"));
 		return;
 	}
 
@@ -1360,7 +1355,7 @@ void AStrategyPlayerController::Server_PickUpWorldItem_Implementation(AWorldItem
 
 	// proximity is the whole gate on a pickup, so it gets re-checked here rather than being left
 	// to the requesting client, which may have moved (or lied) since
-	if (!WorldItem->IsUnitInRange(DestInventory->GetOwner()))
+	if (!WorldItem->IsInRangeOf(DestInventory->GetOwner()))
 	{
 		return;
 	}
@@ -1523,6 +1518,31 @@ void AStrategyPlayerController::SmoresUnequipItem(int32 SlotIndex)
 	DebugEquipmentForSelection(INDEX_NONE, SlotIndex);
 }
 
+void AStrategyPlayerController::SmoresKillNPC()
+{
+	// SelectedNPC is client-side input state, so resolve it here and hop to the server with the
+	// actor - the same shape as the equipment execs
+	if (!IsValid(SelectedNPC))
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[KillDebug] No NPC targeted - click one first."));
+		return;
+	}
+
+	Server_DebugKill(SelectedNPC);
+}
+
+void AStrategyPlayerController::Server_DebugKill_Implementation(AStrategyUnit* Target)
+{
+	if (!IsValid(Target) || !Target->GetHealth())
+	{
+		return;
+	}
+
+	UE_LOG(Logsmores, Warning, TEXT("[KillDebug] Killing %s"), *Target->GetHolderDisplayName().ToString());
+
+	Target->GetHealth()->Kill();
+}
+
 void AStrategyPlayerController::SmoresDumpEquipment()
 {
 	DebugEquipmentForSelection(INDEX_NONE, INDEX_NONE);
@@ -1672,7 +1692,7 @@ void AStrategyPlayerController::Server_DebugEquipment_Implementation(UEquipmentC
 
 void AStrategyPlayerController::Server_AttackCommand_Implementation(const TArray<AStrategyUnit*>& Units, AStrategyUnit* Target)
 {
-	if (!IsValid(Target) || Target->IsDowned())
+	if (!IsValid(Target) || Target->IsIncapacitated())
 	{
 		return;
 	}
@@ -1845,9 +1865,71 @@ AStrategyUnit* AStrategyPlayerController::GetClosestSelectedUnitToLocation(FVect
 	return OutUnit;
 }
 
+AActor* AStrategyPlayerController::FindHolderActorAtLocation(TSubclassOf<AActor> HolderClass, const FVector& Location, float Radius, TFunctionRef<bool(const AActor*)> Filter) const
+{
+	if (!HolderClass)
+	{
+		return nullptr;
+	}
+
+	// gathers every actor of the class, which picks up subclasses too (every AStrategyContainer
+	// subclass, every AStrategyUnit subclass)
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), HolderClass, FoundActors);
+
+	AActor* Nearest = nullptr;
+	float NearestDistSq = FMath::Square(Radius);
+
+	for (AActor* CurrentActor : FoundActors)
+	{
+		if (!IsValid(CurrentActor) || !Filter(CurrentActor))
+		{
+			continue;
+		}
+
+		const float DistSq = FVector::DistSquared(CurrentActor->GetActorLocation(), Location);
+
+		if (DistSq <= NearestDistSq)
+		{
+			Nearest = CurrentActor;
+			NearestDistSq = DistSq;
+		}
+	}
+
+	return Nearest;
+}
+
+bool AStrategyPlayerController::IsHolderInRangeOfSelection(const AActor* HolderActor) const
+{
+	const IInventoryHolder* Holder = Cast<IInventoryHolder>(HolderActor);
+
+	if (!Holder)
+	{
+		return false;
+	}
+
+	for (AStrategyUnit* CurrentUnit : ControlledUnits)
+	{
+		if (IsValid(CurrentUnit) && Holder->IsInRangeOf(CurrentUnit))
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool AStrategyPlayerController::IsLootableNPC(const AStrategyUnit* Unit)
+{
+	// never one of the player's own pawns, and never an NPC still on its feet. Downed and Dead
+	// both qualify and are treated identically - the roadmap's settled decision: looting a body
+	// is the same actor and the same code path as looting a knocked-down one, not a separate
+	// corpse container.
+	return IsValid(Unit) && !Cast<AStrategyPlayerUnit>(Unit) && Unit->IsIncapacitated();
+}
+
 AStrategyContainer* AStrategyPlayerController::FindContainerInRange() const
 {
-	// gather every container in the level (picks up every AStrategyContainer subclass)
 	TArray<AActor*> FoundContainers;
 	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AStrategyContainer::StaticClass(), FoundContainers);
 
@@ -1855,26 +1937,22 @@ AStrategyContainer* AStrategyPlayerController::FindContainerInRange() const
 
 	for (AActor* CurrentActor : FoundContainers)
 	{
-		if (AStrategyContainer* CurrentContainer = Cast<AStrategyContainer>(CurrentActor))
+		AStrategyContainer* CurrentContainer = Cast<AStrategyContainer>(CurrentActor);
+
+		if (!IsValid(CurrentContainer) || !IsHolderInRangeOfSelection(CurrentContainer))
 		{
-			for (AStrategyUnit* CurrentUnit : ControlledUnits)
-			{
-				if (CurrentContainer->IsUnitInRange(CurrentUnit))
-				{
-					// the player explicitly picked this one - always prefer it over any other in-range container
-					if (CurrentContainer == SelectedContainer)
-					{
-						return CurrentContainer;
-					}
+			continue;
+		}
 
-					if (!FirstInRange)
-					{
-						FirstInRange = CurrentContainer;
-					}
+		// the player explicitly picked this one - always prefer it over any other in-range container
+		if (CurrentContainer == SelectedContainer)
+		{
+			return CurrentContainer;
+		}
 
-					break;
-				}
-			}
+		if (!FirstInRange)
+		{
+			FirstInRange = CurrentContainer;
 		}
 	}
 
@@ -1883,81 +1961,30 @@ AStrategyContainer* AStrategyPlayerController::FindContainerInRange() const
 
 AStrategyUnit* AStrategyPlayerController::FindLootableNPCInRange() const
 {
-	// mirrors FindContainerInRange's shape - only SelectedNPC is ever a candidate, since it's the
-	// only NPC the player has actually targeted
-	if (!SelectedNPC || !SelectedNPC->IsDowned())
+	// deliberately unlike FindContainerInRange: only SelectedNPC is ever a candidate, since it's
+	// the only NPC the player has actually targeted. Sweeping the level for bodies the way that
+	// one sweeps for containers would open whichever corpse happened to be nearest.
+	if (!IsLootableNPC(SelectedNPC))
 	{
 		return nullptr;
 	}
 
-	for (AStrategyUnit* CurrentUnit : ControlledUnits)
-	{
-		if (SelectedNPC->IsUnitInRange(CurrentUnit))
-		{
-			return SelectedNPC;
-		}
-	}
-
-	return nullptr;
+	return IsHolderInRangeOfSelection(SelectedNPC) ? SelectedNPC : nullptr;
 }
 
 AStrategyContainer* AStrategyPlayerController::FindContainerAtLocation(const FVector& Location) const
 {
-	// gather every container in the level (picks up every AStrategyContainer subclass)
-	TArray<AActor*> FoundContainers;
-	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AStrategyContainer::StaticClass(), FoundContainers);
-
-	// track the nearest in-range container rather than just the first found - actor order
-	// isn't guaranteed, so two containers close together would otherwise pick one arbitrarily
-	AStrategyContainer* Nearest = nullptr;
-	float NearestDistSq = FMath::Square(ContainerSelectionRadius);
-
-	for (AActor* CurrentActor : FoundContainers)
-	{
-		if (AStrategyContainer* CurrentContainer = Cast<AStrategyContainer>(CurrentActor))
-		{
-			const float DistSq = FVector::DistSquared(CurrentContainer->GetActorLocation(), Location);
-
-			if (DistSq <= NearestDistSq)
-			{
-				Nearest = CurrentContainer;
-				NearestDistSq = DistSq;
-			}
-		}
-	}
-
-	return Nearest;
+	// every container qualifies - a chest is a chest whether or not the player can reach it, and
+	// the double-click handler highlights an out-of-range one rather than ignoring it
+	return Cast<AStrategyContainer>(FindHolderActorAtLocation(AStrategyContainer::StaticClass(), Location, ContainerSelectionRadius,
+		[](const AActor*) { return true; }));
 }
 
 AStrategyUnit* AStrategyPlayerController::FindLootableNPCAtLocation(const FVector& Location) const
 {
-	// mirrors FindContainerAtLocation's shape - gather every unit, keep only Downed NPCs (never
-	// player pawns, and never a Passive/Aggressive NPC still on its feet), pick the nearest in range
-	TArray<AActor*> FoundUnits;
-	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AStrategyUnit::StaticClass(), FoundUnits);
-
-	AStrategyUnit* Nearest = nullptr;
-	float NearestDistSq = FMath::Square(ContainerSelectionRadius);
-
-	for (AActor* CurrentActor : FoundUnits)
-	{
-		AStrategyUnit* CurrentUnit = Cast<AStrategyUnit>(CurrentActor);
-
-		if (!CurrentUnit || Cast<AStrategyPlayerUnit>(CurrentUnit) || !CurrentUnit->IsDowned())
-		{
-			continue;
-		}
-
-		const float DistSq = FVector::DistSquared(CurrentUnit->GetActorLocation(), Location);
-
-		if (DistSq <= NearestDistSq)
-		{
-			Nearest = CurrentUnit;
-			NearestDistSq = DistSq;
-		}
-	}
-
-	return Nearest;
+	// shares the container's click radius: a body on the ground is about as big a thing to aim at
+	return Cast<AStrategyUnit>(FindHolderActorAtLocation(AStrategyUnit::StaticClass(), Location, ContainerSelectionRadius,
+		[](const AActor* Actor) { return IsLootableNPC(Cast<AStrategyUnit>(Actor)); }));
 }
 
 AStrategyPlayerUnit* AStrategyPlayerController::FindClosestPlayerPawn(const FVector& Location)
@@ -1990,39 +2017,21 @@ AStrategyPlayerUnit* AStrategyPlayerController::FindClosestPlayerPawn(const FVec
 
 AWorldItem* AStrategyPlayerController::FindWorldItemAtLocation(const FVector& Location) const
 {
-	// mirrors FindContainerAtLocation's shape - gather every loose item, keep the nearest one
-	// within click range. The radius is WorldItemSelectionRadius rather than the container one
-	// (see that property for why), and an item holding no definition is skipped as unpickable.
-	TArray<AActor*> FoundItems;
-	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AWorldItem::StaticClass(), FoundItems);
-
-	AWorldItem* Nearest = nullptr;
-	float NearestDistSq = FMath::Square(WorldItemSelectionRadius);
-
-	for (AActor* CurrentActor : FoundItems)
-	{
-		AWorldItem* CurrentItem = Cast<AWorldItem>(CurrentActor);
-
-		if (!CurrentItem || CurrentItem->GetItem().IsEmpty())
+	// an item holding no definition is skipped as unpickable, and the radius is the tighter
+	// WorldItemSelectionRadius (see that property for why)
+	return Cast<AWorldItem>(FindHolderActorAtLocation(AWorldItem::StaticClass(), Location, WorldItemSelectionRadius,
+		[](const AActor* Actor)
 		{
-			continue;
-		}
-
-		const float DistSq = FVector::DistSquared(CurrentItem->GetActorLocation(), Location);
-
-		if (DistSq <= NearestDistSq)
-		{
-			Nearest = CurrentItem;
-			NearestDistSq = DistSq;
-		}
-	}
-
-	return Nearest;
+			const AWorldItem* Item = Cast<AWorldItem>(Actor);
+			return Item && !Item->GetItem().IsEmpty();
+		}));
 }
 
-AStrategyPlayerUnit* AStrategyPlayerController::FindPlayerPawnInRangeOfWorldItem(const AWorldItem* WorldItem)
+AStrategyPlayerUnit* AStrategyPlayerController::FindPlayerPawnInRangeOfHolder(const AActor* HolderActor)
 {
-	if (!WorldItem)
+	const IInventoryHolder* Holder = Cast<IInventoryHolder>(HolderActor);
+
+	if (!Holder)
 	{
 		return nullptr;
 	}
@@ -2035,12 +2044,12 @@ AStrategyPlayerUnit* AStrategyPlayerController::FindPlayerPawnInRangeOfWorldItem
 
 	for (const TObjectPtr<AStrategyPlayerUnit>& PlayerPawn : PlayerPawns)
 	{
-		if (!IsValid(PlayerPawn) || !WorldItem->IsUnitInRange(PlayerPawn))
+		if (!IsValid(PlayerPawn) || !Holder->IsInRangeOf(PlayerPawn))
 		{
 			continue;
 		}
 
-		const float DistSq = FVector::DistSquared(PlayerPawn->GetActorLocation(), WorldItem->GetActorLocation());
+		const float DistSq = FVector::DistSquared(PlayerPawn->GetActorLocation(), HolderActor->GetActorLocation());
 
 		if (!Closest || DistSq < ClosestDistSq)
 		{
@@ -2129,18 +2138,18 @@ FText AStrategyPlayerController::GetSelectionTargetLabel() const
 
 	if (AStrategyContainer* Container = Cast<AStrategyContainer>(Target))
 	{
-		return FText::FromString(FString::Printf(TEXT("Container: %s"), *Container->GetContainerDisplayName().ToString()));
+		return FText::FromString(FString::Printf(TEXT("Container: %s"), *Container->GetHolderDisplayName().ToString()));
 	}
 
 	// AStrategyPlayerUnit derives from AStrategyUnit, so it must be checked first
 	if (AStrategyPlayerUnit* TargetPawn = Cast<AStrategyPlayerUnit>(Target))
 	{
-		return FText::FromString(FString::Printf(TEXT("Pawn: %s"), *TargetPawn->GetUnitDisplayName().ToString()));
+		return FText::FromString(FString::Printf(TEXT("Pawn: %s"), *TargetPawn->GetHolderDisplayName().ToString()));
 	}
 
 	if (AStrategyUnit* NPC = Cast<AStrategyUnit>(Target))
 	{
-		return FText::FromString(FString::Printf(TEXT("NPC: %s"), *NPC->GetUnitDisplayName().ToString()));
+		return FText::FromString(FString::Printf(TEXT("NPC: %s"), *NPC->GetHolderDisplayName().ToString()));
 	}
 
 	return FText::GetEmpty();

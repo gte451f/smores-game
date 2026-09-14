@@ -9,6 +9,12 @@ AStrategyContainer::AStrategyContainer()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
+	// the Inventory component below is replicated, which does nothing unless the actor carrying
+	// it is too. A placed container gets away without this today only because placed actors
+	// exist on every machine regardless; a spawned one (or a client joining mid-session) would
+	// not - see AWorldItem, which has always set it because it appears and vanishes during play
+	bReplicates = true;
+
 	// create the mesh and make it the root component
 	ContainerMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Container Mesh"));
 	SetRootComponent(ContainerMesh);
@@ -41,9 +47,9 @@ void AStrategyContainer::BeginPlay()
 	}
 }
 
-bool AStrategyContainer::IsUnitInRange(const AActor* Unit) const
+bool AStrategyContainer::IsInRangeOf(const AActor* Other) const
 {
-	return Unit && FVector::Dist(GetActorLocation(), Unit->GetActorLocation()) <= InteractionRange->GetScaledSphereRadius();
+	return IInventoryHolder::IsActorWithinSphere(this, InteractionRange, Other);
 }
 
 void AStrategyContainer::NotifyOpened()

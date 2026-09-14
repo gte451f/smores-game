@@ -3,9 +3,9 @@
 ## Purpose
 
 Real-time melee combat shared by every `AStrategyUnit` — NPCs and player pawns alike, since
-`AStrategyPlayerUnit` inherits it unchanged. Covers health, damage, the Downed/recovery cycle,
-NPC self-initiated hunting, player-issued squad attacks, and auto-retaliation for a unit hit
-while otherwise idle. Looting a Downed NPC's inventory is a related but separate system — see
+`AStrategyPlayerUnit` inherits it unchanged. Covers health, damage, the Alive/Downed/Dead state
+machine, NPC self-initiated hunting, player-issued squad attacks, and auto-retaliation for a unit
+hit while otherwise idle. Looting a body's inventory is a related but separate system — see
 `inventory.md`.
 
 ## Player Surface
@@ -20,33 +20,57 @@ while otherwise idle. Looting a Downed NPC's inventory is a related but separate
 - A unit at zero health goes Downed: it falls, holds a grounded pose, can't move, can't rotate to
   face anyone, can't attack or be attacked further, and automatically recovers to full health
   after a fixed delay (`DownedDurationSeconds`, default 15s).
+- A unit can also be **Dead**, which looks and behaves exactly like Downed — same grounded pose,
+  same inertness, same lootability — except that no recovery is coming. **Nothing in combat
+  currently kills anything**: a lethal hit still goes Downed, as it always has. Dead is reachable
+  only through `UHealthComponent::Kill()`, exercised by the `SmoresKillNPC` console exec. What
+  *should* kill a unit in play — bleeding out while Downed, a finishing blow, a damage threshold
+  — is an undecided design question (`character-death-and-permadeath.md` in the game-design skill
+  is still a placeholder). The state and the transition are built so that looting a body had
+  something real to gate on; whoever settles that rule calls `Kill()`.
 
 ## Core Rules
 
 - Every `AStrategyUnit` owns a `UHealthComponent` (`Health`/`MaxHealth`, `DownedDurationSeconds`,
-  `IsDowned()`).
-- `TakeDamage(Amount, DamageInstigator)` no-ops while already Downed or if `Amount <= 0`.
+  `HealthState`).
+- **State is one replicated `EHealthState { Alive, Downed, Dead }`, not a pair of bools.** Two
+  bools would encode four combinations, one of which (Downed *and* Dead) is meaningless, and every
+  caller would have to check them in the right order. Three queries read it: `IsDowned()`,
+  `IsDead()`, and **`IsIncapacitated()` (Downed or Dead), which is what nearly every gameplay
+  check actually wants** — a unit that can't move, fight, be fought, or get up on its own, and
+  that can be looted. Reach for the first two only where the difference genuinely matters, which
+  today is exactly one place: the loot window's title.
+- `TakeDamage(Amount, DamageInstigator)` no-ops while incapacitated or if `Amount <= 0`.
   Otherwise it subtracts `Amount`, then either goes Downed (health at or below zero) or
   broadcasts `OnDamaged(DamageInstigator)` for a hit that was survived.
 - Going Downed broadcasts `OnDowned` and starts a one-shot recovery timer; the timer calls
   `Recover()`, which restores full health and broadcasts `OnRecovered`.
+- `Kill()` is authority-only, reachable from Alive *or* from Downed, and terminal. It cancels any
+  recovery timer in flight (otherwise the corpse stands back up a few seconds later), zeroes
+  health, sets `Dead`, and broadcasts `OnDied`. `Recover()` additionally refuses to run while Dead,
+  as a second line of defence against a recovery already queued on the timer manager.
 - `AStrategyUnit` reacts to its own `Health` component's delegates:
   - `OnHealthDowned` stops movement (including cancelling any live `AIController` move request),
     clears its current/pending attack-target state and its self-hunting retarget timer, and plays
     `DownedMontage`.
   - `OnHealthRecovered` stops the Downed montage and, if the unit itself was Aggressive, resets
     it back to Passive.
+  - `OnHealthDied` does exactly what `OnHealthDowned` does — stop moving, drop out of every
+    attack loop, play the grounded montage. What makes it death rather than a knockdown is
+    entirely that no `OnRecovered` ever follows, so none of it gets undone.
   - `OnHealthDamaged` is the auto-retaliation hook: if the unit isn't already mid-engagement (no
-    `CurrentAttackTarget`, not `bAttackOnArrival`) and the instigator is a valid, non-Downed
-    `AStrategyUnit`, it calls `AttackTarget(Attacker)`. Applies uniformly regardless of whether
-    the unit is selected, player-controlled, or an NPC.
+    `CurrentAttackTarget`, not `bAttackOnArrival`) and the instigator is a valid
+    `AStrategyUnit` that isn't itself incapacitated, it calls `AttackTarget(Attacker)` — so a
+    unit never swings back at a body. Applies uniformly regardless of whether the unit is
+    selected, player-controlled, or an NPC.
 - `Disposition` (`Passive`/`Aggressive`) drives NPC self-initiated hunting. `SetAggressive(true)`
   starts a repeating 0.5s timer (`AggroRetargetTimerHandle`) driving
-  `TryEngageNearestPlayerPawn()`, which finds the nearest non-Downed `AStrategyPlayerUnit` and
+  `TryEngageNearestPlayerPawn()`, which finds the nearest still-standing `AStrategyPlayerUnit` and
   calls `AttackTarget` on it (skipped if already engaged with that same target).
   `SetAggressive(false)` clears the timer and any attack target.
-- `AttackTarget(Target)` bails early if the attacker or `Target` is Downed, or `Target` is
-  invalid. In range, it calls `PerformAttack` immediately; out of range, it issues a
+- `AttackTarget(Target)` bails early if the attacker or `Target` is incapacitated (Downed or
+  Dead — neither a corpse nor a knocked-down unit fights, or is worth swinging at), or `Target`
+  is invalid. In range, it calls `PerformAttack` immediately; out of range, it issues a
   `MoveToLocation` toward `Target` and sets `bAttackOnArrival`/`PendingAttackTarget` so
   `HandleMoveFinished` re-issues the attack on arrival.
 - `PerformAttack` rotates the attacker to face `Target`, sets `CurrentAttackTarget`, and plays a
@@ -59,14 +83,16 @@ while otherwise idle. Looting a Downed NPC's inventory is a related but separate
   `AttackRange` or is no longer valid; otherwise it calls `TakeDamage(25, this)` on the target.
 - `OnAttackMontageEnded` ignores montages that aren't one of `AttackMontages` (e.g. the Downed
   montage ending) and otherwise keeps re-swinging `CurrentAttackTarget` automatically as long as
-  it's still valid and not Downed — this self-perpetuating loop drives both NPC self-hunting and
-  player-issued attacks.
+  it's still valid and not incapacitated — this self-perpetuating loop drives both NPC
+  self-hunting and player-issued attacks.
 - Player-issued attacks: `AStrategyPlayerController::DoAttackCommand(Target)` sets
   `Target->SetAggressive(true)` then calls `AttackTarget(Target)` on every unit in
   `ControlledUnits` — a squad-wide engage, distinct from move commands' spread-to-formation
   behavior.
-- A Downed unit is fully inert: `MoveToLocation` and `AttackTarget` both refuse to act on it (as
-  attacker or target), and `Interact()` skips rotating it to face whoever interacts with it.
+- An incapacitated unit is fully inert: `MoveToLocation` and `AttackTarget` both refuse to act on
+  it (as attacker or target), and `Interact()` skips rotating it to face whoever interacts with
+  it. Every one of those guards reads `IsIncapacitated()`, so Dead inherited the whole set for
+  free rather than needing a parallel check added at each site.
 
 ## C++ Implementation
 
@@ -76,13 +102,19 @@ while otherwise idle. Looting a Downed NPC's inventory is a related but separate
   - `UHealthComponent::TakeDamage` — applies damage, resolves Downed vs. survived-hit
   - `UHealthComponent::Downed` / `Recover` — private; broadcast `OnDowned`/`OnRecovered` and
     manage the recovery timer
+  - `UHealthComponent::Kill` — the one transition into `Dead`; authority-only and terminal
+  - `UHealthComponent::IsIncapacitated` — Downed-or-Dead, the query nearly all gameplay uses
+  - `UHealthComponent::OnRep_HealthState` — non-authority machines' reaction to a replicated
+    state change, dispatching `OnDowned`/`OnDied`/`OnRecovered` by the new state
   - `AStrategyUnit::AttackTarget` — in-range swing vs. move-then-swing, with Downed guards
   - `AStrategyUnit::PerformAttack` — plays a random attack montage, binds the end delegate
   - `AStrategyUnit::ApplyAttackDamage` — called by `UAnimNotify_AttackHit` at the hit frame
   - `AStrategyUnit::OnAttackMontageEnded` — the auto-attack continuation loop
   - `AStrategyUnit::SetAggressive` / `TryEngageNearestPlayerPawn` — NPC self-hunting
-  - `AStrategyUnit::OnHealthDowned` / `OnHealthRecovered` / `OnHealthDamaged` — reactions to the
-    owned `Health` component's delegates
+  - `AStrategyUnit::OnHealthDowned` / `OnHealthRecovered` / `OnHealthDied` / `OnHealthDamaged`
+    — reactions to the owned `Health` component's delegates
+  - `AStrategyPlayerController::SmoresKillNPC` (console exec) — kills the currently-targeted NPC
+    via `Server_DebugKill`, since health state is server-owned. The only way to reach `Dead`
   - `AStrategyPlayerController::DoAttackCommand` — squad-wide player-issued attack
   - `AStrategyPlayerController::AttackKeyPressed` — entry point from input, gated on `SelectedNPC`
 - **Runtime ownership:** `UHealthComponent` is a default subobject of `AStrategyUnit`, alongside
@@ -94,7 +126,7 @@ while otherwise idle. Looting a Downed NPC's inventory is a related but separate
   `OnDamaged` (auto-retaliate) or `Downed` (`OnHealthDowned`) → `OnAttackMontageEnded` re-swings
   or stops the loop.
 - **Data flow (NPC self-hunting):** `SetAggressive(true)` → repeating
-  `TryEngageNearestPlayerPawn` timer → `AttackTarget()` on the nearest non-Downed player pawn,
+  `TryEngageNearestPlayerPawn` timer → `AttackTarget()` on the nearest still-standing player pawn,
   same swing loop as above.
 
 ## Blueprint / Asset Dependencies
@@ -126,7 +158,12 @@ while otherwise idle. Looting a Downed NPC's inventory is a related but separate
 ## Known Gaps
 
 - Damage is a flat, hardcoded `25` per hit; no weapon or damage-type variation.
-- No death state — a unit cycles Downed → Recover indefinitely and can never permanently die.
+- **Nothing in the damage path ever kills.** `Dead` exists, replicates, and is honoured by every
+  gameplay guard, but a lethal hit still goes Downed — the only route to `Dead` is the
+  `SmoresKillNPC` debug exec. A deliberate boundary, not an oversight: this slice needed the state
+  so bodies could be looted, and what *should* kill a unit is an undecided design question.
+- **A dead unit never despawns.** It stays in the level permanently, holding its inventory. Body
+  lifetime hasn't been designed.
 - No threat table — auto-retaliation only ever targets the most recent instigator, dropping any
   earlier attacker.
 - `AttackMontages` is currently populated with only 2 montages (`AM_Attack_01`/`02`) after
@@ -134,5 +171,9 @@ while otherwise idle. Looting a Downed NPC's inventory is a related but separate
   glitch; the doc comment on `AttackMontages` in `StrategyUnit.h` still says "Expects the 3
   wrapped MM_Attack_0X montages."
 - No ranged/projectile combat path — `AttackRange` is purely a melee proximity check.
-- Combat and looting both gate on the Downed state but are implemented as fully separate systems
-  (see `inventory.md`), with no shared "interactable while Downed" interface.
+- Combat and looting still read health state from opposite sides: combat asks
+  `IsIncapacitated()` to decide inertness, looting asks
+  `AStrategyPlayerController::IsLootableNPC`. `IInventoryHolder` unified the *proximity* half of
+  what they share (see `inventory.md`) but deliberately not the state half — what counts as
+  lootable is an inventory question, what counts as inert is a combat one, and they only happen
+  to agree today.

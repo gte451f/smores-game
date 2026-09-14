@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Templates/Function.h"
 #include "GameFramework/PlayerController.h"
 #include "StrategySelectionHost.h"
 #include "StrategyCameraCommands.h"
@@ -28,6 +29,7 @@ class AWorldItem;
 class UInventoryComponent;
 class UEquipmentComponent;
 class AStrategyPlayerState;
+class IInventoryHolder;
 
 /**
  *  Player Controller for a top-down strategy game.
@@ -428,7 +430,8 @@ protected:
 	/** Opens the given container's inventory screen, spawning the widget on first use */
 	void OpenContainer(AStrategyContainer* Container);
 
-	/** Opens the given Downed NPC's inventory screen for looting, spawning the widget on first use */
+	/** Opens the given lootable NPC's inventory screen, spawning the widget on first use. Downed and
+	 *  Dead bodies take the identical path - see IsLootableNPC. */
 	void OpenLoot(AStrategyUnit* LootTarget);
 
 	/** Attacks the currently-selected NPC if it's Passive (flips it to Aggressive); no-op otherwise */
@@ -599,6 +602,15 @@ public:
 	void SmoresDumpEquipment();
 
 	/**
+	 *  Debug exec: kills the currently-targeted NPC outright, so the Dead state has a way to be
+	 *  reached without a combat rule that decides when a unit should actually die (see
+	 *  UHealthComponent::Kill). A killed NPC is lootable exactly like a Downed one, except that
+	 *  it never gets back up.
+	 */
+	UFUNCTION(Exec)
+	void SmoresKillNPC();
+
+	/**
 	 *  Debug exec: drops the selected pawn's EntryIndex'th placed grid entry on the ground in front
 	 *  of it as an AWorldItem, so the pickup path has something to pick up without hand-placing
 	 *  actors in the level. The player-facing drop gesture is a later slice; this exercises the
@@ -626,6 +638,10 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void Server_DebugDropItem(APawn* DroppingPawn, UInventoryComponent* Inventory, int32 EntryIndex);
 
+	/** Server side of the kill debug exec - health state is server-owned, like everything else here */
+	UFUNCTION(Server, Reliable)
+	void Server_DebugKill(AStrategyUnit* Target);
+
 public:
 
 	/** Debug exec: credits Amount gold to this player. Hops to the server, since the balance is server-owned. */
@@ -652,29 +668,64 @@ protected:
 	/** Sorts all controlled units based on their distance to the provided world location */
 	AStrategyUnit* GetClosestSelectedUnitToLocation(FVector TargetLocation);
 
+	/**
+	 *  Shared body of every Find*AtLocation below: the nearest actor of HolderClass within Radius
+	 *  of Location that also passes Filter, or nullptr.
+	 *
+	 *  Nearest rather than first-found because actor iteration order isn't guaranteed, so two
+	 *  holders close together would otherwise be picked between arbitrarily.
+	 *
+	 *  Radius is a parameter rather than one shared field because how precisely the player has to
+	 *  aim is per-gesture: a chest is a big thing to click (ContainerSelectionRadius) and a
+	 *  dropped item is a small one (the tighter WorldItemSelectionRadius). Sharing one radius let
+	 *  an item lying near a chest swallow every double-click meant for the chest.
+	 *
+	 *  Filter is a parameter rather than something this could infer because each holder type
+	 *  qualifies on a rule of its own - an NPC has to be lootable, a world item has to actually
+	 *  hold something, a container always qualifies.
+	 */
+	AActor* FindHolderActorAtLocation(TSubclassOf<AActor> HolderClass, const FVector& Location, float Radius, TFunctionRef<bool(const AActor*)> Filter) const;
+
+	/** True if any currently selected unit is close enough to transfer items with HolderActor. The
+	 *  selection-side counterpart to FindHolderActorAtLocation's click-side radius: this is real
+	 *  reach (the holder's own interaction sphere), not click precision. Takes the actor rather
+	 *  than the bare IInventoryHolder so callers can hand over whatever they already have; an
+	 *  actor that doesn't implement the interface is simply never in range. */
+	bool IsHolderInRangeOfSelection(const AActor* HolderActor) const;
+
+	/** Returns true if Unit is an NPC that can be looted - i.e. not one of the player's own pawns,
+	 *  and Downed or Dead. The one place that rule is written down. */
+	static bool IsLootableNPC(const AStrategyUnit* Unit);
+
 	/** Returns the first container in the level with a selected unit within its InteractionRange, preferring SelectedContainer if it qualifies, or nullptr */
 	AStrategyContainer* FindContainerInRange() const;
 
-	/** Returns SelectedNPC if it's Downed and within range of a controlled unit (lootable), or nullptr. Mirrors FindContainerInRange's shape. */
+	/** Returns SelectedNPC if it's lootable and within range of a controlled unit, or nullptr. Deliberately
+	 *  never sweeps the level the way FindContainerInRange does - a body is only ever looted by key press if
+	 *  the player has actually targeted it. */
 	AStrategyUnit* FindLootableNPCInRange() const;
 
 	/** Returns the container within click range of the given world location, or nullptr */
 	AStrategyContainer* FindContainerAtLocation(const FVector& Location) const;
 
-	/** Returns the nearest Downed NPC within click range of the given world location, or nullptr. A non-Downed (Passive or Aggressive) NPC never qualifies. Mirrors FindContainerAtLocation's shape. */
+	/** Returns the nearest lootable NPC within click range of the given world location, or nullptr. A player
+	 *  pawn, or an NPC still on its feet, never qualifies. */
 	AStrategyUnit* FindLootableNPCAtLocation(const FVector& Location) const;
 
-	/** Returns whichever player-controlled pawn is closest to the given world location, or nullptr if none exist */
+	/** Returns whichever player-controlled pawn is closest to the given world location, or nullptr if none
+	 *  exist. Finds a *collector*, not a holder - there's no proximity gate here at all, so it answers
+	 *  "who opens this panel" rather than "who may touch this". */
 	AStrategyPlayerUnit* FindClosestPlayerPawn(const FVector& Location);
 
-	/** Returns the loose world item within WorldItemSelectionRadius of the given world location, or nullptr.
-	 *  Mirrors FindContainerAtLocation's shape, on its own tighter radius. */
+	/** Returns the loose world item within WorldItemSelectionRadius of the given world location, or nullptr */
 	AWorldItem* FindWorldItemAtLocation(const FVector& Location) const;
 
-	/** Returns the nearest player-controlled pawn close enough to pick the given world item up, or nullptr.
-	 *  Unlike FindClosestPlayerPawn this applies the item's own InteractionRange, since proximity is the
-	 *  whole gate on a pickup rather than a tiebreak. */
-	AStrategyPlayerUnit* FindPlayerPawnInRangeOfWorldItem(const AWorldItem* WorldItem);
+	/** Returns the nearest player-controlled pawn close enough to transfer items with Holder, or nullptr.
+	 *  Unlike FindClosestPlayerPawn this applies the holder's own reach, since proximity is a gate here
+	 *  rather than a tiebreak. Checks every player pawn rather than just ControlledUnits - a holder may be
+	 *  reached by double-click, and the plain select click that fires alongside that gesture may have just
+	 *  cleared the selection. */
+	AStrategyPlayerUnit* FindPlayerPawnInRangeOfHolder(const AActor* HolderActor);
 
 	/** Updates SelectedContainer, toggling the old and new container's highlight material to match */
 	void SetSelectedContainer(AStrategyContainer* NewContainer);

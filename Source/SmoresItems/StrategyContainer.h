@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "InventoryComponent.h"
+#include "InventoryHolder.h"
 #include "StrategyContainer.generated.h"
 
 class USphereComponent;
@@ -19,7 +20,7 @@ class UMaterialInterface;
  *  Blueprint subclass.
  */
 UCLASS(abstract)
-class SMORESITEMS_API AStrategyContainer : public AActor
+class SMORESITEMS_API AStrategyContainer : public AActor, public IInventoryHolder
 {
 	GENERATED_BODY()
 
@@ -71,11 +72,15 @@ public:
 	/** Returns this container's inventory component */
 	UInventoryComponent* GetInventory() const { return Inventory; }
 
-	/** Returns this container's display name */
-	FText GetContainerDisplayName() const { return ContainerDisplayName; }
+	//~ Begin IInventoryHolder interface
 
-	/** Returns true if the given unit is close enough to open this container */
-	bool IsUnitInRange(const AActor* Unit) const;
+	/** Returns this container's display name */
+	virtual FText GetHolderDisplayName() const override { return ContainerDisplayName; }
+
+	/** Returns true if the given actor is close enough to open this container */
+	virtual bool IsInRangeOf(const AActor* Other) const override;
+
+	//~ End IInventoryHolder interface
 
 	/** Notifies this container that it has been opened, so Blueprint can play cosmetic feedback */
 	void NotifyOpened();

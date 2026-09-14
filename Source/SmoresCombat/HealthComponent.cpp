@@ -20,7 +20,7 @@ void UHealthComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(UHealthComponent, Health);
-	DOREPLIFETIME(UHealthComponent, bIsDowned);
+	DOREPLIFETIME(UHealthComponent, HealthState);
 }
 
 void UHealthComponent::BeginPlay()
@@ -38,7 +38,9 @@ void UHealthComponent::TakeDamage(float Amount, AActor* DamageInstigator)
 		return;
 	}
 
-	if (bIsDowned || Amount <= 0.0f)
+	// a Downed owner is already out of the fight and a Dead one is gone for good - neither takes
+	// further damage
+	if (IsIncapacitated() || Amount <= 0.0f)
 	{
 		return;
 	}
@@ -59,6 +61,31 @@ void UHealthComponent::TakeDamage(float Amount, AActor* DamageInstigator)
 		// cleared again immediately by Downed() resetting the target's own attack state
 		OnDamaged.Broadcast(DamageInstigator);
 	}
+}
+
+void UHealthComponent::Kill()
+{
+	// shared gameplay state - only the server may mutate it
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	if (IsDead())
+	{
+		return;
+	}
+
+	// a kill can land on a unit that is already Downed, so cancel the recovery that was in
+	// flight - otherwise the timer fires a few seconds later and stands the corpse back up
+	GetWorld()->GetTimerManager().ClearTimer(RecoveryTimerHandle);
+
+	Health = 0.0f;
+	HealthState = EHealthState::Dead;
+
+	UE_LOG(LogSmoresCombat, Warning, TEXT("[Combat] %s died"), GetOwner() ? *GetOwner()->GetName() : TEXT("(no owner)"));
+
+	OnDied.Broadcast();
 }
 
 void UHealthComponent::SpawnDamageNumber(float Amount) const
@@ -97,7 +124,7 @@ void UHealthComponent::SpawnDamageNumber(float Amount) const
 
 void UHealthComponent::Downed()
 {
-	bIsDowned = true;
+	HealthState = EHealthState::Downed;
 
 	OnDowned.Broadcast();
 
@@ -106,8 +133,15 @@ void UHealthComponent::Downed()
 
 void UHealthComponent::Recover()
 {
+	// Kill() clears this timer, so this is belt-and-braces against a recovery already queued on
+	// the timer manager when the kill landed - nothing brings a dead unit back
+	if (IsDead())
+	{
+		return;
+	}
+
 	Health = MaxHealth;
-	bIsDowned = false;
+	HealthState = EHealthState::Alive;
 
 	OnRecovered.Broadcast();
 }
@@ -127,29 +161,42 @@ void UHealthComponent::OnRep_Health(float OldHealth)
 	{
 		SpawnDamageNumber(Amount);
 
-		// bIsDowned has already been applied by the time RepNotifies run, even though
-		// OnRep_IsDowned may fire before or after this callback
-		if (!bIsDowned)
+		// HealthState has already been applied by the time RepNotifies run, even though
+		// OnRep_HealthState may fire before or after this callback
+		if (!IsIncapacitated())
 		{
 			OnDamaged.Broadcast(nullptr);
 		}
 	}
 }
 
-void UHealthComponent::OnRep_IsDowned(bool bOldIsDowned)
+void UHealthComponent::OnRep_HealthState(EHealthState OldHealthState)
 {
-	// authority already broadcast these directly from Downed()/Recover()
+	// authority already broadcast these directly from Downed()/Recover()/Kill()
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
 		return;
 	}
 
-	if (bIsDowned && !bOldIsDowned)
+	if (HealthState == OldHealthState)
 	{
-		OnDowned.Broadcast();
+		return;
 	}
-	else if (!bIsDowned && bOldIsDowned)
+
+	switch (HealthState)
 	{
+	case EHealthState::Downed:
+		OnDowned.Broadcast();
+		break;
+
+	case EHealthState::Dead:
+		// a kill on an already-Downed owner replicates as Downed -> Dead. The owner is inert
+		// either way and has already reacted to OnDowned, so only announce the death itself.
+		OnDied.Broadcast();
+		break;
+
+	case EHealthState::Alive:
 		OnRecovered.Broadcast();
+		break;
 	}
 }

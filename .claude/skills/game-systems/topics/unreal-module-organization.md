@@ -69,7 +69,15 @@ Source/
     SmoresItems.cpp / SmoresItems.h
     InventoryComponent.*          # moved from smores/Variant_Strategy/Inventory/
     EquipmentComponent.*          # the paperdoll; born here, never lived in smores/
+    ItemDefinition.*              # the shared per-item-type data asset
     StrategyChest.* StrategyContainer.*   # moved from smores/Variant_Strategy/
+    WorldItem.*                   # a single loose item lying in the world
+    InventoryHolder.*             # IInventoryHolder - display name + proximity, implemented
+                                   # by StrategyUnit/StrategyContainer/WorldItem. Note the
+                                   # direction: unlike the SmoresUI interfaces below, this one
+                                   # is declared *down* in the module that owns the concept and
+                                   # implemented by types above it - no coupling to resolve, it
+                                   # just de-duplicates a rule three holders share
   SmoresCombat/
     SmoresCombat.Build.cs
     SmoresCombat.cpp / SmoresCombat.h

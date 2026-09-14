@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "InventoryComponent.h"
+#include "InventoryHolder.h"
 #include "WorldItem.generated.h"
 
 class USphereComponent;
@@ -25,7 +26,7 @@ class UStaticMeshComponent;
  *  whatever definition the instance happens to hold.
  */
 UCLASS(abstract)
-class SMORESITEMS_API AWorldItem : public AActor
+class SMORESITEMS_API AWorldItem : public AActor, public IInventoryHolder
 {
 	GENERATED_BODY()
 
@@ -36,8 +37,8 @@ private:
 	TObjectPtr<UStaticMeshComponent> ItemMesh;
 
 	/** Interaction range sphere. A player pawn must be within this radius to pick the item up.
-	 *  Same shape and default as AStrategyContainer's - the roadmap's one proximity rule for
-	 *  every transfer context, which Slice 7 folds into IInventoryHolder. */
+	 *  Same shape and default as AStrategyContainer's - the one proximity rule every transfer
+	 *  context shares, reached through IInventoryHolder::IsInRangeOf. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<USphereComponent> InteractionRange;
 
@@ -82,11 +83,15 @@ public:
 	/** The item instance lying here */
 	const FInventoryItem& GetItem() const { return Item; }
 
+	//~ Begin IInventoryHolder interface
+
 	/** Player-facing name of whatever is lying here, or empty if it holds nothing */
-	FText GetItemDisplayName() const { return Item.GetDisplayName(); }
+	virtual FText GetHolderDisplayName() const override { return Item.GetDisplayName(); }
 
 	/** Returns true if the given actor is close enough to pick this item up */
-	bool IsUnitInRange(const AActor* Unit) const;
+	virtual bool IsInRangeOf(const AActor* Other) const override;
+
+	//~ End IInventoryHolder interface
 
 	/** Replaces what's lying here. Authority-only; a silent no-op elsewhere. */
 	void SetItem(const FInventoryItem& NewItem);
