@@ -383,30 +383,24 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
 
 ### Slice 7 — `IInventoryHolder` and loot-dead
 
-- **Build:** `IInventoryHolder` interface in `SmoresItems` (`GetHolderDisplayName`,
-  `IsInRangeOf(const AActor*)`, and see the open question below about `GetInventory`),
-  implemented by `AStrategyUnit`, `AStrategyContainer`, and `AWorldItem`; collapse the PC's
-  holder-finding methods into holder-generic versions. Add a Dead state to `UHealthComponent`
+- **Build:** `IInventoryHolder` interface in `SmoresItems` — `GetHolderDisplayName` and
+  `IsInRangeOf(const AActor*)`, and **no grid accessor** (settled; see below) — implemented by
+  `AStrategyUnit`, `AStrategyContainer`, and `AWorldItem`; collapse the PC's holder-finding
+  methods into holder-generic versions. Add a Dead state to `UHealthComponent`
   (`SmoresCombat` — coordinate with `combat.md`) and make the lootable check "Downed or Dead."
 - **Touches:** new `InventoryHolder.h`, `StrategyUnit.*`, `StrategyContainer.*`,
   `WorldItem.*`, `StrategyPlayerController.*`, `HealthComponent.*`.
 - **Done when:** the PC has one proximity path for every holder type and a killed NPC is
   lootable exactly like a Downed one.
 
-**Open design question — settle this first, it shapes the whole interface.**
-`AWorldItem` has **no `UInventoryComponent`.** It holds a bare `FInventoryItem`, by design
-(Slice 6: a pickup is one item on a light actor, not a holder). So a `GetInventory` on the
-interface is unimplementable for one of its three implementers, and returning null makes every
-caller null-check a method the interface promises. Three ways out:
-
-  1. **Split the interface** (recommended): `IInventoryHolder` carries only what all three
-     genuinely share — display name and the range check — and grid access stays off it, reached
-     by `Cast` where a caller actually needs a grid. The proximity unification is the part with
-     three real duplicates; grid access has only two implementers and no duplication problem.
-  2. Keep `GetInventory` and let `AWorldItem` return null. Simplest to write, but it puts a
-     "sometimes lies" method on the interface, and the null branch will be forgotten somewhere.
-  3. Leave `AWorldItem` off the interface entirely. Costs the thing the slice is for — its
-     `IsUnitInRange` is one of the three copies being collapsed.
+**The interface's shape is settled — don't reopen it.** See Resolved Design Decisions:
+`IInventoryHolder` carries `GetHolderDisplayName` and `IsInRangeOf(const AActor*)` and nothing
+else. **There is deliberately no `GetInventory` on it.** `AWorldItem` holds a bare
+`FInventoryItem` and no `UInventoryComponent` by design (Slice 6: a pickup is one item on a
+light actor, not a holder), so a grid accessor would be unimplementable by one of the
+interface's three implementers. Code that needs a grid casts to the concrete type — only two
+classes have one, and there is no duplication there to collapse. The duplication this slice
+exists to remove is entirely in the proximity half.
 
 **Facts the entry above used to get wrong — check these against source before planning:**
 
@@ -508,6 +502,16 @@ Recorded so future sessions don't reopen them:
   (Rejected: stubbing a market table now, deferring trade entirely.)
 - **Loot dead vs. Downed** — same actor, same code path; lootable = Downed or Dead.
   Requires a Dead state in `UHealthComponent`. (Rejected: corpse-container actor.)
+- **`IInventoryHolder` carries proximity, not grid access** — the interface promises
+  `GetHolderDisplayName` and `IsInRangeOf(const AActor*)` only; a caller that needs a
+  `UInventoryComponent` casts to the concrete holder type. `AWorldItem` holds a bare
+  `FInventoryItem` and no grid, so a `GetInventory` on the interface would be unimplementable by
+  one of its three implementers. Proximity is where the real duplication is (three copies of the
+  same distance test); grid access has two implementers and no duplication problem, so putting it
+  on the interface buys nothing and costs honesty. (Rejected: `GetInventory` returning null for
+  world items — a method that sometimes lies, leaving every caller to remember a null check
+  someone eventually won't; and leaving `AWorldItem` off the interface entirely, which preserves
+  one of the three duplicate proximity checks the interface exists to delete.)
 - **Encumbrance** — tracked and displayed only; effects deferred to a characters/combat
   pass. (Rejected: soft slowdown now, hard cap.)
 - **World pickup range** — double-click gated by the shared proximity check; no auto-pickup
