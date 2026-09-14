@@ -30,7 +30,14 @@ AStrategyUnit::AStrategyUnit()
 	InteractionRange = CreateDefaultSubobject<USphereComponent>(TEXT("Interaction Range"));
 	InteractionRange->SetupAttachment(RootComponent);
 
-	InteractionRange->SetSphereRadius(100.0f);
+	// Looting reach, measured centre-to-centre (see IInventoryHolder::IsActorWithinSphere).
+	// This was 100, which is barely reachable at all: the capsule radius is 42, so two
+	// characters standing in contact are already 84 apart, and MovementAcceptanceRadius is
+	// itself 100 - a pawn ordered to walk to a body routinely parks just outside the gate and
+	// the double-click then highlights the body without opening it. A sideways step of a few
+	// centimetres flips it, which reads as "the double-click is unreliable" rather than as a
+	// range problem. 250 leaves real headroom while staying tighter than a chest's 312.5.
+	InteractionRange->SetSphereRadius(250.0f);
 	InteractionRange->SetCollisionProfileName(FName("OverlapAllDynamic"));
 
 	// create the inventory component

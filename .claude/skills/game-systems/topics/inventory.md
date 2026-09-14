@@ -257,7 +257,13 @@ covering both — this topic only documents what's actually built.
   parameter type than the other two, and three differently-named display-name getters. The
   distance test itself is now written once, in `IInventoryHolder::IsActorWithinSphere`, and each
   holder just hands it its own `InteractionRange` sphere, so reach stays per-type (a container's
-  and a world item's default to 312.5 units, a unit's to 100) while the rule is single-sourced.
+  and a world item's default to 312.5 units, a unit's to 250) while the rule is single-sourced.
+  A unit's was 100 until it proved unreachable in practice: reach is centre-to-centre, the
+  capsule radius is 42, so two characters standing in contact are already 84 apart — and
+  `MovementAcceptanceRadius` is itself 100, so a pawn ordered to walk to a body parks right on
+  the gate. It read as "double-click is unreliable" rather than as a range problem, because a
+  sideways step of a few centimetres flipped it without getting visibly closer. Any new holder
+  type wants its reach comfortably clear of both numbers, not merely larger than a capsule.
 - **The interface deliberately carries no `GetInventory`.** `AWorldItem` holds one
   `FInventoryItem` and no `UInventoryComponent` at all, so a grid accessor would either be
   unimplementable by one of the three implementers or would have to return null from it, leaving

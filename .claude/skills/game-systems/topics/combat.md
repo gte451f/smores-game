@@ -14,7 +14,10 @@ hit while otherwise idle. Looting a body's inventory is a related but separate s
   current testing) commands every currently selected unit (`ControlledUnits`) to attack it,
   provided the NPC isn't already Aggressive.
 - Clicking directly on an NPC that's already Aggressive re-issues the same squad-wide attack
-  immediately, without needing the Attack key again.
+  immediately, without needing the Attack key again. **Scheduled for removal** — it breaks the
+  settled rule that a single click only ever selects what's under the cursor, and `H` already
+  covers attacking a target. See `input-and-keybinds.md`'s "Existing defaults worth
+  revisiting".
 - Any unit that takes damage while not already fighting someone swings back at whoever hit it —
   this applies even to a bystander pawn that was never part of the original squad command.
 - A unit at zero health goes Downed: it falls, holds a grounded pose, can't move, can't rotate to

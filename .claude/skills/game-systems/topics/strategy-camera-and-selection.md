@@ -17,6 +17,10 @@ Players control a floating orthographic camera rather than a character. They can
 - Mouse selection uses cursor hit testing against `SelectionTraceChannel`.
 - Selection uses a vertical sphere sweep from the cached world point and checks pawn object types.
 - In mouse mode, selection clears previous selection unless the selection modifier is active.
+- **A single click is for picking a target, not for issuing an order against it** — it selects
+  whatever is under the cursor and does nothing else. One shipped behavior currently breaks
+  this (clicking an already-Aggressive NPC issues a squad attack) and is scheduled for removal;
+  see `input-and-keybinds.md`'s "Existing defaults worth revisiting".
 - Selecting an already-selected unit toggles it off.
 - Drag selection is displayed by `AStrategyHUD::DragSelectUpdate()` and applied through `DragSelectUnits()`.
 - Touch uses custom tap and double-tap timing because Enhanced Input tap triggers behave differently on touch.
@@ -58,6 +62,12 @@ Players control a floating orthographic camera rather than a character. They can
 
 ## Known Gaps
 
+- **Double-clicking a *living* NPC falls through to select-all-on-screen.** Confirmed as not
+  viable long term: Slice 8 makes a living NPC a double-click target in its own right (trade,
+  or later dialog), so the gesture will mean "that person" rather than "everyone". Double-click
+  on empty ground keeps select-all. See `inventory-roadmap.md`'s Slice 8.
+- **A single click on an Aggressive NPC issues a squad attack order**, contradicting the
+  single-click-only-selects rule above. Scheduled for removal.
 - C++ does not currently show how `AStrategyHUD` determines the list of units inside the drag box.
 - `DoSelectAllOnScreenCommand()` relies on `WasRecentlyRendered(0.2f)`, which may include units not actually intended to be selectable in future occlusion or faction systems.
 - Camera movement uses hard-coded rotation assumptions in drag scroll.

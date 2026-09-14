@@ -454,22 +454,59 @@ is a combat/characters design question, recorded in `combat.md`'s Known Gaps.
     `APlayerState` is an engine type visible everywhere. Prefer that to extending the
     interface with price/affordability reads.
 - **Build:** `IPricingProvider` (base value × buy markup / sell markdown, flat for now) and
-  `AStrategyStorefront : AStrategyContainer` (or a `UStorefrontComponent`) whose entries are
-  for sale. Server-side transaction: verify proximity, verify `TrySpendGold`, move the item,
+  **`UTraderComponent`** — a component attached to an NPC, holding that trader's stock and
+  prices. Server-side transaction: verify proximity, verify `TrySpendGold`, move the item,
   debit/credit — all-or-nothing. UI: price shown on hover; dragging store → pawn triggers
-  purchase, pawn → store triggers sale. Trading with a live NPC is the same two-way flow
-  against the NPC's inventory.
-- **Touches:** new `SmoresEconomy` module (`WalletComponent.*`, `PricingProvider.h`), new
-  `StrategyStorefront.*`, `StrategyPlayerState.*` (loses `Gold`, gains the component),
+  purchase, pawn → store triggers sale.
+- **The trader is a component on a character, not a shop actor — settled, see Resolved Design
+  Decisions.** This supersedes the earlier `AStrategyStorefront : AStrategyContainer` sketch.
+  Two reasons, both load-bearing:
+  - `economy.md` wants **caravans**: traders that physically travel between towns, that patrols
+    escort and bandits raid, and that the player can intercept or follow to an undiscovered
+    market. A caravan is a trader that walks. As a component, a caravan NPC gets trading for
+    free; as a building, caravans need the whole thing implemented a second time.
+  - **Presence of the component *is* the "is this a trader?" flag.** No separate bool, so there
+    is nothing that can disagree with reality — no NPC flagged as a merchant with no stock, and
+    no stocked NPC who refuses to trade. Same single-source-of-truth reasoning as Slice 7's
+    `IInventoryHolder`.
+- **Gesture: double-click a living NPC — settled.** Double-click is the "interact with this
+  person" verb. A trader opens the trade window; a non-trader is where **dialog** will go when
+  it exists (out of scope here, and **deliberately no stub** — an empty hook nobody implements
+  is clutter; the settled *ordering* is what makes dialog drop in later with no rework).
+  - **A living NPC becomes a double-click target**, taking that gesture over from
+    select-all-on-screen, which the user has confirmed doesn't work long term for NPCs. It
+    swallows the gesture either way, matching the existing rule for an out-of-range container
+    or body ("the gesture means *that thing*, not *everyone*"). Double-clicking **empty ground**
+    still selects all on screen — that half is unchanged.
+  - **New position in `SelectAllDoubleClick`'s order:** world item → container → body →
+    **living NPC** → empty ground/select-all. Body and living NPC are the same actor type
+    differing only by health state, so prefer one `AStrategyUnit` lookup at
+    `ContainerSelectionRadius` that then branches on state, rather than a second sweep.
+  - **Guard: never trade (or later, talk) with a hostile NPC.** A double-click also fires the
+    normal select click, and a select click on an already-Aggressive NPC currently issues a
+    squad attack order — so without this guard, double-clicking a hostile trader would open
+    their shop and start a fight at once. (That click-to-attack behavior is itself scheduled
+    for removal; see `input-and-keybinds.md`'s "Existing defaults worth revisiting".)
+- **Keyboard route: `T`** — talk/trade with the currently targeted NPC, the same shape as `H`
+  (attack the targeted NPC) and reading the same `SelectedNPC`. Reserved in
+  `input-and-keybinds.md`. Not required for the slice to ship, but it is the accessible
+  alternative to a double-click and costs one binding; add it via that topic's checklist.
+- **Proximity comes free.** `AStrategyUnit` already implements `IInventoryHolder` as of Slice 7,
+  so "is a pawn close enough to trade with this NPC" needs no new distance code — reuse
+  `FindPlayerPawnInRangeOfHolder`/`IsHolderInRangeOfSelection`.
+- **Touches:** new `SmoresEconomy` module (`WalletComponent.*`, `PricingProvider.h`,
+  `TraderComponent.*`), `StrategyPlayerState.*` (loses `Gold`, gains the component),
   `StrategyHUD.*`/`StrategyUI.*` (read through the component), `InventoryMoveHost.h`,
-  `StrategyPlayerController.*`, `InventoryWidget.*`/item widget (price display), a
-  `BP_Storefront`. Deletes `StrategyResourceHost.h`.
+  `StrategyPlayerController.*` (the double-click branch, the trade window, the hostility
+  guard, optionally the `T` binding), `InventoryWidget.*`/item widget (price display), and a
+  `BP_` NPC subclass carrying the trader component. Deletes `StrategyResourceHost.h`.
 - **Note:** standing up a module plus moving replicated state off a framework class is a
   lot to carry alongside the storefront itself. If it turns out too big for one clean
   session, split it — the module + wallet move first (mechanical, verifiable via the
   existing gold execs), the storefront second.
-- **Done when:** buying debits gold and moves the item; insufficient gold rejects with no
-  state change; selling credits gold; all replicated.
+- **Done when:** double-clicking a trader NPC in range opens trade; buying debits gold and
+  moves the item; insufficient gold rejects with no state change; selling credits gold; all
+  replicated. Double-clicking a non-trader, or any hostile NPC, does nothing at all.
 
 ### Slice 9 — Sort and filter
 
@@ -509,6 +546,24 @@ Recorded so future sessions don't reopen them:
   world items — a method that sometimes lies, leaving every caller to remember a null check
   someone eventually won't; and leaving `AWorldItem` off the interface entirely, which preserves
   one of the three duplicate proximity checks the interface exists to delete.)
+- **Traders are a component on a character, not a shop actor** — `UTraderComponent` attaches
+  to an NPC and carries that trader's stock and prices, and its *presence* is the only "is this
+  a trader?" flag there is. Chosen so that `economy.md`'s travelling caravans are the same
+  system rather than a second implementation, and so a merchant can't be half-configured.
+  (Rejected: `AStrategyStorefront : AStrategyContainer`, a stationary shop building; a
+  separate `bIsTrader` bool alongside the stock, which can disagree with itself.)
+- **Double-click a living NPC is the "interact with this person" verb** — a trader opens
+  trade, a non-trader is where dialog goes when it exists. It swallows the gesture either way,
+  the same as an out-of-range container or body already does. Double-clicking *empty ground*
+  still selects all on screen. Never fires on a hostile NPC. (Rejected: letting a living NPC
+  fall through to select-all-on-screen, which would mean changing the gesture's meaning twice —
+  once now and again when dialog lands; and building a dialog stub now, which is clutter
+  nobody would implement against.)
+- **A single click selects the actor under the cursor and does nothing else** — clicking is
+  for picking a target, never for issuing an order against it. The existing
+  click-an-Aggressive-NPC-to-attack shortcut contradicts this and is scheduled for removal;
+  `H` already covers attacking a target. (Rejected: keeping click-to-attack as a convenience,
+  which makes a single click mean different things depending on the target's mood.)
 - **Encumbrance** — tracked and displayed only; effects deferred to a characters/combat
   pass. (Rejected: soft slowdown now, hard cap.)
 - **World pickup range** — double-click gated by the shared proximity check; no auto-pickup

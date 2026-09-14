@@ -20,7 +20,7 @@ Amend this topic in the same change as any new binding.
 
 | Key | Action asset | Does |
 |---|---|---|
-| Left mouse | `IA_Strategy_SelectClick`, `_SelectHold`, `_SelectClickAdditive`, `_SelectAllDoubleClick` | Select; hold to drag a selection box; additive select; double-click a loose world item to pick it up, a container or Downed NPC to open it, or empty ground to select all on screen |
+| Left mouse | `IA_Strategy_SelectClick`, `_SelectHold`, `_SelectClickAdditive`, `_SelectAllDoubleClick` | Select; hold to drag a selection box; additive select; double-click a loose world item to pick it up, a container or a body to open it, or empty ground to select all on screen. **Planned (Slice 8):** double-clicking a *living* NPC interacts with them — trade if they carry a trader component, dialog once that exists — taking that gesture over from select-all-on-screen and never firing on a hostile NPC |
 | Right mouse | `IA_Strategy_InteractClick` | Move order / interact at the cursor |
 | Middle mouse (hold) | `IA_Strategy_InteractHold` | Rotate the camera |
 | Mouse wheel | `IA_Strategy_Zoom` | Camera zoom |
@@ -102,6 +102,18 @@ because a window now swallows the *press* of every button that lands on it — s
   right default, since it makes a fast second click mean what a slow one does. This is easy to
   miss because it only reproduces inside the OS double-click time *and* slop rectangle — a
   slightly slower repeat comes through as two ordinary presses and behaves correctly.
+- **The double-click gesture's own window is measured release-to-release, not press-to-press.**
+  `IA_Strategy_SelectAllDoubleClick` uses `UInputTriggerRepeatedTap`, whose `RepeatDelay` clock
+  starts when the *first* click is released and must stop by the time the *second* one is
+  released — so the budget covers the gap between the clicks **plus** however long the second
+  click is held, and frame granularity eats a further ~16 ms at each end. Epic's Strategy
+  template shipped this asset with `RepeatDelay` at 0.2, which a comfortable double-click
+  (~200 ms gap + ~80 ms hold) misses outright; it was raised to the engine default of 0.5, which
+  is also Windows' system-wide double-click speed. The symptom of too short a window is
+  distinctive and easy to misread: the gesture fails, the player instinctively clicks faster on
+  the retry, and it succeeds — so it presents as "the second or third try works" rather than as
+  a timing setting. Each individual click must also be held under `TapReleaseTimeThreshold`
+  (0.2s) to count as a tap at all.
 - **Modifier conventions** — keep these consistent everywhere so they're learnable:
   `Shift` = whole/all (take all, queue an order), `Ctrl` = part/split (split a stack),
   `Alt` = inspect/info. `Shift` is already the in-world selection modifier, which matches.
@@ -180,10 +192,11 @@ now means either a conflict later or a default that surprises the player.
 | `B` | Base / build mode |
 | `1`–`9`, `0` | Squad and control-group recall; `Ctrl`+digit to assign |
 | `F1`–`F4` | Select squad member N, if party-slot selection is ever wanted |
+| `T` | Talk / trade with the targeted NPC — the keyboard route to the Slice 8 double-click, same shape as `H`, reading the same `SelectedNPC` |
 | `` ` `` | Console |
 | `Alt` (hold) | Highlight interactables / show ground item names |
 
-Broadly free today: `F`, `G`, `L`, `N`, `P`, `T`, `U`, `V`, `X`, `Y`, `Z`. `R` is used in the
+Broadly free today: `F`, `G`, `L`, `N`, `P`, `U`, `V`, `X`, `Y`, `Z`. `R` is used in the
 inventory context only — prefer not to give it a second, unrelated meaning in the world
 context, since one key meaning two things is exactly what the context system exists to
 *avoid* needing.
@@ -198,6 +211,14 @@ players build muscle memory:
   one key.
 - **`O` to open a container** is unconventional; `E` is the usual interact/open key, which is
   unavailable because `E` raises the camera.
+- **A single click on an NPC that is already Aggressive issues a squad attack order**, which
+  breaks the settled rule that **a single click selects the actor under the cursor and does
+  nothing else**. Clicking picks a target; it never issues an order against that target. `H`
+  already covers attacking, so this shortcut is redundant as well as inconsistent — and it is
+  what forces Slice 8's "never trade with a hostile NPC" guard, since a double-click fires the
+  select click too. **Scheduled for removal**, folded into whichever slice next touches
+  `DoSelectCommand` (Slice 8 is the likely one). See `inventory-roadmap.md`'s Resolved Design
+  Decisions.
 - **`Q`/`E` on camera height** spends two premium keys — in most RPGs they're ability or
   quick-slot keys. Camera height is a rarely-touched control holding valuable real estate.
 
