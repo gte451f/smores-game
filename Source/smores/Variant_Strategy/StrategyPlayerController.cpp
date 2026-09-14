@@ -31,6 +31,9 @@
 #include "WorldItem.h"
 #include "InventoryHolder.h"
 #include "HealthComponent.h"
+#include "WalletComponent.h"
+#include "TraderComponent.h"
+#include "ItemDefinition.h"
 #include "Components/CapsuleComponent.h"
 #include "Blueprint/UserWidget.h"
 #include "smores.h"
@@ -170,6 +173,13 @@ void AStrategyPlayerController::SetupInputComponent()
 			if (AttackAction)
 			{
 				EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::AttackKeyPressed);
+			}
+
+			// Talk/trade with the targeted NPC - the keyboard route to the double-click interact,
+			// and the accessible alternative to it (desktop only; not mapped in the touch IMC)
+			if (TalkAction)
+			{
+				EnhancedInputComponent->BindAction(TalkAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::TalkKeyPressed);
 			}
 
 			// Drag rotate. Bound here but only *mapped* while an inventory window is open (see
@@ -683,6 +693,13 @@ void AStrategyPlayerController::CloseContainer()
 		}
 	}
 
+	// the pawn's own pack stays open, but it was only quoting sell prices because a trader was
+	// on the other side of it - with the counter gone, so is the offer
+	if (InventoryWidget)
+	{
+		InventoryWidget->ClearPricing();
+	}
+
 	UpdateInventoryInputContext();
 }
 
@@ -776,12 +793,109 @@ void AStrategyPlayerController::OpenLoot(AStrategyUnit* LootTarget)
 	}
 }
 
+void AStrategyPlayerController::OpenTrade(AStrategyUnit* TraderUnit, UTraderComponent* Stock)
+{
+	if (!TraderUnit || !Stock)
+	{
+		return;
+	}
+
+	// spawn the widget on first use
+	if (!ContainerWidget)
+	{
+		if (!ContainerWidgetClass)
+		{
+			UE_LOG(Logsmores, Warning, TEXT("StrategyPlayerController has no ContainerWidgetClass set; can't open the trade screen."));
+			return;
+		}
+
+		ContainerWidget = CreateWidget<UInventoryWidget>(this, ContainerWidgetClass);
+
+		if (ContainerWidget)
+		{
+			ContainerWidget->OnWindowClosed.AddUniqueDynamic(this, &AStrategyPlayerController::HandleWindowClosed);
+		}
+	}
+
+	if (ContainerWidget)
+	{
+		ContainerWidget->SetWindowTitle(FText::Format(LOCTEXT("TraderInventoryTitle", "{0} - Wares"), TraderUnit->GetHolderDisplayName()));
+		ContainerWidget->SetInventory(Stock);
+
+		// this window holds the trader's stock, so its items quote what the player would *pay*
+		ContainerWidget->SetPricing(Stock, /*bItemsAreTraderStock =*/ true);
+		ContainerWidget->AddToViewport(0);
+	}
+
+	UpdateInventoryInputContext();
+
+	// the pawn's own pack opens alongside, exactly as it does for a chest or a body - a trade is
+	// the same two-panel drag-and-drop transfer with prices attached
+	if (AStrategyPlayerUnit* ClosestPawn = FindClosestPlayerPawn(TraderUnit->GetActorLocation()))
+	{
+		OpenInventoryForPawn(ClosestPawn, /*bOpenEquipment =*/ false);
+
+		// ...and it is the other side of the same counter, so its items quote what the trader
+		// would pay for them. Set after OpenInventoryForPawn, which rebinds and so clears this.
+		if (InventoryWidget)
+		{
+			InventoryWidget->SetPricing(Stock, /*bItemsAreTraderStock =*/ false);
+		}
+	}
+}
+
+void AStrategyPlayerController::InteractWithNPC(AStrategyUnit* NPC)
+{
+	// a hostile NPC is filtered out by IsInteractableNPC, not by a check here - the rule that
+	// the player never trades with (or, later, talks to) someone currently trying to kill them
+	// lives in one predicate, so dialog inherits it rather than re-deriving it
+	if (!IsInteractableNPC(NPC))
+	{
+		return;
+	}
+
+	UTraderComponent* Stock = GetTraderStock(NPC);
+
+	// no wares means no shop. This is where dialog goes when it exists, and there is
+	// deliberately no stub for it here: an empty hook nobody implements against is clutter, and
+	// the settled *ordering* is what lets dialog drop in later with no rework.
+	if (!Stock)
+	{
+		return;
+	}
+
+	// proximity is the same gate every transfer context shares - a trader implements
+	// IInventoryHolder through AStrategyUnit, so this needed no new distance code
+	if (!FindPlayerPawnInRangeOfHolder(NPC))
+	{
+		return;
+	}
+
+	OpenTrade(NPC, Stock);
+}
+
 void AStrategyPlayerController::AttackKeyPressed(const FInputActionValue& Value)
 {
 	// no effect on a selected container or player pawn - neither ever populates SelectedNPC
 	if (SelectedNPC && !SelectedNPC->IsAggressive())
 	{
 		DoAttackCommand(SelectedNPC);
+	}
+}
+
+void AStrategyPlayerController::TalkKeyPressed(const FInputActionValue& Value)
+{
+	// if a trade (or container, or loot) screen is already open, pressing again closes it -
+	// same toggle shape as the container key
+	if (ContainerWidget && ContainerWidget->IsInViewport())
+	{
+		CloseContainer();
+		return;
+	}
+
+	if (AStrategyUnit* Target = FindInteractableNPCInRange())
+	{
+		InteractWithNPC(Target);
 	}
 }
 
@@ -881,19 +995,32 @@ void AStrategyPlayerController::SelectAllDoubleClick(const FInputActionValue& Va
 			return;
 		}
 
-		// no container at this location - try a body instead, same proximity rule. Downed and
-		// Dead are both lootable and indistinguishable here (see IsLootableNPC).
-		if (AStrategyUnit* Clicked = FindLootableNPCAtLocation(CursorLocation))
+		// no container at this location - try an NPC instead. A body and a living NPC are the same
+		// actor type differing only by health state, so this is one lookup that then branches
+		// rather than two sweeps that would have to agree with each other about which is nearer.
+		if (AStrategyUnit* Clicked = FindNPCAtLocation(CursorLocation))
 		{
 			// highlight it, same as a single click, regardless of range
 			SetSelectedNPC(Clicked);
 
-			// open it if any player-controlled pawn is close enough, same as the container branch
-			if (FindPlayerPawnInRangeOfHolder(Clicked))
+			if (IsLootableNPC(Clicked))
 			{
-				OpenLoot(Clicked);
+				// Downed and Dead are indistinguishable here (see IsLootableNPC) - open it if any
+				// player-controlled pawn is close enough, same as the container branch
+				if (FindPlayerPawnInRangeOfHolder(Clicked))
+				{
+					OpenLoot(Clicked);
+				}
+			}
+			else
+			{
+				// on its feet: double-click is the "interact with this person" verb. A trader
+				// opens trade; a non-trader is where dialog will go; a hostile gets neither.
+				InteractWithNPC(Clicked);
 			}
 
+			// swallowed either way, in range or not, trader or not - the gesture meant *that
+			// person*, not "select everyone". Double-clicking empty ground still selects all.
 			return;
 		}
 	}
@@ -1129,14 +1256,12 @@ bool AStrategyPlayerController::DoSelectCommand(const FVector& SelectLocation, b
 		}
 		else
 		{
-			// NPCs are targetable (highlighted, shown in the selection label) but never commandable
+			// NPCs are targetable (highlighted, shown in the selection label) but never commandable.
+			// Targeting is *all* a click does: it used to also launch an attack when the NPC was
+			// already Aggressive, which made one click mean two different things depending on the
+			// target's mood, and made double-clicking a hostile trader open their shop and start a
+			// fight at once. H attacks the target; this only picks it.
 			SetSelectedNPC(NearestUnit);
-
-			// an already-aggressive NPC is attacked directly by the same click that targets it
-			if (NearestUnit->IsAggressive())
-			{
-				DoAttackCommand(NearestUnit);
-			}
 		}
 
 		return true;
@@ -1324,7 +1449,128 @@ void AStrategyPlayerController::Server_MoveUnits_Implementation(const TArray<ASt
 
 void AStrategyPlayerController::Server_MoveInventoryItem_Implementation(UInventoryComponent* SourceInventory, int32 EntryId, UInventoryComponent* DestInventory, FIntPoint DestCell, bool bRotated, int32 Quantity)
 {
+	// A trader's stock is a UInventoryComponent like any other, so a drag in or out of a trade
+	// window arrives here as an ordinary move and the UI needed no new gesture at all. What makes
+	// it a transaction is recognised on this side, where the gold lives: exactly one end being a
+	// trader means money has to change hands too.
+	//
+	// Source == Dest is excluded deliberately - that is the player repacking one grid, whoever
+	// owns it, and nothing is bought or sold by moving an item within a single shelf.
+	const bool bEitherSideIsStock = SourceInventory && DestInventory && SourceInventory != DestInventory
+		&& (SourceInventory->IsA<UTraderComponent>() || DestInventory->IsA<UTraderComponent>());
+
+	if (bEitherSideIsStock)
+	{
+		TryTradeItem(SourceInventory, EntryId, DestInventory, DestCell, bRotated, Quantity);
+		return;
+	}
+
 	UInventoryComponent::MoveItem(SourceInventory, EntryId, DestInventory, DestCell, bRotated, Quantity);
+}
+
+bool AStrategyPlayerController::TryTradeItem(UInventoryComponent* SourceInventory, int32 EntryId, UInventoryComponent* DestInventory, FIntPoint DestCell, bool bRotated, int32 Quantity)
+{
+	if (!HasAuthority() || !SourceInventory || !DestInventory)
+	{
+		return false;
+	}
+
+	UTraderComponent* SourceStock = Cast<UTraderComponent>(SourceInventory);
+	UTraderComponent* DestStock = Cast<UTraderComponent>(DestInventory);
+
+	// one counter, two sides. Two traders would be a transaction between two NPCs, which is not
+	// something the player is standing in the middle of - and nobody's wallet would pay for it.
+	if ((SourceStock != nullptr) == (DestStock != nullptr))
+	{
+		return false;
+	}
+
+	UTraderComponent* Stock = SourceStock ? SourceStock : DestStock;
+	const bool bBuying = (SourceStock != nullptr);
+
+	AStrategyUnit* TraderUnit = Cast<AStrategyUnit>(Stock->GetOwner());
+
+	// re-checked here rather than trusted from the client, for the same reason
+	// Server_PickUpWorldItem re-checks its own: MoveItem has no idea how far away the asking pawn
+	// was, or what the counterparty thinks of it
+	if (!IsInteractableNPC(TraderUnit) || !FindPlayerPawnInRangeOfHolder(TraderUnit))
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[Trade] Refused: %s is not an interactable trader in range."), *GetNameSafe(TraderUnit));
+		return false;
+	}
+
+	UWalletComponent* Wallet = GetWallet();
+
+	if (!Wallet)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[Trade] Refused: no wallet - is the game mode's PlayerStateClass set to a BP_StrategyPlayerState?"));
+		return false;
+	}
+
+	const FInventoryEntry SourceEntry = SourceInventory->GetEntry(EntryId);
+
+	if (!SourceEntry.IsValidEntry())
+	{
+		return false;
+	}
+
+	const int32 RequestedQuantity = (Quantity <= 0) ? SourceEntry.Item.Quantity : FMath::Min(Quantity, SourceEntry.Item.Quantity);
+
+	if (bBuying)
+	{
+		// priced against everything the player asked for, before anything moves. MoveItem may
+		// well take less than that (a destination stack cap), and the debit below is for what
+		// actually moved - so checking the larger figure first is what guarantees the debit can
+		// never fail after the goods have already changed hands. A player who can't cover the
+		// whole stack is refused outright rather than quietly sold a smaller pile, since there is
+		// no way yet for them to ask for one.
+		const int32 MaximumPrice = Stock->GetBuyPrice(SourceEntry.Item, RequestedQuantity);
+
+		if (!Wallet->CanAfford(MaximumPrice))
+		{
+			UE_LOG(Logsmores, Warning, TEXT("[Trade] REJECTED: %s costs %d, balance %d."),
+				*SourceEntry.Item.GetDisplayName().ToString(), MaximumPrice, Wallet->GetGold());
+
+			return false;
+		}
+	}
+
+	int32 QuantityMoved = 0;
+
+	// the goods half. Rejected for any of MoveItem's own reasons (no room, an unstackable
+	// collision) it mutates nothing, and neither does the money half below
+	if (!UInventoryComponent::MoveItemCounted(SourceInventory, EntryId, DestInventory, DestCell, bRotated, Quantity, QuantityMoved) || QuantityMoved <= 0)
+	{
+		return false;
+	}
+
+	if (bBuying)
+	{
+		const int32 Price = Stock->GetBuyPrice(SourceEntry.Item, QuantityMoved);
+
+		// can only fail if something mutated the balance between the check above and here, which
+		// nothing can inside one server call - logged rather than silently ignored because the
+		// failure would mean goods handed over for free
+		if (!Wallet->TrySpendGold(Price))
+		{
+			UE_LOG(Logsmores, Error, TEXT("[Trade] Balance moved mid-transaction: %d x %s handed over unpaid."),
+				QuantityMoved, *SourceEntry.Item.GetDisplayName().ToString());
+		}
+
+		UE_LOG(Logsmores, Warning, TEXT("[Trade] Bought %d x %s for %d, balance %d."),
+			QuantityMoved, *SourceEntry.Item.GetDisplayName().ToString(), Price, Wallet->GetGold());
+
+		return true;
+	}
+
+	const int32 Payment = Stock->GetSellPrice(SourceEntry.Item, QuantityMoved);
+
+	Wallet->AddGold(Payment);
+
+	UE_LOG(Logsmores, Warning, TEXT("[Trade] Sold %d x %s for %d, balance %d."),
+		QuantityMoved, *SourceEntry.Item.GetDisplayName().ToString(), Payment, Wallet->GetGold());
+
+	return true;
 }
 
 void AStrategyPlayerController::Server_EquipItem_Implementation(UInventoryComponent* SourceInventory, int32 EntryId, UEquipmentComponent* Equipment, EEquipSlot Slot)
@@ -1379,11 +1625,11 @@ AStrategyPlayerState* AStrategyPlayerController::GetStrategyPlayerState() const
 	return GetPlayerState<AStrategyPlayerState>();
 }
 
-int32 AStrategyPlayerController::GetPlayerGold() const
+UWalletComponent* AStrategyPlayerController::GetWallet() const
 {
 	const AStrategyPlayerState* StrategyPlayerState = GetStrategyPlayerState();
 
-	return StrategyPlayerState ? StrategyPlayerState->GetGold() : 0;
+	return StrategyPlayerState ? StrategyPlayerState->GetWallet() : nullptr;
 }
 
 void AStrategyPlayerController::SmoresAddGold(int32 Amount)
@@ -1398,27 +1644,27 @@ void AStrategyPlayerController::SmoresSpendGold(int32 Amount)
 
 void AStrategyPlayerController::Server_DebugGold_Implementation(int32 Amount, bool bSpend)
 {
-	AStrategyPlayerState* StrategyPlayerState = GetStrategyPlayerState();
+	UWalletComponent* Wallet = GetWallet();
 
-	if (!StrategyPlayerState)
+	if (!Wallet)
 	{
-		UE_LOG(Logsmores, Warning, TEXT("[GoldDebug] No AStrategyPlayerState - is the game mode's PlayerStateClass set to a BP_StrategyPlayerState?"));
+		UE_LOG(Logsmores, Warning, TEXT("[GoldDebug] No wallet - is the game mode's PlayerStateClass set to a BP_StrategyPlayerState?"));
 		return;
 	}
 
 	if (bSpend)
 	{
-		const bool bSpent = StrategyPlayerState->TrySpendGold(Amount);
+		const bool bSpent = Wallet->TrySpendGold(Amount);
 
 		UE_LOG(Logsmores, Warning, TEXT("[GoldDebug] TrySpendGold(%d) -> %s, balance %d"),
-			Amount, bSpent ? TEXT("paid") : TEXT("REJECTED"), StrategyPlayerState->GetGold());
+			Amount, bSpent ? TEXT("paid") : TEXT("REJECTED"), Wallet->GetGold());
 
 		return;
 	}
 
-	StrategyPlayerState->AddGold(Amount);
+	Wallet->AddGold(Amount);
 
-	UE_LOG(Logsmores, Warning, TEXT("[GoldDebug] AddGold(%d), balance %d"), Amount, StrategyPlayerState->GetGold());
+	UE_LOG(Logsmores, Warning, TEXT("[GoldDebug] AddGold(%d), balance %d"), Amount, Wallet->GetGold());
 }
 
 void AStrategyPlayerController::SmoresDumpInventory()
@@ -1546,6 +1792,108 @@ void AStrategyPlayerController::Server_DebugKill_Implementation(AStrategyUnit* T
 void AStrategyPlayerController::SmoresDumpEquipment()
 {
 	DebugEquipmentForSelection(INDEX_NONE, INDEX_NONE);
+}
+
+void AStrategyPlayerController::SmoresDumpTrader()
+{
+	DebugTradeForSelection(INDEX_NONE, INDEX_NONE);
+}
+
+void AStrategyPlayerController::SmoresBuyItem(int32 EntryIndex)
+{
+	DebugTradeForSelection(EntryIndex, INDEX_NONE);
+}
+
+void AStrategyPlayerController::SmoresSellItem(int32 EntryIndex)
+{
+	DebugTradeForSelection(INDEX_NONE, EntryIndex);
+}
+
+void AStrategyPlayerController::DebugTradeForSelection(int32 BuyEntryIndex, int32 SellEntryIndex)
+{
+	// SelectedNPC is client-side input state, exactly like the kill exec's, and the authoritative
+	// stock/grid/balance all live on the server - so resolve both ends here and hop across
+	if (!IsValid(SelectedNPC))
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[TradeDebug] No NPC targeted - click one first."));
+		return;
+	}
+
+	for (AStrategyUnit* CurrentUnit : ControlledUnits)
+	{
+		if (AStrategyPlayerUnit* PlayerUnit = Cast<AStrategyPlayerUnit>(CurrentUnit))
+		{
+			Server_DebugTrade(SelectedNPC, PlayerUnit->GetInventory(), BuyEntryIndex, SellEntryIndex);
+			return;
+		}
+	}
+
+	UE_LOG(Logsmores, Warning, TEXT("[TradeDebug] No player pawn selected."));
+}
+
+bool AStrategyPlayerController::DebugTradeEntry(UInventoryComponent* SourceInventory, UInventoryComponent* DestInventory, int32 EntryIndex)
+{
+	const TArray<FInventoryEntry>& Entries = SourceInventory->GetEntries();
+
+	if (!Entries.IsValidIndex(EntryIndex))
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[TradeDebug] No entry at index %d (%d placed)."), EntryIndex, Entries.Num());
+		return false;
+	}
+
+	const FInventoryEntry Entry = Entries[EntryIndex];
+
+	// the real path always carries the cell the player dropped on; an exec has no pointer, so it
+	// picks any cell that fits and then runs the ordinary transaction unchanged
+	FIntPoint DestCell = FIntPoint::ZeroValue;
+	bool bDestRotated = false;
+
+	if (!DestInventory->FindFreePlacement(Entry.Item, DestCell, bDestRotated))
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[TradeDebug] No room for %s in the destination grid."), *Entry.Item.GetDisplayName().ToString());
+		return false;
+	}
+
+	return TryTradeItem(SourceInventory, Entry.EntryId, DestInventory, DestCell, bDestRotated, 0);
+}
+
+void AStrategyPlayerController::Server_DebugTrade_Implementation(AStrategyUnit* TraderUnit, UInventoryComponent* PawnInventory, int32 BuyEntryIndex, int32 SellEntryIndex)
+{
+	UTraderComponent* Stock = GetTraderStock(TraderUnit);
+
+	if (!Stock || !PawnInventory)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[TradeDebug] %s is not a trader the player can deal with right now."), *GetNameSafe(TraderUnit));
+		return;
+	}
+
+	if (BuyEntryIndex >= 0)
+	{
+		DebugTradeEntry(Stock, PawnInventory, BuyEntryIndex);
+	}
+
+	if (SellEntryIndex >= 0)
+	{
+		DebugTradeEntry(PawnInventory, Stock, SellEntryIndex);
+	}
+
+	const UWalletComponent* Wallet = GetWallet();
+
+	UE_LOG(Logsmores, Warning, TEXT("[TradeDebug] %s: %d stocked entries, buy x%.2f / sell x%.2f, player balance %d"),
+		*TraderUnit->GetHolderDisplayName().ToString(), Stock->GetEntries().Num(),
+		Stock->BuyMarkup, Stock->SellMarkdown, Wallet ? Wallet->GetGold() : 0);
+
+	int32 Index = 0;
+
+	for (const FInventoryEntry& Entry : Stock->GetEntries())
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[TradeDebug]   [%d] %s - buy %d each (%d total), sell %d each"),
+			Index++,
+			*UInventoryWidget::GetItemLabel(Entry.Item).ToString(),
+			Stock->GetUnitBuyPrice(Entry.Item),
+			Stock->GetBuyPrice(Entry.Item, Entry.Item.Quantity),
+			Stock->GetUnitSellPrice(Entry.Item));
+	}
 }
 
 void AStrategyPlayerController::SmoresDropItem(int32 EntryIndex)
@@ -1928,6 +2276,27 @@ bool AStrategyPlayerController::IsLootableNPC(const AStrategyUnit* Unit)
 	return IsValid(Unit) && !Cast<AStrategyPlayerUnit>(Unit) && Unit->IsIncapacitated();
 }
 
+bool AStrategyPlayerController::IsInteractableNPC(const AStrategyUnit* Unit)
+{
+	// the mirror of IsLootableNPC: never one of the player's own pawns, on its feet rather than
+	// Downed or Dead, and not currently hostile. That last clause is the whole "never trade with
+	// someone trying to kill you" rule, written down once here so dialog inherits it.
+	return IsValid(Unit) && !Cast<AStrategyPlayerUnit>(Unit) && !Unit->IsIncapacitated() && !Unit->IsAggressive();
+}
+
+UTraderComponent* AStrategyPlayerController::GetTraderStock(const AStrategyUnit* Unit)
+{
+	if (!IsInteractableNPC(Unit))
+	{
+		return nullptr;
+	}
+
+	// the component's presence *is* the "is this a trader?" flag - there is no separate bool that
+	// could disagree with it, which is the same single-source-of-truth reasoning IInventoryHolder
+	// was built on
+	return Unit->FindComponentByClass<UTraderComponent>();
+}
+
 AStrategyContainer* AStrategyPlayerController::FindContainerInRange() const
 {
 	TArray<AActor*> FoundContainers;
@@ -1972,6 +2341,18 @@ AStrategyUnit* AStrategyPlayerController::FindLootableNPCInRange() const
 	return IsHolderInRangeOfSelection(SelectedNPC) ? SelectedNPC : nullptr;
 }
 
+AStrategyUnit* AStrategyPlayerController::FindInteractableNPCInRange() const
+{
+	// same shape as FindLootableNPCInRange, and deliberately: a key press acts on whoever the
+	// player targeted, never on whoever happens to be standing closest
+	if (!IsInteractableNPC(SelectedNPC))
+	{
+		return nullptr;
+	}
+
+	return IsHolderInRangeOfSelection(SelectedNPC) ? SelectedNPC : nullptr;
+}
+
 AStrategyContainer* AStrategyPlayerController::FindContainerAtLocation(const FVector& Location) const
 {
 	// every container qualifies - a chest is a chest whether or not the player can reach it, and
@@ -1980,11 +2361,14 @@ AStrategyContainer* AStrategyPlayerController::FindContainerAtLocation(const FVe
 		[](const AActor*) { return true; }));
 }
 
-AStrategyUnit* AStrategyPlayerController::FindLootableNPCAtLocation(const FVector& Location) const
+AStrategyUnit* AStrategyPlayerController::FindNPCAtLocation(const FVector& Location) const
 {
-	// shares the container's click radius: a body on the ground is about as big a thing to aim at
+	// shares the container's click radius: a person, standing or fallen, is about as big a thing
+	// to aim at as a chest. The filter is only "not one of ours" - what the NPC's state *means*
+	// is the caller's branch, not a second sweep, so a body and a living NPC can never be found
+	// by two lookups that disagree about which was nearer.
 	return Cast<AStrategyUnit>(FindHolderActorAtLocation(AStrategyUnit::StaticClass(), Location, ContainerSelectionRadius,
-		[](const AActor* Actor) { return IsLootableNPC(Cast<AStrategyUnit>(Actor)); }));
+		[](const AActor* Actor) { return IsValid(Actor) && !Cast<AStrategyPlayerUnit>(Actor); }));
 }
 
 AStrategyPlayerUnit* AStrategyPlayerController::FindClosestPlayerPawn(const FVector& Location)

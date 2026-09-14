@@ -2,9 +2,9 @@
 
 using UnrealBuildTool;
 
-public class SmoresUI : ModuleRules
+public class SmoresEconomy : ModuleRules
 {
-	public SmoresUI(ReadOnlyTargetRules Target) : base(Target)
+	public SmoresEconomy(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
@@ -12,20 +12,14 @@ public class SmoresUI : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
-			"InputCore",
-			"UMG",
-			"Slate",
-			"SlateCore",
 			"SmoresCore",
-			"SmoresItems",
-			"SmoresCharacters",
-			"SmoresEconomy"
+			"SmoresItems"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
 		PublicIncludePaths.AddRange(new string[] {
-			"SmoresUI"
+			"SmoresEconomy"
 		});
 	}
 }

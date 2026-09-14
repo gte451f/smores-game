@@ -444,6 +444,15 @@ bool UInventoryComponent::SetGridSize(int32 NewWidth, int32 NewHeight)
 
 bool UInventoryComponent::MoveItem(UInventoryComponent* SourceInventory, int32 EntryId, UInventoryComponent* DestInventory, FIntPoint DestCell, bool bRotated, int32 Quantity)
 {
+	int32 QuantityMoved = 0;
+
+	return MoveItemCounted(SourceInventory, EntryId, DestInventory, DestCell, bRotated, Quantity, QuantityMoved);
+}
+
+bool UInventoryComponent::MoveItemCounted(UInventoryComponent* SourceInventory, int32 EntryId, UInventoryComponent* DestInventory, FIntPoint DestCell, bool bRotated, int32 Quantity, int32& OutQuantityMoved)
+{
+	OutQuantityMoved = 0;
+
 	if (!SourceInventory || !DestInventory)
 	{
 		return false;
@@ -511,6 +520,8 @@ bool UInventoryComponent::MoveItem(UInventoryComponent* SourceInventory, int32 E
 		DestInventory->SetEntryQuantity(TargetEntryId, TargetEntry.Item.Quantity + Merged);
 		SourceInventory->SetEntryQuantity(EntryId, SourceEntry.Item.Quantity - Merged);
 
+		OutQuantityMoved = Merged;
+
 		return true;
 	}
 
@@ -526,7 +537,14 @@ bool UInventoryComponent::MoveItem(UInventoryComponent* SourceInventory, int32 E
 	if (bSameInventory && bMovingWholeEntry)
 	{
 		// a pure reposition - the entry keeps its id rather than being destroyed and recreated
-		return SourceInventory->RepositionEntry(EntryId, DestCell, bRotated);
+		if (!SourceInventory->RepositionEntry(EntryId, DestCell, bRotated))
+		{
+			return false;
+		}
+
+		OutQuantityMoved = MoveQuantity;
+
+		return true;
 	}
 
 	if (!DestInventory->AddItemAt(MovedItem, DestCell, bRotated))
@@ -535,6 +553,8 @@ bool UInventoryComponent::MoveItem(UInventoryComponent* SourceInventory, int32 E
 	}
 
 	SourceInventory->SetEntryQuantity(EntryId, SourceEntry.Item.Quantity - MoveQuantity);
+
+	OutQuantityMoved = MoveQuantity;
 
 	return true;
 }

@@ -13,18 +13,27 @@ see "When to Actually Split" below.
 
 ## Current State
 
-Six runtime modules: `smores` (`Source/smores/smores.Build.cs`, the primary/game
+Seven runtime modules: `smores` (`Source/smores/smores.Build.cs`, the primary/game
 module), `SmoresCore` (empty proving module, stood up alongside the first real split),
 `SmoresCombat` (`HealthComponent`, `CombatComponent`, `DamageNumberActor`/
 `DamageNumberWidget`, `AnimNotify_AttackHit`, plus a small `IAttackDamageDealer` interface),
 `SmoresItems` (`UItemDefinition`, `FInventoryItem`/`FInventoryEntry`/`UInventoryComponent`,
-`AStrategyContainer`, `AStrategyChest`), `SmoresCharacters` (`AStrategyUnit`,
-`AStrategyPlayerUnit`), and `SmoresUI` (`AStrategyHUD`, `UStrategyUI`,
-`UStrategyTouchControls`, `UWindowWidget`, `UInventoryWidget`, `UInventoryCellWidget`,
-`UInventoryItemWidget`, `UInventoryDragDropOperation`, plus `IStrategySelectionHost`/
-`IStrategyCameraCommands`/`IStrategyResourceHost`/`IInventoryMoveHost` — see "Migrating
-Today's Prototype Code" below). One game `Target.cs` and one Editor `Target.cs`, both
-referencing all six modules.
+`UEquipmentComponent`, `AStrategyContainer`, `AStrategyChest`, `AWorldItem`,
+`IInventoryHolder`), `SmoresCharacters` (`AStrategyUnit`, `AStrategyPlayerUnit`), `SmoresUI`
+(`AStrategyHUD`, `UStrategyUI`, `UStrategyTouchControls`, `UWindowWidget`, `UInventoryWidget`,
+`UInventoryCellWidget`, `UInventoryItemWidget`, `UEquipmentWidget`/`UEquipmentSlotWidget`,
+`UInventoryDragDropOperation`, plus `IStrategySelectionHost`/`IStrategyCameraCommands`/
+`IInventoryMoveHost`), and `SmoresEconomy` (`UWalletComponent`, `IPricingProvider`,
+`UTraderComponent`) — see "Migrating Today's Prototype Code" below. One game `Target.cs` and
+one Editor `Target.cs`, both referencing all seven modules.
+
+`SmoresEconomy` is the **first module cut for an ownership reason rather than as part of the
+original migration**, and it is worth reading as the worked example of "When to Actually
+Split" below: it was stood up only once a wallet, a price and a transaction were all arriving
+at once and needed a home that depends on `SmoresItems` and nothing else. Standing it up also
+*deleted* `IStrategyResourceHost` — the interface existed purely so `SmoresUI` could read a
+gold balance living in `smores`, and a component in a module `SmoresUI` already depends on
+needs no interface at all.
 
 Measured 2026-09-12, in lines of `.h` + `.cpp`: `smores` 3250, `SmoresUI` 2049,
 `SmoresItems` 1222, `SmoresCombat` 878, `SmoresCharacters` 781, `SmoresCore` 11. **Read
@@ -98,12 +107,14 @@ Source/
     StrategyHUD.* StrategyUI.* StrategyTouchControls.* WindowWidget.*
     InventoryWidget.* InventoryCellWidget.* InventoryItemWidget.*
     InventoryDragDropOperation.*   # moved from smores/Variant_Strategy/UI/
-    StrategySelectionHost.* StrategyCameraCommands.* StrategyResourceHost.*
+    StrategySelectionHost.* StrategyCameraCommands.*
     InventoryMoveHost.*            # narrow interfaces, resolve the smores<->SmoresUI coupling
-                                   # (AStrategyPlayerController implements all four).
-                                   # StrategyResourceHost goes away if gold becomes a
-                                   # component - see "Framework Classes vs. Feature Modules"
-  SmoresEconomy/                   # value primitives: WalletComponent, PricingProvider
+                                   # (AStrategyPlayerController implements all three).
+                                   # StrategyResourceHost used to be a fourth; it was deleted
+                                   # when gold became a component - see "Framework Classes
+                                   # vs. Feature Modules"
+  SmoresEconomy/                   # value primitives: WalletComponent, PricingProvider,
+                                   # TraderComponent (a UInventoryComponent subclass)
   SmoresMarkets/                   # market simulation, much later - see the target map
   SmoresSaveGame/
   SmoresOnlineSession/
@@ -182,9 +193,16 @@ AStrategyUnit                      <- thin host; ~780 lines for the WHOLE module
   +-- UEquipmentComponent  (SmoresItems)
 ```
 
-`AStrategyPlayerState` should be the identical shape and currently isn't: Slice 4 put `Gold`
-inline on it, because one `int32` didn't feel worth a component. That was a defensible call
-for the *first* piece of player state and an indefensible one for the fourth.
+`AStrategyPlayerState` is now the identical shape, and the route it took there is the lesson:
+Slice 4 put `Gold` inline on it because one `int32` didn't feel worth a component — a
+defensible call for the *first* piece of player state and an indefensible one for the fourth —
+and Slice 8 moved it into a `UWalletComponent` the moment `SmoresEconomy` existed to hold one.
+The player state now owns no state of its own at all:
+
+```
+AStrategyPlayerState               <- thin host; ~40 lines, and meant to stay that way
+  +-- UWalletComponent     (SmoresEconomy)
+```
 
 ### What is queued to land on the player state
 
@@ -193,7 +211,7 @@ the same home:
 
 | Incoming state | Design source | Should become |
 |---|---|---|
-| Gold (**inline today**) | `economy.md` | `UWalletComponent` |
+| Gold (**DONE**, Slice 8) | `economy.md` | `UWalletComponent` (`SmoresEconomy`) |
 | Squad roster & divisions | `characters-and-squads.md` | `USquadComponent` (`SmoresCharacters`) |
 | Faction standing | `factions-and-world-state.md` | `UStandingComponent` (`SmoresFactions`) |
 | Research progress | `tech-and-crafting.md` | `UResearchComponent` (`SmoresTechCrafting`) |
@@ -212,19 +230,22 @@ A component is cheap, replicates the same way, and can move modules later withou
 its host. `APlayerState` is an `AActor`, so components and `SetIsReplicatedByDefault(true)`
 work on it exactly as they do on `AStrategyUnit`.
 
-**Bonus: a component can dissolve an interface.** `IStrategyResourceHost` exists only
-because `SmoresUI` can't see `AStrategyPlayerState` in `smores`. Move gold to a
-`UWalletComponent` in a module `SmoresUI` already depends on, and the HUD can reach it with
-no interface at all, because `APlayerState` is an engine type visible everywhere:
+**Bonus: a component can dissolve an interface — this is no longer hypothetical.**
+`IStrategyResourceHost` existed only because `SmoresUI` couldn't see `AStrategyPlayerState` in
+`smores`. Slice 8 moved gold to a `UWalletComponent` in `SmoresEconomy`, a module `SmoresUI`
+already depends on, and the interface was **deleted**: the HUD reaches the balance with no
+interface at all, because `APlayerState` is an engine type visible everywhere:
 
 ```cpp
 // SmoresUI, no dependency on `smores` and no interface needed
 UWalletComponent* Wallet = PC->PlayerState->FindComponentByClass<UWalletComponent>();
 ```
 
-(Cache that pointer rather than re-scanning every `DrawHUD` frame.) Weigh this whenever a
-new `I*Host` interface is about to be added: if the thing the UI wants to read is *state*
-rather than *behavior*, a component is usually the better answer than a fifth interface.
+(`AStrategyHUD` caches that pointer rather than re-scanning every `DrawHUD` frame, and
+re-runs the lookup only while it is still null — a player state can replicate in well after
+the HUD exists.) Weigh this whenever a new `I*Host` interface is about to be added: if the
+thing the UI wants to read is *state* rather than *behavior*, a component is usually the
+better answer than a fourth interface.
 
 ## Proposed Target Module Map
 
@@ -235,7 +256,7 @@ rather than *behavior*, a component is usually the better answer than a fifth in
 | `SmoresCharacters` | Lineage, attributes/skills, recruitment/wages/morale, injuries, squad/division management | `SmoresCore`, `SmoresItems` | `characters-and-squads.md` |
 | `SmoresCombat` | Health/damage, melee resolution, disposition/aggro, incapacitation/capture | `SmoresCore`, `SmoresCharacters` | `combat.md` (both skills) |
 | `SmoresFactions` | Faction simulation, standing, territory, assault intelligence, military progression | `SmoresCore`, `SmoresCharacters` | `factions-and-world-state.md` |
-| `SmoresEconomy` | **Value primitives only**: currency/wallet, pricing interface, buy/sell transactions | `SmoresCore`, `SmoresItems` | `economy.md` |
+| `SmoresEconomy` **(EXISTS)** | **Value primitives only**: currency/wallet, pricing interface, traders and their stock | `SmoresCore`, `SmoresItems` | `economy.md` |
 | `SmoresMarkets` | Market simulation proper: supply/demand, emergent regional pricing, trade routes, caravans | `SmoresCore`, `SmoresItems`, `SmoresEconomy`, `SmoresFactions`, `SmoresWorld` | `economy.md` |
 | `SmoresWorld` | Map data, regions/biomes, POIs, fog of war/travel, wildlife, environmental events | `SmoresCore`, `SmoresFactions` (territory overlay) | `open-world.md`, `world-map-and-travel.md` |
 | `SmoresBaseBuilding` | Outpost/town-building placement, Building Mode, supply chains/upkeep | `SmoresCore`, `SmoresItems`, `SmoresWorld`, `SmoresFactions` | `base-building.md` |
@@ -255,7 +276,7 @@ on `SmoresFactions`. That conflates two layers with very different dependencies,
 in practice: a player's *wallet* is an `int32` that needs nothing but items, yet the table
 as written would have dragged a whole faction simulation onto it — which is part of why
 Slice 4's gold ended up inline on `AStrategyPlayerState` instead. The low layer (currency,
-a price, a transaction) is buildable today and is what Slice 8 actually needs; the high
+a price, a transaction) was buildable immediately and is exactly what Slice 8 built; the high
 layer (a simulated market that *sets* those prices) genuinely does need factions and world
 and is years out. Keep them apart so the cheap half isn't held hostage by the expensive
 one, and so the pricing interface has a home that a market sim can later implement from
@@ -368,7 +389,8 @@ it silently won't compile in or link:
    hooks) — every module needs exactly one of these.
 3. **An entry in `smores.uproject`'s `"Modules"` array**: `Name`, `Type` (`Runtime`, or
    `Editor` for an editor-only module like `SmoresEditor`), and `LoadingPhase` (`Default`
-   matches what `smores` already uses).
+   matches what `smores` already uses). Note that editing the `.uproject` makes UBT rebuild
+   its makefile from scratch, which is what you want for a new module anyway.
 4. **An `ExtraModuleNames.Add("<ModuleName>")` line in *both* `smores.Target.cs` and
    `smoresEditor.Target.cs`** — a Runtime module referenced only in the game target won't
    load in editor builds, and vice versa.
@@ -533,12 +555,12 @@ first:
 - **Breaking up `AStrategyPlayerController`** (2433 lines across four-plus responsibilities)
   — camera control is the natural first extraction. Not scheduled; see "The junk drawer is a
   class, not a module."
-- **Moving `AStrategyPlayerState::Gold` into a `UWalletComponent`** once `SmoresEconomy`
-  exists. Slice 8 of `inventory-roadmap.md` is the natural moment, since it builds the
-  pricing interface and the transaction alongside. Would also let `IStrategyResourceHost`
-  be deleted — see "Framework Classes vs. Feature Modules."
-- Migration is underway — `SmoresCore`, `SmoresCombat`, `SmoresItems`, `SmoresCharacters`,
-  and now `SmoresUI` (steps 1-4, see "Migrating Today's Prototype Code") are all done. All
-  four migration steps originally scoped are complete; no further step is currently
-  planned (the remaining modules in the target map correspond to systems that don't exist
-  in any form yet). Keep updating that section's status if/when a further split starts.
+- **DONE** — `AStrategyPlayerState::Gold` moved into a `UWalletComponent` in the new
+  `SmoresEconomy`, and `IStrategyResourceHost` was deleted, both in Slice 8 of
+  `inventory-roadmap.md`. See "Framework Classes vs. Feature Modules."
+- Migration is complete — `SmoresCore`, `SmoresCombat`, `SmoresItems`, `SmoresCharacters` and
+  `SmoresUI` (steps 1-4, see "Migrating Today's Prototype Code") are all done, and no further
+  *migration* step is planned; the remaining modules in the target map correspond to systems
+  that don't exist in any form yet. `SmoresEconomy` was added afterwards and is a different
+  kind of event — a **new** module cut for a domain that had just become real, not existing
+  code relocating. Expect the rest of the target map to arrive that way too.

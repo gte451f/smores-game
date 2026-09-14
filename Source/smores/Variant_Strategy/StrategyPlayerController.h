@@ -7,7 +7,6 @@
 #include "GameFramework/PlayerController.h"
 #include "StrategySelectionHost.h"
 #include "StrategyCameraCommands.h"
-#include "StrategyResourceHost.h"
 #include "InventoryMoveHost.h"
 #include "StrategyPlayerController.generated.h"
 
@@ -29,6 +28,8 @@ class AWorldItem;
 class UInventoryComponent;
 class UEquipmentComponent;
 class AStrategyPlayerState;
+class UWalletComponent;
+class UTraderComponent;
 class IInventoryHolder;
 
 /**
@@ -37,7 +38,7 @@ class IInventoryHolder;
  *  Implements both mouse and touch controls.
  */
 UCLASS(abstract)
-class AStrategyPlayerController : public APlayerController, public IStrategySelectionHost, public IStrategyCameraCommands, public IStrategyResourceHost, public IInventoryMoveHost
+class AStrategyPlayerController : public APlayerController, public IStrategySelectionHost, public IStrategyCameraCommands, public IInventoryMoveHost
 {
 	GENERATED_BODY()
 
@@ -125,6 +126,11 @@ protected:
 	/** Input Action for attacking the currently-selected NPC */
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* AttackAction;
+
+	/** Input Action for talking/trading with the currently-selected NPC - the keyboard route to
+	 *  the double-click interact, reading the same SelectedNPC the attack key does */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* TalkAction;
 
 	/** Input Action for rotating the item currently being dragged in an inventory window */
 	UPROPERTY(EditAnywhere, Category="Input")
@@ -357,15 +363,12 @@ public:
 
 	//~ End IStrategyCameraCommands interface (remaining members below, alongside the other camera commands)
 
-	//~ Begin IStrategyResourceHost interface
-
-	/** Returns this controller's player's gold balance, read off its own AStrategyPlayerState - never a global/shared one */
-	virtual int32 GetPlayerGold() const override;
-
-	//~ End IStrategyResourceHost interface
-
 	/** This controller's player state, or null if it hasn't replicated in yet */
 	AStrategyPlayerState* GetStrategyPlayerState() const;
+
+	/** This controller's player's wallet, or null if the player state hasn't replicated in yet.
+	 *  Keyed off this controller's own player state - there is no global balance. */
+	UWalletComponent* GetWallet() const;
 
 protected:
 
@@ -434,8 +437,24 @@ protected:
 	 *  Dead bodies take the identical path - see IsLootableNPC. */
 	void OpenLoot(AStrategyUnit* LootTarget);
 
+	/** Opens the given trader's wares alongside the nearest pawn's pack, both windows priced.
+	 *  Reuses the same ContainerWidget a chest and a corpse use - a shop shelf is a grid like any
+	 *  other, and only the title and the prices differ. */
+	void OpenTrade(AStrategyUnit* TraderUnit, UTraderComponent* Stock);
+
+	/**
+	 *  The "interact with this person" verb, shared by the double-click gesture and the talk key:
+	 *  a trader opens trade, a non-trader is where dialog will go when it exists, and a hostile
+	 *  NPC gets neither. Does nothing when the NPC isn't interactable or nobody is close enough -
+	 *  the caller has already decided the gesture meant *this* NPC either way.
+	 */
+	void InteractWithNPC(AStrategyUnit* NPC);
+
 	/** Attacks the currently-selected NPC if it's Passive (flips it to Aggressive); no-op otherwise */
 	void AttackKeyPressed(const FInputActionValue& Value);
+
+	/** Talks to / trades with the currently-selected NPC, if one is targeted and in range of the selection */
+	void TalkKeyPressed(const FInputActionValue& Value);
 
 	/** Rotates the inventory item currently being dragged, if there is one. Purely local UI state -
 	 *  the orientation only reaches the server on drop, through Server_MoveInventoryItem. */
@@ -573,6 +592,27 @@ public:
 	UFUNCTION(Server, Reliable)
 	void Server_PickUpWorldItem(AWorldItem* WorldItem, UInventoryComponent* DestInventory);
 
+protected:
+
+	/**
+	 *  One purchase or sale, applied all-or-nothing on the server. Reached from
+	 *  Server_MoveInventoryItem whenever exactly one side of a move is a trader's stock, so a
+	 *  trade is the ordinary drag-and-drop move with gating layered in *front* of MoveItem
+	 *  rather than a fourth resolution inside it.
+	 *
+	 *  Re-checks proximity and hostility here rather than trusting the client, for the same
+	 *  reason Server_PickUpWorldItem does: MoveItem itself has no idea how far away the asking
+	 *  pawn was, or whether the counterparty is currently trying to kill it.
+	 *
+	 *  A purchase is priced against the *whole* requested quantity before anything moves. That
+	 *  is what makes "insufficient gold changes nothing" true: the debit afterwards is for what
+	 *  actually moved, which can only be less, so it can never fail once the item has already
+	 *  changed hands.
+	 */
+	bool TryTradeItem(UInventoryComponent* SourceInventory, int32 EntryId, UInventoryComponent* DestInventory, FIntPoint DestCell, bool bRotated, int32 Quantity);
+
+public:
+
 	/**
 	 *  Debug exec: dumps the selected pawn's inventory grid to the log as an ASCII occupancy map
 	 *  plus a per-entry list. The authoritative grid only exists on the server, so this hops there
@@ -600,6 +640,21 @@ public:
 	/** Debug exec: logs the selected pawn's worn slots. Server-side, like the grid dump. */
 	UFUNCTION(Exec)
 	void SmoresDumpEquipment();
+
+	/**
+	 *  Debug exec: logs the targeted NPC's wares with their buy and sell prices, plus this
+	 *  player's balance. Click an NPC to target it first, the same as SmoresKillNPC.
+	 */
+	UFUNCTION(Exec)
+	void SmoresDumpTrader();
+
+	/** Debug exec: buys the targeted trader's EntryIndex'th stocked entry into the selected pawn's pack, then dumps. */
+	UFUNCTION(Exec)
+	void SmoresBuyItem(int32 EntryIndex = 0);
+
+	/** Debug exec: sells the selected pawn's EntryIndex'th grid entry to the targeted trader, then dumps. */
+	UFUNCTION(Exec)
+	void SmoresSellItem(int32 EntryIndex = 0);
 
 	/**
 	 *  Debug exec: kills the currently-targeted NPC outright, so the Dead state has a way to be
@@ -641,6 +696,19 @@ protected:
 	/** Server side of the kill debug exec - health state is server-owned, like everything else here */
 	UFUNCTION(Server, Reliable)
 	void Server_DebugKill(AStrategyUnit* Target);
+
+	/** Client side of the trade debug execs - resolves the targeted trader and the selected pawn locally, then hops to the server */
+	void DebugTradeForSelection(int32 BuyEntryIndex, int32 SellEntryIndex);
+
+	/** Server side of the trade debug execs - optionally buys one stocked entry and/or sells one
+	 *  carried entry (either index negative to skip it), then logs the stock, the prices and the balance */
+	UFUNCTION(Server, Reliable)
+	void Server_DebugTrade(AStrategyUnit* TraderUnit, UInventoryComponent* PawnInventory, int32 BuyEntryIndex, int32 SellEntryIndex);
+
+	/** Shared body of the two trade execs: resolves EntryIndex to an entry id, finds it room in
+	 *  the destination grid, and runs the ordinary transaction. Auto-placement is a debug-only
+	 *  convenience - the real path always carries the cell the player dropped on. */
+	bool DebugTradeEntry(UInventoryComponent* SourceInventory, UInventoryComponent* DestInventory, int32 EntryIndex);
 
 public:
 
@@ -697,6 +765,16 @@ protected:
 	 *  and Downed or Dead. The one place that rule is written down. */
 	static bool IsLootableNPC(const AStrategyUnit* Unit);
 
+	/** Returns true if Unit is an NPC the player may currently interact with - not one of the
+	 *  player's own pawns, on its feet, and not hostile. The counterpart to IsLootableNPC, and
+	 *  likewise the only place its rule is written down: dialog, when it exists, extends this
+	 *  predicate rather than adding a check of its own. */
+	static bool IsInteractableNPC(const AStrategyUnit* Unit);
+
+	/** Returns Unit's wares if it is currently interactable *and* carries a UTraderComponent, or
+	 *  null. The component's presence is the only "is this a trader?" flag there is. */
+	static UTraderComponent* GetTraderStock(const AStrategyUnit* Unit);
+
 	/** Returns the first container in the level with a selected unit within its InteractionRange, preferring SelectedContainer if it qualifies, or nullptr */
 	AStrategyContainer* FindContainerInRange() const;
 
@@ -705,12 +783,18 @@ protected:
 	 *  the player has actually targeted it. */
 	AStrategyUnit* FindLootableNPCInRange() const;
 
+	/** Returns SelectedNPC if it's interactable and within range of a controlled unit, or nullptr.
+	 *  Deliberately never sweeps the level, for the same reason FindLootableNPCInRange doesn't. */
+	AStrategyUnit* FindInteractableNPCInRange() const;
+
 	/** Returns the container within click range of the given world location, or nullptr */
 	AStrategyContainer* FindContainerAtLocation(const FVector& Location) const;
 
-	/** Returns the nearest lootable NPC within click range of the given world location, or nullptr. A player
-	 *  pawn, or an NPC still on its feet, never qualifies. */
-	AStrategyUnit* FindLootableNPCAtLocation(const FVector& Location) const;
+	/** Returns the nearest NPC within click range of the given world location, in whatever state
+	 *  it happens to be in, or nullptr; a player-controlled pawn never qualifies. One lookup
+	 *  rather than one per meaning, because a body and a living NPC are the same actor type
+	 *  differing only by health state - the caller branches on that. */
+	AStrategyUnit* FindNPCAtLocation(const FVector& Location) const;
 
 	/** Returns whichever player-controlled pawn is closest to the given world location, or nullptr if none
 	 *  exist. Finds a *collector*, not a holder - there's no proximity gate here at all, so it answers

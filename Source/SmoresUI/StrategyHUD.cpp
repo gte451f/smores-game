@@ -5,9 +5,10 @@
 #include "StrategyUnit.h"
 #include "StrategyPlayerUnit.h"
 #include "StrategySelectionHost.h"
-#include "StrategyResourceHost.h"
+#include "WalletComponent.h"
 #include "StrategyUI.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerState.h"
 
 void AStrategyHUD::BeginPlay()
 {
@@ -85,11 +86,11 @@ void AStrategyHUD::DrawHUD()
 			UIWidget->SetSelectedUnitsCount(SelectedUnits.Num());
 			UIWidget->SetSelectionTargetLabel(SelectionHost->GetSelectionTargetLabel());
 
-			// the quick-access resource readout, if this controller reports one - the balance itself
-			// lives on the owning player's PlayerState, which SmoresUI deliberately can't see
-			if (const IStrategyResourceHost* ResourceHost = Cast<IStrategyResourceHost>(PC))
+			// the quick-access resource readout, read straight off this player's own wallet -
+			// APlayerState is an engine type, so no narrow interface into `smores` is needed for it
+			if (const UWalletComponent* Wallet = GetWallet())
 			{
-				UIWidget->SetGold(ResourceHost->GetPlayerGold());
+				UIWidget->SetGold(Wallet->GetGold());
 			}
 		}
 
@@ -112,4 +113,29 @@ void AStrategyHUD::DrawHUD()
 		}
 	}
 
+}
+
+UWalletComponent* AStrategyHUD::GetWallet()
+{
+	if (UWalletComponent* Wallet = CachedWallet.Get())
+	{
+		return Wallet;
+	}
+
+	// keyed off this HUD's own player, never a global - there is no single "the" player in a
+	// co-op session. The player state can arrive late on a client, so a miss is normal early on
+	// and simply retries next frame rather than being cached as a negative.
+	const APlayerController* PC = GetOwningPlayerController();
+	const APlayerState* OwningPlayerState = PC ? PC->PlayerState : nullptr;
+
+	if (!OwningPlayerState)
+	{
+		return nullptr;
+	}
+
+	UWalletComponent* Wallet = OwningPlayerState->FindComponentByClass<UWalletComponent>();
+
+	CachedWallet = Wallet;
+
+	return Wallet;
 }

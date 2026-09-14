@@ -63,7 +63,24 @@ void UInventoryItemWidget::RefreshVisuals()
 		ItemLabel->SetRenderTransformAngle(Footprint.Y > Footprint.X ? 90.0f : 0.0f);
 	}
 
+	RefreshPriceTooltip();
+
 	BP_ItemUpdated();
+}
+
+void UInventoryItemWidget::RefreshPriceTooltip()
+{
+	// a price is a property of the *window* this item sits in, not of the item: the same apple
+	// quotes a buy price in a trader's panel, a sell price in the pack open beside it, and
+	// nothing at all in a chest. Same routing rule as right-click-to-equip - the controller
+	// decides what a window is, the widget only asks it.
+	const UInventoryWidget* OwnerWidget = GetTypedOuter<UInventoryWidget>();
+
+	const FText Tooltip = OwnerWidget ? OwnerWidget->GetItemPriceTooltip(Entry.Item) : FText::GetEmpty();
+
+	// cleared rather than left stale when there is no price, so a window reused for a chest
+	// can't still be quoting the last trader
+	SetToolTipText(Tooltip);
 }
 
 void UInventoryItemWidget::TryEquip()

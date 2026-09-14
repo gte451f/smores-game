@@ -13,8 +13,10 @@ particular holder's grid lives in the `FInventoryEntry` placement that wraps it.
 
 Items occupy a rectangular footprint of cells rather than one uniform slot, may be rotated 90°
 to fit, and merge into stacks capped per holder. Carried weight is tracked and displayed
-alongside the grid, and the player has a gold balance on their `AStrategyPlayerState` — but
-neither *does* anything yet: weight applies no penalty, and nothing spends gold.
+alongside the grid but still applies no penalty. The player's gold balance lives in a
+`UWalletComponent` on their `AStrategyPlayerState`, and as of the trade system it is finally
+spent and earned: a trader is a `UTraderComponent` on an NPC, and dragging an item across that
+counter is the same drag-and-drop move every other transfer is, with a price attached.
 
 Alongside the carried grid, every unit has a **paperdoll**: `UEquipmentComponent`, a small set
 of named worn slots that is deliberately *not* a region of the grid. An item goes in only if
@@ -23,8 +25,8 @@ its definition says that's its slot; nothing else gates an equip.
 Items also exist *outside* any grid: an `AWorldItem` is a single item instance lying on the
 ground, drawn with its definition's 3D mesh and collected by double-clicking it with a pawn in
 range. It is the one holder shape with no grid and no window behind it. This system does
-**not** yet handle: trading/purchase or theft. See `inventory-roadmap.md` for the target design
-covering both — this topic only documents what's actually built.
+**not** yet handle theft. See `inventory-roadmap.md` for the target design — this topic only
+documents what's actually built.
 
 ## Player Surface
 
@@ -73,8 +75,8 @@ covering both — this topic only documents what's actually built.
   readout red and does **nothing else**: the drop still lands, the transfer still completes,
   and the pawn moves exactly as fast as before.
 - The HUD carries a **gold readout** ("Gold: 250") next to the selection count. Gold isn't an
-  item — it has no weight, no footprint, and never appears in a grid — and today nothing in the
-  game spends or earns it outside the debug console.
+  item — it has no weight, no footprint, and never appears in a grid — and it updates live as a
+  trade settles, which is the only feedback a purchase gives.
 - The **inventory key** also opens that pawn's **Equipment window** beside the pack — a second
   floating panel listing its five worn slots (Main Hand, Off Hand, Head, Body, Feet) and the
   combined weight of what's in them. The two open and close together and are moved and resized
@@ -116,6 +118,31 @@ covering both — this topic only documents what's actually built.
 - Loose items show their **3D mesh**, not their inventory icon. Every item type currently points
   at the same placeholder — a plain black 100-unit sphere, about half a pawn's height — so items
   on the ground are visible and clickable but tell each other apart only by position.
+- **Double-click a living NPC to interact with them.** If they are a trader and some player pawn
+  is close enough, their wares open beside that pawn's pack; otherwise nothing happens at all.
+  Either way the double-click means *that person* — it never falls through to selecting everyone
+  on screen, the same as double-clicking a chest or a body already does. Double-clicking **empty
+  ground** still selects all on screen.
+- **Press the talk key (`T`) to trade with the NPC you have targeted**, provided a selected unit
+  is close enough. Same shape as `H` for attacking, reading the same targeted NPC, and it's the
+  accessible alternative to the double-click; pressing it again closes the window.
+- **A hostile, unconscious or dead NPC never trades.** A hostile one does nothing at all on a
+  double-click; a fallen one opens as loot instead.
+- **Buying is dragging an item out of the trader's window into a pawn's pack, and selling is
+  dragging one the other way.** There is no buy button and no confirmation step — a trade is the
+  same drag every other transfer uses, and the money is settled as the item lands.
+- **Hovering an item in either window quotes its price**: "Buy: 135 gold" in the trader's panel,
+  "Sell: 45 gold" in the pawn's pack open beside it. A stack quotes the per-unit figure and the
+  total together. Anywhere else — a chest, a corpse, a pack with no trader across from it —
+  hovering an item says nothing, because nobody is offering anything for it.
+- **Not being able to afford something changes nothing at all.** The item stays on the shelf, the
+  balance is untouched, and it snaps back exactly as a drop with no room does. A stack is priced
+  whole, so one the player can only partly afford is refused outright rather than sold short —
+  there is no way yet to ask for fewer.
+- **A single click on an NPC only targets it now.** It used to also launch a squad attack when
+  that NPC was already hostile, which made one click mean two different things depending on the
+  target's mood — and would have made double-clicking a hostile trader open their shop and start
+  a fight at once. `H` attacks the target.
 - Deselecting all units, or having no player pawn selected/in range, closes any open
   inventory window — and the equipment window with it.
 
@@ -161,13 +188,72 @@ covering both — this topic only documents what's actually built.
   to a later characters/combat pass, which owns those effects. A capacity of 0 means *no limit*
   (`HasWeightLimit`), which is what a static holder like a chest wants — nothing static carries
   anything anywhere.
-- **Currency is per-player, not per-pawn, and lives outside the inventory entirely.** `Gold`
-  is a replicated `int32` on `AStrategyPlayerState`, not an `FInventoryItem` — it has no
-  weight, no footprint, and occupies no cell. Every sub-squad/division under one player draws
-  from the same balance regardless of where in the world it is, because divisions are an
-  organization layer rather than a separate economy. `AddGold` credits and `TrySpendGold`
-  debits-if-affordable, both authority-only; `TrySpendGold` returning false is what a later
-  purchase flow checks *before* touching any item, so a transaction can't half-apply.
+- **Currency is per-player, not per-pawn, and lives outside the inventory entirely.** The
+  balance is a replicated `int32` inside a `UWalletComponent` hosted on `AStrategyPlayerState`,
+  not an `FInventoryItem` — it has no weight, no footprint, and occupies no cell. Every
+  sub-squad/division under one player draws from the same balance regardless of where in the
+  world it is, because divisions are an organization layer rather than a separate economy.
+  `AddGold` credits and `TrySpendGold` debits-if-affordable, both authority-only.
+- **It is a component rather than a field on the player state, and that is a general rule, not
+  a preference about gold.** `APlayerState` is Unreal's composition root for per-player data,
+  and the way it becomes an 800-line junk drawer is fields being added inline because no feature
+  module obviously owns them yet — which is exactly how gold started. Squad roster, faction
+  standing and research progress are all queued for the same class and all want a component of
+  their own. See `unreal-module-organization.md`'s "Framework Classes vs. Feature Modules". The
+  bonus the move actually paid: with the balance in `SmoresEconomy`, a module `SmoresUI` already
+  depends on, `AStrategyHUD` reads it through
+  `PlayerState->FindComponentByClass<UWalletComponent>()` and the `IStrategyResourceHost`
+  interface that existed only to reach across that module boundary was deleted outright.
+- **A trader is a component on a character, and its presence is the only "is this a trader?"
+  flag there is.** `UTraderComponent` carries one NPC's wares and their prices; an NPC without
+  one simply isn't a merchant. There is no `bIsTrader` bool that could disagree with the stock,
+  no merchant flagged as one with nothing to sell and no stocked NPC who refuses to deal — the
+  same single-source-of-truth reasoning `IInventoryHolder` was built on. It is a component
+  rather than a shop *building* because `economy.md` wants travelling caravans: a caravan is a
+  trader that walks, and as a component an NPC gets trading for free where a building would need
+  the whole thing implemented a second time.
+- **`UTraderComponent` *is* a `UInventoryComponent`.** A shop shelf is a grid, so the stock
+  replicates, opens into the ordinary inventory window, and is dragged in and out of through the
+  existing `MoveItem` — no second storage model and no second UI. It defaults to a chest's
+  shape: `WeightCapacity` 0 (nothing static carries anything anywhere) and a `StackMultiplier`
+  of 2, since a shelf stacks deeper than a backpack.
+- **A trader's wares are not the NPC's pockets.** The stock lives on the trader component; that
+  same NPC's `AStrategyUnit::Inventory` is its personal belongings and is never for sale. Only
+  the wares open when trading; only the belongings open when looting the body.
+- **A trade is an ordinary move with gating in front of it, never a fourth resolution inside
+  `MoveItem`.** The drag-and-drop UI is completely unaware trading exists: it sends the same
+  `Server_MoveInventoryItem` it sends for a chest. What makes it a transaction is recognised
+  server-side, where the money is — exactly one end of the move being a `UTraderComponent` means
+  gold has to change hands too. Source and destination being the *same* component is excluded
+  deliberately: that's somebody repacking one shelf, and nothing is bought by moving an item
+  within a single grid.
+- **The transaction is all-or-nothing, and the ordering is what makes it so.** A purchase is
+  priced against the **whole requested quantity** and refused up front if the balance won't cover
+  it. Only then does the item move; the debit afterwards is for the quantity that actually moved,
+  which can only be the same or less — so the debit can never fail once the goods have changed
+  hands. Pricing the request rather than the result is also what makes "insufficient gold changes
+  nothing" literally true: a player who can't cover a full stack is refused rather than quietly
+  sold a smaller pile, since there is no way yet for them to ask for one. A sale is the mirror
+  and needs no pre-check: the item moves first, and the credit is for what moved.
+- **Prices come from an interface, not from the trader's own numbers being read directly.**
+  `IPricingProvider` promises a per-unit buy price and a per-unit sell price; `UTraderComponent`
+  implements it as the definition's `BaseValue` times a flat `BuyMarkup` or `SellMarkdown`. The
+  real market simulation `economy.md` calls for — regional supply and demand, emergent prices,
+  trade routes — belongs to a much later `SmoresMarkets` and implements this from above without
+  the transaction or the UI changing. Totals are derived (per-unit × quantity) rather than
+  virtual, so a bulk discount would be a change to the interface rather than something each
+  caller invented separately. Prices take the whole `FInventoryItem` rather than just its
+  definition, so a worn item fetching less (`Condition`) or a fence paying less for stolen goods
+  (`bStolen`) needs no signature change.
+- **A price is a property of the window, not of the item.** The same apple quotes a buy price in
+  a trader's panel, a sell price in the pack open beside it, and nothing at all in a chest.
+  Whoever opens a window decides which side of the counter it is on; the item widget only asks.
+  Identical routing to right-click-to-equip, and for the same reason — resolving it off the
+  item's holder instead would have a pawn's pack quoting prices with no trader in sight.
+- **Proximity and hostility are re-checked server-side on every transaction.** `MoveItem` has no
+  idea how far away the asking pawn was, or what the counterparty currently thinks of it — the
+  same reason `Server_PickUpWorldItem` re-checks its own gate. Reach itself needed no new code:
+  `AStrategyUnit` already implements `IInventoryHolder`.
 - **Worn slots are a paperdoll, not a region of the grid.** `UEquipmentComponent` holds an
   `FEquippedItem` per *occupied* slot — a slot name plus one `FInventoryItem`, with no anchor
   cell and no rotation, because a slot is a named place rather than a rectangle. An absent slot
@@ -248,7 +334,20 @@ covering both — this topic only documents what's actually built.
   it — only a whole-entry move may reuse the cells it currently occupies. The UI always passes
   0 today; partial-stack drags are a later slice.
 - This single method is what every current transfer path (reposition, pawn↔container,
-  pawn↔loot) actually calls.
+  pawn↔loot, pawn↔trader) actually calls.
+- **`MoveItem`'s bool return is not enough for a caller that has to do something proportional
+  to the move.** A merge only takes what fits under the destination stack's cap and still reports
+  success, so "moved" can mean three of the eight that were asked for. `MoveItemCounted` reports
+  the quantity that actually changed hands, and `MoveItem` is a one-line forwarder over it — the
+  same trap, and the same fix, as `AddItem` vs. `AddItemCounted`. A purchase charges off that
+  count, never off the request.
+- **"Lootable" and "interactable" are two predicates, each written down exactly once.**
+  `IsLootableNPC` is "not a player pawn, and Downed or Dead"; `IsInteractableNPC` is its mirror,
+  "not a player pawn, on its feet, and not hostile". The hostility clause lives inside that
+  second predicate rather than as a guard at each call site, so dialog inherits the rule when it
+  arrives instead of re-deriving it. A double-click finds an NPC *once*, in whatever state it
+  happens to be in, and branches on these — rather than sweeping the level twice with two
+  different filters that would then have to agree about which NPC was nearer.
 - **Every holder answers the same two questions, through `IInventoryHolder`.** A pawn's pack,
   a container and a loose world pickup each implement `GetHolderDisplayName()` (the name shown
   in the window title and the selection label) and `IsInRangeOf(const AActor*)` (may this actor
@@ -356,8 +455,11 @@ covering both — this topic only documents what's actually built.
     `UInventoryDragDropOperation`, `IInventoryMoveHost`
   - `SmoresCharacters`: `AStrategyUnit` (owns the `Inventory` and `Equipment` subobjects shared
     by NPCs and player units alike), `AStrategyPlayerUnit`
-  - `smores` (`Variant_Strategy`): `AStrategyPlayerController`, `AStrategyPlayerState` (the
-    per-player gold balance)
+  - `SmoresEconomy`: `UWalletComponent` (one holder's currency balance), `IPricingProvider`
+    (what one item is worth in a given transaction), `UTraderComponent` (a `UInventoryComponent`
+    subclass holding one NPC's wares and implementing `IPricingProvider`)
+  - `smores` (`Variant_Strategy`): `AStrategyPlayerController`, `AStrategyPlayerState` (which
+    now owns no state of its own — it hosts the `UWalletComponent` and nothing else)
 - **Important methods:**
   - `FInventoryItem::GetDisplayName` / `GetIcon` / `GetItemId` / `GetDescription` /
     `GetTotalWeight` / `GetTotalBaseValue` / `GetFootprint` / `HasSameDefinitionAs` /
@@ -377,10 +479,24 @@ covering both — this topic only documents what's actually built.
   - `UInventoryComponent::GetTotalWeight` / `GetWeightCapacity` / `HasWeightLimit` /
     `IsOverWeightCapacity` — the weight read side. Nothing but the UI calls any of them; no
     mutator consults `WeightCapacity`, which is what keeps the figure inert
-  - `AStrategyPlayerState::AddGold` / `TrySpendGold` / `CanAfford` / `GetGold` — the currency
+  - `UWalletComponent::AddGold` / `TrySpendGold` / `CanAfford` / `GetGold` — the currency
     surface. `AddGold`/`TrySpendGold` are authority-only and broadcast `OnGoldChanged`;
     `OnRep_Gold` re-broadcasts it on clients, same split as `UInventoryComponent`'s mutators
-    vs. `OnRep_Entries`. `StartingGold` is applied once, on the server, in `BeginPlay`
+    vs. `OnRep_Entries`. `StartingGold` is applied once, on the server, in `BeginPlay`.
+    `AStrategyPlayerState::GetWallet` is the accessor; the component is a default subobject, so
+    it is never null once the player state exists
+  - `UTraderComponent::GetUnitBuyPrice` / `GetUnitSellPrice` (`IPricingProvider`) — the only two
+    virtuals a later market simulation has to implement. `BaseValue` × `BuyMarkup` is never
+    rounded down to free for an item the designer actually priced (a `FMath::Max(1, ...)` floor);
+    the sell price deliberately *may* round to zero, which is the trader declining to pay for
+    junk. A definition with no authored `BaseValue` is free on both sides
+  - `IPricingProvider::GetBuyPrice` / `GetSellPrice` — non-virtual totals, per-unit × quantity.
+    Derived rather than virtual so a bulk discount is a change to the interface rather than
+    something each caller invents
+  - `UTraderComponent::StartingStock` — the trader's opening wares, Blueprint-authored and
+    applied once server-side in the component's own `BeginPlay`. Same shape as
+    `AStrategyContainer::StartingItems`, and on the component rather than the actor because the
+    component is what gets added per-NPC
   - `UInventoryComponent::AddItem` / `AddItemAt` / `RemoveEntry` / `SetEntryQuantity` /
     `RepositionEntry` / `SetGridSize` — authority-only mutators, all broadcast
     `OnInventoryChanged`
@@ -441,8 +557,8 @@ covering both — this topic only documents what's actually built.
     copy isn't the authoritative one
   - `UInventoryComponent::AddItemCounted` — `AddItem` plus the quantity that actually landed.
     `AddItem` is now a one-line forwarder that discards the count. Any caller still holding the
-    source copy (a world pickup today; a storefront purchase later) needs the count rather than
-    the bool, since a partial add keeps what fit
+    source copy (a world pickup) needs the count rather than the bool, since a partial add keeps
+    what fit. `MoveItemCounted` is the same fix one level up, and is what a purchase charges off
   - `AWorldItem::TryPickUp` — authority-only; moves as much as will fit into the destination
     grid, destroys the actor when the whole stack moved and shrinks `Item` when only part did.
     Returns false having changed nothing when nothing fit
@@ -497,18 +613,24 @@ covering both — this topic only documents what's actually built.
     `SelectedContainer` if it qualifies, while the NPC one never sweeps at all — only
     `SelectedNPC` is ever a candidate, so a key press can't open whichever corpse happened to be
     nearest
-  - `AStrategyPlayerController::FindContainerAtLocation` / `FindLootableNPCAtLocation` —
+  - `AStrategyPlayerController::FindContainerAtLocation` / `FindNPCAtLocation` —
     used by the double-click path (within `ContainerSelectionRadius`), both thin wrappers over
     `FindHolderActorAtLocation` differing only in class and predicate
-  - `AStrategyPlayerController::SelectAllDoubleClick` — the one gesture behind four meanings,
-    resolved by type in order: loose world item, container, body, then select-all-on-screen.
-    The world item goes first because it's the smallest thing under the cursor and the only one
-    of the three with no selection state to set — finding one either collects it or does nothing
-  - `AStrategyPlayerController::GetPlayerGold` (`IStrategyResourceHost`) —
-    `AStrategyHUD::DrawHUD` polls it each frame and pushes the result into
-    `UStrategyUI::SetGold`. The interface exists because the balance lives on a `smores`
-    gameplay class that `SmoresUI` deliberately can't see; it's the same narrow-interface
-    shape as `IStrategySelectionHost`/`IStrategyCameraCommands`
+  - `AStrategyPlayerController::SelectAllDoubleClick` — the one gesture behind five meanings,
+    resolved by type in order: loose world item, container, body, living NPC, then
+    select-all-on-screen. The world item goes first because it's the smallest thing under the
+    cursor and the only one with no selection state to set — finding one either collects it or
+    does nothing. Body and living NPC share a single `FindNPCAtLocation` sweep and are told
+    apart by `IsLootableNPC`, rather than being two sweeps that would have to agree about which
+    NPC was nearer
+  - `AStrategyHUD::GetWallet` — resolves the owning player's `UWalletComponent` through its
+    `PlayerState` and caches it, re-running the lookup only while the pointer is still null
+    (a player state can replicate in well after the HUD exists). `DrawHUD` reads the balance
+    off it each frame and pushes the result into `UStrategyUI::SetGold`. No interface is
+    involved: `APlayerState` is an engine type visible from every module, which is what let
+    `IStrategyResourceHost` be deleted when gold became a component
+  - `AStrategyPlayerController::GetWallet` — the same lookup from the controller's side, for the
+    transaction and the gold execs
   - `AStrategyPlayerController::SmoresAddGold` / `SmoresSpendGold` (console execs) —
     debug-only, both hopping to the server via `Server_DebugGold` since the balance is
     server-owned. `SmoresSpendGold` past the balance logs `REJECTED` and changes nothing
@@ -521,7 +643,49 @@ covering both — this topic only documents what's actually built.
   - `AStrategyPlayerController::Server_MoveInventoryItem_Implementation` — the sole
     authoritative caller of `UInventoryComponent::MoveItem` from UI drag-drop. Carries entry
     id, destination cell, rotation and quantity; it does no validation of its own, since
-    `MoveItem` does all of it
+    `MoveItem` does all of it — *except* that it first checks whether exactly one end of the
+    move is a `UTraderComponent`, which is what silently turns the same drag into a purchase or
+    a sale
+  - `AStrategyPlayerController::TryTradeItem` — one purchase or sale, applied all-or-nothing.
+    Rejects two traders or none; re-checks that the counterparty is an interactable NPC with a
+    player pawn in reach; prices a purchase against the whole request before anything moves;
+    calls `MoveItemCounted`; then debits or credits for what actually moved. The only place gold
+    and items change hands together
+  - `AStrategyPlayerController::OpenTrade` — the trade window's lifecycle, reusing the same
+    `ContainerWidget` a chest and a corpse use. Sets the trader's stock as its inventory *and*
+    its pricing (buy side), then opens the nearest pawn's pack beside it and points that at the
+    same pricing (sell side). The pawn window's pricing is set after `OpenInventoryForPawn`,
+    which rebinds and therefore clears it
+  - `AStrategyPlayerController::InteractWithNPC` — the "interact with this person" verb shared
+    by the double-click and the talk key: interactable, carries wares, and somebody is close
+    enough, or nothing happens. Where dialog goes when it exists, and deliberately carrying no
+    stub for it now
+  - `AStrategyPlayerController::IsInteractableNPC` / `GetTraderStock` — the mirror of
+    `IsLootableNPC`, and the trader lookup layered on top of it. Both static, both the single
+    place their rule is written down
+  - `AStrategyPlayerController::FindNPCAtLocation` — replaces `FindLootableNPCAtLocation`: the
+    nearest NPC within `ContainerSelectionRadius` in *whatever* state, so the double-click
+    branches on health rather than sweeping twice
+  - `AStrategyPlayerController::FindInteractableNPCInRange` — the talk key's counterpart to
+    `FindLootableNPCInRange`, and deliberately the same shape: only `SelectedNPC` is ever a
+    candidate, so a key press can't open whichever merchant happened to be nearest
+  - `AStrategyPlayerController::TalkKeyPressed` — the `T` handler. Toggles the shared container
+    window closed if one is already up, exactly as the container key does
+  - `UInventoryWidget::SetPricing` / `ClearPricing` / `GetItemPriceTooltip` — which side of a
+    trade counter this window sits on, and the one place a price is formatted for the player.
+    `ClearInventory` drops the pricing along with the inventory binding, so a pack reused for a
+    chest can't still be quoting the last trader; `CloseContainer` clears it explicitly for the
+    case where the pack stays open and only the trade ends
+  - `UInventoryItemWidget::RefreshPriceTooltip` — asks the owning window (through
+    `GetTypedOuter<UInventoryWidget>()`, the same hop `TryEquip` uses) what this item is worth
+    and puts the answer on its hover tooltip, clearing it when there's no price
+  - `AStrategyPlayerController::SmoresDumpTrader` / `SmoresBuyItem <EntryIndex>` /
+    `SmoresSellItem <EntryIndex>` (console execs) — debug-only, all three routed through one
+    `Server_DebugTrade` hop and all three ending in a stock dump with per-unit buy/sell prices
+    and the player's balance. Click an NPC to target it first, the same as `SmoresKillNPC`. The
+    buy/sell ones auto-place into the destination grid (the real path always carries the cell the
+    player dropped on) and then run the ordinary `TryTradeItem`, so they exercise the real
+    transaction rather than a parallel one
   - `UInventoryWidget::SetInventory` / `ClearInventory` — binds/unbinds an inventory,
     subscribes to `OnInventoryChanged`
   - `UInventoryWidget::RebuildGrid` — builds the grid's two layers into the `UGridPanel`:
@@ -557,8 +721,10 @@ covering both — this topic only documents what's actually built.
   `AStrategyHUD`, which today only spawns the general `UStrategyUI` widget, pushes the
   selection count / target label / gold balance into it each frame, and draws the
   drag-selection box; it has no inventory role. `AStrategyPlayerState` is spawned per player
-  by the game mode (`PlayerStateClass`), so the gold balance is scoped to one player and
-  never to the world.
+  by the game mode (`PlayerStateClass`) and owns one `UWalletComponent` as a default subobject,
+  so the gold balance is scoped to one player and never to the world. `UTraderComponent` is
+  added per-NPC in Blueprint rather than being a subobject of anything — that's the whole point
+  of it: most characters aren't merchants.
 - **Data flow (drag-and-drop transfer):** `UInventoryItemWidget::NativeOnDragDetected`
   (source item) → `UInventoryDragDropOperation` payload (source inventory + entry id + a copy
   of the item + rotation + grab offset + cell size) → the target window's
@@ -578,6 +744,16 @@ covering both — this topic only documents what's actually built.
   from `UEquipmentSlotWidget::NativeOnDrop`, differing only in naming the slot instead of
   sending `EEquipSlot::None`; unequip is the mirror through `Server_UnequipItem`. A rejected
   equip is silent on the wire, exactly like a rejected move.
+- **Data flow (purchase/sale):** identical to the transfer flow above for its whole client half
+  — the same `UInventoryItemWidget` drag, the same `UInventoryWidget::NativeOnDrop`, the same
+  `Server_MoveInventoryItem` RPC — and diverges only once it reaches the server:
+  `Server_MoveInventoryItem_Implementation` notices that exactly one of the two components is a
+  `UTraderComponent` → `TryTradeItem` (proximity + hostility + affordability) →
+  `UInventoryComponent::MoveItemCounted` → `UWalletComponent::TrySpendGold` or `AddGold` for the
+  quantity that actually moved → `Entries` and `Gold` both replicate back down → the windows
+  refresh from `OnInventoryChanged` and the HUD's next `DrawHUD` reads the new balance. A
+  refused purchase mutates nothing on either side, so the item snaps back exactly as an
+  ill-fitting drop does, and the player is told nothing (the log says why; the UI doesn't).
 
 ## Blueprint / Asset Dependencies
 
@@ -607,10 +783,22 @@ covering both — this topic only documents what's actually built.
   same horizontal strip. Optional (`BindWidgetOptional`); C++ fills its text, so no Blueprint
   property binding is involved. `WeightText` in `WBP_Inventory`/`WBP_ContainerInventory` works
   the same way, sitting between the title bar and the grid.
-- **`BP_StrategyPlayerState`** — `AStrategyPlayerState` subclass holding `StartingGold` (250).
-  It is assigned to `BP_StrategyGameMode`'s `PlayerStateClass`; without that assignment the
-  game mode spawns a plain engine `APlayerState`, the HUD shows `Gold: 0` forever, and the
-  gold execs log "No AStrategyPlayerState".
+- **`BP_StrategyPlayerState`** — `AStrategyPlayerState` subclass. `StartingGold` is authored on
+  its **Wallet component**, not on the actor: the field moved there when gold became a
+  component, which silently voided the value previously authored on the Blueprint itself (there
+  is no `CoreRedirects` equivalent for a property changing owner). It is assigned to
+  `BP_StrategyGameMode`'s `PlayerStateClass`; without that assignment the game mode spawns a
+  plain engine `APlayerState`, the HUD shows `Gold: 0` forever, and the gold and trade execs log
+  that there is no wallet.
+- **A trader NPC Blueprint** — any `AStrategyUnit` subclass with a `UTraderComponent` added.
+  Authored on the component: `StartingStock` (the wares), `BuyMarkup` (1.5), `SellMarkdown`
+  (0.5), and the grid's own `GridWidth`/`GridHeight`. Nothing flags the actor as a merchant —
+  adding the component *is* the flag, so an NPC that should stop trading has its component
+  removed rather than a bool cleared. Note that the component defaults to `WeightCapacity` 0 and
+  `StackMultiplier` 2 in C++, which is what a shelf wants and what a Blueprint should usually
+  leave alone.
+- **`IA_Strategy_Talk`** — bound to `TalkAction`; talks to / trades with the targeted NPC.
+  Mapped to `T` in `IMC_Strategy_Mouse` (desktop only; not mapped in the touch context).
 - **`WBP_InventoryCell`** — `UInventoryCellWidget` subclass, assigned to
   `UInventoryWidget::CellWidgetClass`. One instance per **grid cell**, at grid layer 0. Just a
   `UBorder` named `CellBorder`, whose tint C++ drives from the highlight state; the brush
@@ -677,9 +865,22 @@ covering both — this topic only documents what's actually built.
   it with `GridWidth`/`GridHeight` and set `StackMultiplier` above 1.0 for a holder meant to
   stack deeper than a pawn's pack (a storefront shelf, a warehouse chest). Nothing else needs
   a per-holder code path.
-- **Trading, theft, sort/filter** — none of this exists in code yet, though `UItemDefinition`
-  already carries the fields they'll read (`BaseValue`, `Category`). Full target design and
-  rationale live in `inventory-roadmap.md`.
+- **Theft and sort/filter** — neither exists in code yet, though `UItemDefinition` already
+  carries the fields they'll read (`bStolen` on the instance, `Category` on the definition).
+  Full target design and rationale live in `inventory-roadmap.md`.
+- **A new kind of trader** — add a `UTraderComponent` to the NPC Blueprint and it works; nothing
+  else is per-trader. A caravan is exactly this on a unit that walks.
+- **Real market pricing** — implement `IPricingProvider` and have `UTraderComponent` consult it
+  instead of its own flat markup. Nothing in `TryTradeItem` or the UI reads a markup directly, so
+  the swap is contained to that component.
+- **Dialog with a non-trader NPC** — `AStrategyPlayerController::InteractWithNPC` is the seam,
+  and its ordering is already settled: the double-click and the `T` key both reach it, an
+  interactable NPC with wares opens trade, and one without currently does nothing. There is
+  deliberately no stub to fill in — the branch is one `if` away from existing, and an empty hook
+  nobody implements against would be clutter in the meantime.
+- **A new interaction rule** (a faction refusing to deal, a merchant who only trades at certain
+  hours) — extend `IsInteractableNPC`, which is the one place "may the player deal with this
+  person" is written down, rather than adding a check per call site.
 - **Dropping an item into the world from the UI** — the authority-side half is built and
   verified: `AWorldItem::SpawnWorldItem` plus a `WorldItemClass` on the controller. What's
   missing is only the gesture. Dragging an item out of a window and releasing it over the world
@@ -711,10 +912,11 @@ covering both — this topic only documents what's actually built.
 - **Starting equipment** — there's no `StartingEquipment` counterpart to `StartingItems`; a pawn
   starts wearing nothing. Seed it the same way if it's wanted: a Blueprint-authored array, applied
   once server-side in `BeginPlay`, never hard-coded in C++.
-- **Spending gold** — `AStrategyPlayerState::TrySpendGold` is the seam a purchase runs
-  through: verify proximity, call it, and only move the item if it returned true, all inside
-  one server-side call so the transaction can't half-apply. Nothing calls it yet outside the
-  debug exec.
+- **Spending gold** — `UWalletComponent::TrySpendGold` is the seam, and
+  `AStrategyPlayerController::TryTradeItem` is the worked example of using it: check
+  affordability against the whole request, move the goods, then debit for what actually moved,
+  all inside one server-side call so the transaction can't half-apply. A later cost (a wage, a
+  bribe, a repair fee) follows the same ordering.
 - **Encumbrance effects** — `IsOverWeightCapacity` is the seam, and it's deliberately consulted
   by nothing but the readout's colour. A characters/combat pass that wants a speed or noise
   penalty reads it from there rather than reaching into `GetTotalWeight` itself.
@@ -780,9 +982,34 @@ covering both — this topic only documents what's actually built.
   inventory one.
 - No 2D item art — every `DA_Item_*` has a null `Icon`, so the UI shows names only. The item widget draws no icon at all yet, which is why the label's 90° turn for tall
   footprints matters as much as it does.
-- No trading or purchase flow — gold exists and replicates, but the only things that move it
-  are the `SmoresAddGold`/`SmoresSpendGold` debug execs. It also isn't persisted anywhere,
-  and a player state re-created mid-session re-seeds from `StartingGold`.
+- **Gold isn't persisted anywhere**, and a player state re-created mid-session re-seeds from
+  `StartingGold`. That's a save-system question, not an economy one.
+- **A purchase the player can only partly afford is refused outright.** A stack of 20 apples at
+  3 gold is priced at 60 and rejected whole at 50 gold, rather than selling 16. Deliberate — it
+  is what makes "insufficient gold changes nothing" true — but the *reason* it can't do better
+  is that partial-stack drag doesn't exist, so the player has no way to ask for 16. Whichever
+  slice builds partial-stack drag should revisit this.
+- **A refused purchase is silent to the player**, exactly like every other rejected drop: the
+  item snaps back, the server logs `REJECTED` with the price and the balance, and nothing on
+  screen says "you can't afford that". Unlike a bad *placement*, there's no red preview to
+  explain it either — the cells were fine, the purse wasn't. That's the "a rejected drop is
+  still silent on the wire" gap below, now with a case where it actually matters.
+- **A trader's stock never restocks, and the gold they pay out is imaginary.** `StartingStock` is
+  placed once at `BeginPlay`; buying a shelf empty leaves it empty for the session, and a trader
+  will buy an unlimited amount from the player without ever running short of money, because
+  traders have no wallet of their own. Both wait on the market simulation.
+- **A dead trader's wares are unreachable.** Looting a body opens that NPC's personal
+  `Inventory`; the `UTraderComponent`'s stock is a second grid on the same actor and nothing
+  opens it. Killing a merchant therefore destroys their shop rather than looting it. Needs a
+  decision about whether a body should expose more than one grid, which is a loot question
+  rather than a pricing one.
+- **Prices are flat and identical for everyone.** No haggling, no skill or reputation modifier,
+  no per-region variation, and both directions come off one `BaseValue` — deliberate, since the
+  market simulation that varies them is a much later `SmoresMarkets` implementing
+  `IPricingProvider` from above.
+- **The hover tooltip is the only place a price appears.** There's no price column in the grid,
+  no running total while dragging, and nothing shows the balance next to the trade window (the
+  HUD's `Gold:` readout is the only balance on screen).
 - **Weight has no gameplay consequence.** Nothing reads `IsOverWeightCapacity` but the
   readout's colour — no speed penalty, no noise penalty, and no pickup is ever refused for
   being too heavy. That's a deliberate deferral, not an oversight, but it does mean an

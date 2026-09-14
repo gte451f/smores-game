@@ -40,11 +40,72 @@ void UInventoryWidget::ClearInventory()
 	// cleared with the inventory so a window reused for a different holder (the container window
 	// serves both chests and loot) can never carry the previous pawn's paperdoll across
 	EquipmentTarget.Reset();
+
+	// same reasoning, and it matters more here: a pawn's pack is reused between a trade and a
+	// chest, and a window still quoting the last trader's prices would be lying about an item
+	// nobody is buying
+	PricingSource.Reset();
+	bPricedAsTraderStock = false;
 }
 
 void UInventoryWidget::SetEquipmentTarget(UEquipmentComponent* InEquipment)
 {
 	EquipmentTarget = InEquipment;
+}
+
+void UInventoryWidget::SetPricing(const TScriptInterface<IPricingProvider>& InPricing, bool bItemsAreTraderStock)
+{
+	PricingSource = InPricing.GetObject();
+	bPricedAsTraderStock = bItemsAreTraderStock;
+
+	// the item widgets already exist by now; their tooltips are built from this
+	RefreshDisplay();
+}
+
+void UInventoryWidget::ClearPricing()
+{
+	if (!PricingSource.IsValid() && !bPricedAsTraderStock)
+	{
+		return;
+	}
+
+	PricingSource.Reset();
+	bPricedAsTraderStock = false;
+
+	RefreshDisplay();
+}
+
+const IPricingProvider* UInventoryWidget::GetPricing() const
+{
+	return Cast<IPricingProvider>(PricingSource.Get());
+}
+
+FText UInventoryWidget::GetItemPriceTooltip(const FInventoryItem& Item) const
+{
+	const IPricingProvider* Pricing = GetPricing();
+
+	if (!Pricing || Item.IsEmpty())
+	{
+		return FText::GetEmpty();
+	}
+
+	const int32 Quantity = FMath::Max(1, Item.Quantity);
+	const int32 UnitPrice = bPricedAsTraderStock ? Pricing->GetUnitBuyPrice(Item) : Pricing->GetUnitSellPrice(Item);
+
+	const FText Verb = bPricedAsTraderStock
+		? LOCTEXT("PriceVerbBuy", "Buy")
+		: LOCTEXT("PriceVerbSell", "Sell");
+
+	if (Quantity <= 1)
+	{
+		return FText::Format(LOCTEXT("PriceTooltipSingle", "{0}\n{1}: {2} gold"),
+			GetItemLabel(Item), Verb, FText::AsNumber(UnitPrice));
+	}
+
+	// a stack quotes both halves: the per-unit figure is what the player compares between
+	// traders, the total is what actually leaves the purse
+	return FText::Format(LOCTEXT("PriceTooltipStack", "{0}\n{1}: {2} gold each ({3} total)"),
+		GetItemLabel(Item), Verb, FText::AsNumber(UnitPrice), FText::AsNumber(UnitPrice * Quantity));
 }
 
 FIntPoint UInventoryWidget::GetGridSize() const

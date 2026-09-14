@@ -7,6 +7,7 @@
 #include "StrategyHUD.generated.h"
 
 class UStrategyUI;
+class UWalletComponent;
 
 /**
  *  Simple strategy game HUD
@@ -43,6 +44,11 @@ protected:
 	UPROPERTY(EditAnywhere, Category="UI")
 	FLinearColor SelectionBoxColor;
 
+	/** The owning player's wallet, resolved once and held. DrawHUD reads the balance every frame,
+	 *  and the player state it hangs off can replicate in well after this HUD exists, so the
+	 *  lookup re-runs only while the pointer is still null. */
+	TWeakObjectPtr<UWalletComponent> CachedWallet;
+
 public:
 
 	/** Initialization */
@@ -55,4 +61,7 @@ protected:
 
 	/** Draws the HUD */
 	virtual void DrawHUD() override;
+
+	/** The owning player's wallet component, looked up through its PlayerState and cached */
+	UWalletComponent* GetWallet();
 };

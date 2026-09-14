@@ -370,4 +370,18 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	static bool MoveItem(UInventoryComponent* SourceInventory, int32 EntryId, UInventoryComponent* DestInventory, FIntPoint DestCell, bool bRotated, int32 Quantity = 0);
+
+	/**
+	 *  MoveItem plus the quantity that actually changed hands.
+	 *
+	 *  The bool alone is not enough for a caller that has to do something *proportional* to the
+	 *  move - a purchase charging for it, say. A merge into an existing stack only takes what
+	 *  fits under that stack's cap and still reports success, so "moved" can mean three of the
+	 *  eight the caller asked for. Same trap, and same fix, as AddItem vs. AddItemCounted.
+	 *
+	 *  A pure reposition within one grid reports the whole entry as moved: nothing changed
+	 *  hands, but nothing was left behind either.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	static bool MoveItemCounted(UInventoryComponent* SourceInventory, int32 EntryId, UInventoryComponent* DestInventory, FIntPoint DestCell, bool bRotated, int32 Quantity, int32& OutQuantityMoved);
 };

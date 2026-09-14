@@ -47,13 +47,12 @@ combat/skill resolution), and **no equipped visual** — attaching the definitio
 skeletal socket is cosmetic polish nobody has needed yet. Combat reading the equipped weapon
 is a combat-system change, not an inventory one; `GetEquippedItem` is the seam it reads.
 
-## Currency — **SHIPPED (Slice 4)**
+## Currency — **SHIPPED (Slices 4 and 8)**
 
-The per-player gold balance on `AStrategyPlayerState` shipped in Slice 4; see `inventory.md`.
-Still outstanding is everything that *moves* it — the purchase/sale transaction is Slice 8,
-which pairs `TrySpendGold` with the item half in one server-side call. Possession
-restrictions (robbable cash, per-division budgets) remain explicitly deferred; the shared-pool
-model is unchanged.
+The per-player gold balance shipped in Slice 4 and the purchase/sale transaction that moves it
+in Slice 8, which also relocated the balance into a `UWalletComponent` in the new
+`SmoresEconomy`; see `inventory.md`. Possession restrictions (robbable cash, per-division
+budgets) remain explicitly deferred; the shared-pool model is unchanged.
 
 ## Unified Transfer Interface
 
@@ -67,8 +66,7 @@ underlying move/copy operation rather than inventing its own UI:
 | Pawn ↔ pawn | free move | no | proximity only |
 | Loot Downed or dead body | free take | no | proximity; target must be Downed **or dead** — **SHIPPED (Slice 7)**, exactly as decided: same actor, same code path, no corpse container |
 | Container transfer | free move | no | proximity (already implemented, `InteractionRange`) |
-| Trade with an NPC / sell to a storefront | two-way exchange | yes | proximity; **decided:** price = the definition's base resale value behind a small pricing interface (`IPricingProvider`-style), with a fixed buy markup / sell markdown, so the real market system (`economy.md`) can replace it later without touching transfer code |
-| Storefront purchase | one-directional (buy) | yes | proximity; storefront's stock is flagged "for sale" and priced through the same pricing interface; distinct from an NPC's personal belongings |
+| Trade with an NPC (buy and sell) | two-way exchange | yes | proximity + not hostile + on its feet — **SHIPPED (Slice 8)**, exactly as decided: `IPricingProvider` with a flat buy markup / sell markdown, behind which the real market system (`economy.md`) drops in later without touching transfer code. The "storefront" row this table used to carry separately collapsed into this one: a shop is an NPC with a `UTraderComponent`, its stock is that component's own grid, and it is distinct from the NPC's personal belongings exactly as required |
 | Steal from an unsuspecting NPC | free take | no | proximity; gated by detection/awareness rules per `characters-and-squads.md`'s pickpocketing design (skill vs. target awareness/crowd density, immediate witnessed-failure consequence); sets the stolen flag on the taken item(s). Blocked on NPC awareness systems that don't exist yet |
 
 - **All transfers require proximity to the target** — **SHIPPED (Slice 7)**. The
@@ -140,6 +138,12 @@ differently-named display-name getters (→ one `IInventoryHolder` with one shar
 the controller's six ad-hoc finder methods (→ one `FindHolderActorAtLocation` plus
 `FindPlayerPawnInRangeOfHolder`/`IsHolderInRangeOfSelection` and thin per-type wrappers), and
 `UHealthComponent`'s `bIsDowned` bool (→ an `EHealthState` enum, so a body can be Dead).
+Already reworked in Slice 8: `AStrategyPlayerState::Gold` (→ a `UWalletComponent` in the new
+`SmoresEconomy`, which let `IStrategyResourceHost` be deleted rather than extended — the fourth
+narrow interface turned out to be the one that didn't need to exist), `MoveItem`'s bool return
+(→ `MoveItemCounted`, so a caller can charge for what actually moved), `FindLootableNPCAtLocation`
+(→ `FindNPCAtLocation` plus a branch, so one sweep serves both a body and a living NPC), and the
+click-an-Aggressive-NPC-to-attack shortcut (removed, per `input-and-keybinds.md`).
 Nothing structural is left needing rework — what remains in the list below is new building.
 
 ## Implementation Order
@@ -188,8 +192,10 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
   layer their gating *in front of* `MoveItem` rather than adding a fourth resolution to it.
 - **Rejection is silent.** The server mutates nothing and sends nothing back; the client's
   next refresh redraws unchanged replicated state, which is what makes the item appear to
-  snap back. If a context ever needs to explain *why* a move failed (insufficient gold,
-  Slice 8), that needs a new client RPC — it can't be inferred from the absence of a change.
+  snap back. Slice 8 proved the cost: a purchase refused for insufficient gold is
+  indistinguishable on screen from one that simply didn't fit, and there is not even a red
+  preview to hint at it, since the cells were fine. Explaining *why* still needs a new client
+  RPC — it can't be inferred from the absence of a change.
 - **Rotation is only half-shipped.** `FindFreePlacement` uses it; the player can't yet
   invoke it. Slice 3 owns the rotate key and the footprint-spanning item widget.
 - Verify with the `SmoresDumpInventory` / `SmoresAddItem <Count>` console execs on
@@ -243,8 +249,11 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
   logic". The cost of that choice is that `SmoresUI` can't see the type, which is paid with a
   fourth narrow interface, `IStrategyResourceHost` (`GetPlayerGold`), declared in `SmoresUI`
   and implemented by `AStrategyPlayerController` — the same pattern
-  `unreal-module-organization.md` records for the other three. Slice 8's UI price display will
-  want the same seam; extend that interface rather than inventing a second one.
+  `unreal-module-organization.md` records for the other three. **Slice 8 deleted that interface
+  again** by moving the balance into a `UWalletComponent` in `SmoresEconomy` — a component in a
+  module `SmoresUI` already depends on needs no seam at all. The lesson is worth keeping: an
+  `I*Host` interface is the right answer for *behavior* on the controller and the wrong one for
+  per-player *state*, which wants a component.
 - **`StrategyGameMode.*` needed no C++ change.** The roadmap predicted one, but the project's
   abstract-C++-class/BP-subclass convention means `PlayerStateClass` is assigned on
   `BP_StrategyGameMode` instead. Nothing in C++ references `AStrategyPlayerState::StaticClass()`
@@ -266,13 +275,12 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
   getter; the C++-fills-it shape matches `UInventoryWidget`'s and needs no graph work to wire.
 - `SmoresAddGold <Amount>` / `SmoresSpendGold <Amount>` are the console execs, and
   `SmoresDumpInventory` now logs carried weight against capacity too.
-- **`Gold` is inline on `AStrategyPlayerState`, and that's a known temporary shape.** One
-  `int32` didn't justify a component, but it's the first of several per-player values headed
-  for that class (squad roster, faction standing, research progress). Slice 8 moves it into
-  a `UWalletComponent` in a new `SmoresEconomy`; see `unreal-module-organization.md`'s
-  "Framework Classes vs. Feature Modules" for why per-player state belongs in a component
-  rather than on the framework class. Don't add a *second* inline field here in the
-  meantime — write the component instead.
+- **`Gold` was inline on `AStrategyPlayerState` until Slice 8 moved it into a
+  `UWalletComponent`.** One `int32` didn't justify a component for the first piece of per-player
+  state and would have been indefensible for the fourth; the squad roster, faction standing and
+  research progress still to come each want a component of their own. See
+  `unreal-module-organization.md`'s "Framework Classes vs. Feature Modules". **Don't add an
+  inline field to that class — write the component instead.**
 
 ### Slice 5 — Equipment component and paperdoll — **DONE**
 
@@ -333,7 +341,9 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
   "`if (AddItem(...)) Destroy();`" silently deletes the units that didn't make it, and
   "`else` leave it alone" duplicates the ones that did. Slice 6 split out `AddItemCounted`,
   which reports the quantity actually taken, and `AddItem` is now a one-line forwarder.
-  **Slice 8's purchase must use `AddItemCounted` too** — the same trap, with gold attached.
+  Slice 8's purchase hit the same trap one level up and needed `MoveItemCounted` for it, since a
+  drag lands at a named cell rather than auto-placing. **Assume any other "did it work?" bool in
+  this system is hiding a quantity until checked.**
 - **The stretch was deliberately left out, and the reason is the hook, not the effort.**
   Dragging an item onto the world would ride `UDragDropOperation::DragCancelled`, which fires
   for *every* unhandled drop — a drag cancelled with Escape, or one whose window closed
@@ -435,78 +445,77 @@ Shipped; see `inventory.md` (the holder interface and the finder collapse) and `
 **Left undone on purpose:** a dead unit never despawns and keeps its pack forever. Body lifetime
 is a combat/characters design question, recorded in `combat.md`'s Known Gaps.
 
-### Slice 8 — Storefront, purchase, and trade
+### Slice 8 — Storefront, purchase, and trade — **DONE**
 
-- **Stand up `SmoresEconomy` as part of this slice, and move gold into it.** This is the
-  slice where a currency module stops being speculative: it brings `IPricingProvider`, the
-  transaction, and the existing balance together into one coherent domain, which is exactly
-  the "a real ownership seam appeared in practice" trigger `unreal-module-organization.md`
-  requires before cutting a module. Scope it to **value primitives only** — wallet, pricing,
-  transactions, depending on `SmoresItems` and not on factions; the market simulation that
-  eventually *sets* prices is a separate, much later `SmoresMarkets`.
-  - Convert `AStrategyPlayerState::Gold` into a `UWalletComponent` hosted on the player
-    state, per that topic's "Framework Classes vs. Feature Modules". Slice 4 put `Gold`
-    inline because one `int32` didn't justify a component; by this slice it's carrying a
-    transaction API and is no longer the only thing headed for that class.
-  - Doing so lets `IStrategyResourceHost` be **deleted**: with the wallet in a module
-    `SmoresUI` already depends on, `AStrategyHUD` can reach it via
-    `PC->PlayerState->FindComponentByClass<UWalletComponent>()` (cache the pointer), since
-    `APlayerState` is an engine type visible everywhere. Prefer that to extending the
-    interface with price/affordability reads.
-- **Build:** `IPricingProvider` (base value × buy markup / sell markdown, flat for now) and
-  **`UTraderComponent`** — a component attached to an NPC, holding that trader's stock and
-  prices. Server-side transaction: verify proximity, verify `TrySpendGold`, move the item,
-  debit/credit — all-or-nothing. UI: price shown on hover; dragging store → pawn triggers
-  purchase, pawn → store triggers sale.
-- **The trader is a component on a character, not a shop actor — settled, see Resolved Design
-  Decisions.** This supersedes the earlier `AStrategyStorefront : AStrategyContainer` sketch.
-  Two reasons, both load-bearing:
-  - `economy.md` wants **caravans**: traders that physically travel between towns, that patrols
-    escort and bandits raid, and that the player can intercept or follow to an undiscovered
-    market. A caravan is a trader that walks. As a component, a caravan NPC gets trading for
-    free; as a building, caravans need the whole thing implemented a second time.
-  - **Presence of the component *is* the "is this a trader?" flag.** No separate bool, so there
-    is nothing that can disagree with reality — no NPC flagged as a merchant with no stock, and
-    no stocked NPC who refuses to trade. Same single-source-of-truth reasoning as Slice 7's
-    `IInventoryHolder`.
-- **Gesture: double-click a living NPC — settled.** Double-click is the "interact with this
-  person" verb. A trader opens the trade window; a non-trader is where **dialog** will go when
-  it exists (out of scope here, and **deliberately no stub** — an empty hook nobody implements
-  is clutter; the settled *ordering* is what makes dialog drop in later with no rework).
-  - **A living NPC becomes a double-click target**, taking that gesture over from
-    select-all-on-screen, which the user has confirmed doesn't work long term for NPCs. It
-    swallows the gesture either way, matching the existing rule for an out-of-range container
-    or body ("the gesture means *that thing*, not *everyone*"). Double-clicking **empty ground**
-    still selects all on screen — that half is unchanged.
-  - **New position in `SelectAllDoubleClick`'s order:** world item → container → body →
-    **living NPC** → empty ground/select-all. Body and living NPC are the same actor type
-    differing only by health state, so prefer one `AStrategyUnit` lookup at
-    `ContainerSelectionRadius` that then branches on state, rather than a second sweep.
-  - **Guard: never trade (or later, talk) with a hostile NPC.** A double-click also fires the
-    normal select click, and a select click on an already-Aggressive NPC currently issues a
-    squad attack order — so without this guard, double-clicking a hostile trader would open
-    their shop and start a fight at once. (That click-to-attack behavior is itself scheduled
-    for removal; see `input-and-keybinds.md`'s "Existing defaults worth revisiting".)
-- **Keyboard route: `T`** — talk/trade with the currently targeted NPC, the same shape as `H`
-  (attack the targeted NPC) and reading the same `SelectedNPC`. Reserved in
-  `input-and-keybinds.md`. Not required for the slice to ship, but it is the accessible
-  alternative to a double-click and costs one binding; add it via that topic's checklist.
-- **Proximity comes free.** `AStrategyUnit` already implements `IInventoryHolder` as of Slice 7,
-  so "is a pawn close enough to trade with this NPC" needs no new distance code — reuse
-  `FindPlayerPawnInRangeOfHolder`/`IsHolderInRangeOfSelection`.
-- **Touches:** new `SmoresEconomy` module (`WalletComponent.*`, `PricingProvider.h`,
-  `TraderComponent.*`), `StrategyPlayerState.*` (loses `Gold`, gains the component),
-  `StrategyHUD.*`/`StrategyUI.*` (read through the component), `InventoryMoveHost.h`,
-  `StrategyPlayerController.*` (the double-click branch, the trade window, the hostility
-  guard, optionally the `T` binding), `InventoryWidget.*`/item widget (price display), and a
-  `BP_` NPC subclass carrying the trader component. Deletes `StrategyResourceHost.h`.
-- **Note:** standing up a module plus moving replicated state off a framework class is a
-  lot to carry alongside the storefront itself. If it turns out too big for one clean
-  session, split it — the module + wallet move first (mechanical, verifiable via the
-  existing gold execs), the storefront second.
-- **Done when:** double-clicking a trader NPC in range opens trade; buying debits gold and
-  moves the item; insufficient gold rejects with no state change; selling credits gold; all
-  replicated. Double-clicking a non-trader, or any hostile NPC, does nothing at all.
+Shipped; see `inventory.md` (the trade system, the wallet, the pricing interface) and
+`unreal-module-organization.md` (the `SmoresEconomy` cut). It shipped whole rather than split in
+two, which the entry had allowed for — the module + wallet half turned out to be genuinely
+mechanical, and doing it first is what made the storefront half cheap. Notes worth carrying
+forward:
+
+- **Standing the module up cost almost nothing; what it *bought* was the interface deletion.**
+  `SmoresEconomy` is the first module cut for an ownership reason rather than as part of the
+  original migration, and the trigger held up exactly as `unreal-module-organization.md`
+  predicted: a wallet, a price and a transaction are one coherent domain that needs `SmoresItems`
+  and nothing else. Moving gold into it let `IStrategyResourceHost` be **deleted** rather than
+  extended — `AStrategyHUD` now reaches the balance through
+  `PlayerState->FindComponentByClass<UWalletComponent>()`, because `APlayerState` is an engine
+  type every module can see. **Weigh that trade whenever a fifth `I*Host` interface is about to
+  be added: if the thing the UI wants is *state* rather than *behavior*, a component in a module
+  `SmoresUI` already depends on beats an interface.**
+- **`UTraderComponent` derives from `UInventoryComponent`, and that decision paid for the whole
+  slice.** A shop shelf *is* a grid, so the stock replicates, opens into the existing window, and
+  is dragged in and out of through the existing `MoveItem` with no new UI, no new RPC and no new
+  drag payload. The client half of a purchase is byte-for-byte the client half of moving an item
+  into a chest. **The transaction is recognised server-side**, where the money is: exactly one
+  end of a move being a `UTraderComponent` is what turns it into a purchase or a sale. That is
+  the "layer gating in front of `MoveItem`, don't add a fourth resolution to it" rule from Slice
+  2, and it is why the UI needed no gesture of its own.
+- **`MoveItem`'s bool return was the trap Slice 6 warned about, one level up.** Slice 6 recorded
+  that `AddItem` returning true doesn't mean the whole quantity landed; `MoveItem` has the same
+  hole in its merge branch (`Merged = min(Space, MoveQuantity)`, then `return true`). A purchase
+  charging off the *requested* quantity would overcharge whenever a destination stack cap
+  truncated the move. Fixed the same way: `MoveItemCounted` reports what actually moved and
+  `MoveItem` forwards to it. **Assume any other "did it work?" bool in this system is hiding a
+  quantity until checked.**
+- **The all-or-nothing ordering is the load-bearing detail of the transaction.** A purchase
+  prices the *whole requested quantity* and refuses up front if the balance won't cover it; only
+  then does the item move; the debit is then for what actually moved, which can only be less. So
+  the debit can never fail after the goods have changed hands. Checking the smaller (actual)
+  figure first would have been wrong in the other direction — it would silently sell a player a
+  partial stack they never asked for. The cost is recorded in `inventory.md`'s Known Gaps: a
+  player who can half-afford a stack is refused outright, and the honest fix is partial-stack
+  drag, not a cleverer transaction.
+- **The double-click order grew a fourth meaning without growing a fourth sweep.** The entry
+  called for "one `AStrategyUnit` lookup that then branches on state" and that's what shipped:
+  `FindLootableNPCAtLocation` became `FindNPCAtLocation` (filter: not a player pawn) and the
+  caller branches on `IsLootableNPC`. Two sweeps with two filters would have had to agree about
+  which NPC was nearer, which is a bug waiting for two NPCs standing together.
+- **The hostility rule lives in a predicate, not in a guard.** `IsInteractableNPC` ("not a player
+  pawn, on its feet, not hostile") mirrors `IsLootableNPC`, and the hostility clause is *inside*
+  it rather than at each call site — so dialog inherits it for free, the same way Dead inherited
+  the whole inert-unit ruleset from Slice 7's `IsIncapacitated()`.
+- **Click-to-attack was removed in the same slice**, as `input-and-keybinds.md` scheduled. It had
+  to be: the guard stops a hostile trader's shop from opening, but the select click that fires
+  alongside the double-click would still have started the fight. A single click now only ever
+  picks a target; `H` attacks it.
+- **Prices are on hover, and that needed no asset work at all** — `SetToolTipText` on the item
+  widget, driven by the *window* it sits in rather than by the item. Same routing rule as
+  right-click-to-equip: the controller decides what a window is, the widget only asks. A pack
+  opened beside a trader quotes sell prices; the same pack opened beside a chest quotes nothing,
+  because `ClearInventory` drops the pricing along with the binding.
+- **A `UPROPERTY` moving onto a new component has no `CoreRedirects` equivalent** — Slice 4
+  recorded this and it fired again here: `StartingGold` moved from `AStrategyPlayerState` to the
+  wallet, silently voiding the 250 authored on `BP_StrategyPlayerState`. Re-author it on the
+  component. Player states are spawned rather than placed, so there were no level instances to
+  grep this time; there will be for the next component that takes a property off a placed actor.
+- Verify with `SmoresDumpTrader` / `SmoresBuyItem <EntryIndex>` / `SmoresSellItem <EntryIndex>`
+  (click an NPC to target it first) — server-side, like the other execs, and routed through the
+  real `TryTradeItem` rather than a parallel debug path.
+
+**Left undone on purpose:** dialog. `InteractWithNPC` is the seam and its ordering is settled, but
+there is deliberately no stub — an empty hook nobody implements against is clutter, and the
+branch is one `if` away from existing when dialog is real.
 
 ### Slice 9 — Sort and filter
 
@@ -532,7 +541,9 @@ Recorded so future sessions don't reopen them:
   definition-only, holder-only.)
 - **Pricing before the economy exists** — flat base resale value behind a pricing interface
   with fixed buy/sell markups; the market simulation swaps in behind that interface later.
-  (Rejected: stubbing a market table now, deferring trade entirely.)
+  Shipped in Slice 8 as `IPricingProvider`, with totals derived rather than virtual and the whole
+  `FInventoryItem` passed in so `Condition`/`bStolen` can matter later without a signature
+  change. (Rejected: stubbing a market table now, deferring trade entirely.)
 - **Loot dead vs. Downed** — same actor, same code path; lootable = Downed or Dead. Shipped in
   Slice 7, along with the `EHealthState { Alive, Downed, Dead }` enum it required. (Rejected:
   corpse-container actor; a second bool alongside `bIsDowned`.)
@@ -550,20 +561,27 @@ Recorded so future sessions don't reopen them:
   to an NPC and carries that trader's stock and prices, and its *presence* is the only "is this
   a trader?" flag there is. Chosen so that `economy.md`'s travelling caravans are the same
   system rather than a second implementation, and so a merchant can't be half-configured.
-  (Rejected: `AStrategyStorefront : AStrategyContainer`, a stationary shop building; a
-  separate `bIsTrader` bool alongside the stock, which can disagree with itself.)
+  Shipped in Slice 8, and as a `UInventoryComponent` **subclass** — a shelf is a grid, so the
+  stock replicates, opens into the existing window and moves through the existing `MoveItem`
+  with no new UI at all. (Rejected: `AStrategyStorefront : AStrategyContainer`, a stationary
+  shop building; a separate `bIsTrader` bool alongside the stock, which can disagree with
+  itself; a plain `UInventoryComponent` owned *by* the trader component, which would have needed
+  its own registration and bought nothing.)
 - **Double-click a living NPC is the "interact with this person" verb** — a trader opens
   trade, a non-trader is where dialog goes when it exists. It swallows the gesture either way,
   the same as an out-of-range container or body already does. Double-clicking *empty ground*
   still selects all on screen. Never fires on a hostile NPC. (Rejected: letting a living NPC
   fall through to select-all-on-screen, which would mean changing the gesture's meaning twice —
   once now and again when dialog lands; and building a dialog stub now, which is clutter
-  nobody would implement against.)
+  nobody would implement against.) Shipped in Slice 8, including the deliberate absence of the
+  dialog stub.
 - **A single click selects the actor under the cursor and does nothing else** — clicking is
-  for picking a target, never for issuing an order against it. The existing
-  click-an-Aggressive-NPC-to-attack shortcut contradicts this and is scheduled for removal;
-  `H` already covers attacking a target. (Rejected: keeping click-to-attack as a convenience,
-  which makes a single click mean different things depending on the target's mood.)
+  for picking a target, never for issuing an order against it. The click-an-Aggressive-NPC-to-
+  attack shortcut that contradicted this was removed in Slice 8, which is when it started
+  actually mattering: the select click fires alongside the double-click, so it would have
+  started a fight every time the player tried to talk to a hostile. `H` covers attacking a
+  target. (Rejected: keeping click-to-attack as a convenience, which makes a single click mean
+  different things depending on the target's mood.)
 - **Encumbrance** — tracked and displayed only; effects deferred to a characters/combat
   pass. (Rejected: soft slowdown now, hard cap.)
 - **World pickup range** — double-click gated by the shared proximity check; no auto-pickup
@@ -583,9 +601,11 @@ Recorded so future sessions don't reopen them:
   dress a corpse.)
 - **The paperdoll is a separate floating window**, opened and closed with the pawn inventory
   window rather than embedded in it. (Rejected: a panel inside `WBP_Inventory`.)
-- **Currency ownership** — per-player on `AStrategyPlayerState`, shared across divisions;
-  no possession restrictions yet. Shipped in Slice 4, including the module placement
-  (`smores`, not `SmoresCore`) and the `IStrategyResourceHost` seam it required.
+- **Currency ownership** — per-player, shared across divisions, no possession restrictions yet.
+  Shipped in Slice 4 inline on `AStrategyPlayerState` (with an `IStrategyResourceHost` seam to
+  reach it from `SmoresUI`), and relocated in Slice 8 into a `UWalletComponent` in
+  `SmoresEconomy` — which deleted that seam rather than extending it, since a component in a
+  module `SmoresUI` already depends on needs no interface at all.
 - **Weight capacity of 0 means unlimited**, which is what every static holder (chest,
   storefront shelf, warehouse) should use — weight is a carried-density figure and nothing
   static carries. (Rejected: a sentinel `bHasWeightLimit` flag, or a huge placeholder number.)

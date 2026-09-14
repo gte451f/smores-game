@@ -13,10 +13,11 @@ hit while otherwise idle. Looting a body's inventory is a related but separate s
 - Selecting an NPC (`SelectedNPC`) and pressing the Attack key (`AttackAction`, bound to `H` in
   current testing) commands every currently selected unit (`ControlledUnits`) to attack it,
   provided the NPC isn't already Aggressive.
-- Clicking directly on an NPC that's already Aggressive re-issues the same squad-wide attack
-  immediately, without needing the Attack key again. **Scheduled for removal** — it breaks the
-  settled rule that a single click only ever selects what's under the cursor, and `H` already
-  covers attacking a target. See `input-and-keybinds.md`'s "Existing defaults worth
+- **The Attack key is now the only way to issue an attack.** Clicking an already-Aggressive NPC
+  used to re-issue the same squad-wide attack immediately; that was removed, because it broke
+  the settled rule that a single click only ever selects what's under the cursor — and because
+  the double-click interact gesture fires a select click alongside it, so talking to a hostile
+  NPC would have started a fight. See `input-and-keybinds.md`'s "Existing defaults worth
   revisiting".
 - Any unit that takes damage while not already fighting someone swings back at whoever hit it —
   this applies even to a bystander pawn that was never part of the original squad command.
@@ -122,7 +123,7 @@ hit while otherwise idle. Looting a body's inventory is a related but separate s
   - `AStrategyPlayerController::AttackKeyPressed` — entry point from input, gated on `SelectedNPC`
 - **Runtime ownership:** `UHealthComponent` is a default subobject of `AStrategyUnit`, alongside
   `Inventory`.
-- **Data flow (player-issued):** Attack key or click on an Aggressive NPC →
+- **Data flow (player-issued):** Attack key (`H`) with an NPC targeted →
   `DoAttackCommand(Target)` → `Target->SetAggressive(true)` + `AttackTarget()` on each
   `ControlledUnits` member → in range: `PerformAttack` → `Montage_Play` +
   `Montage_SetEndDelegate` → `UAnimNotify_AttackHit` fires `ApplyAttackDamage` → `TakeDamage` →

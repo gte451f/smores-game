@@ -16,5 +16,6 @@ public class smoresEditorTarget : TargetRules
 		ExtraModuleNames.Add("SmoresItems");
 		ExtraModuleNames.Add("SmoresCharacters");
 		ExtraModuleNames.Add("SmoresUI");
+		ExtraModuleNames.Add("SmoresEconomy");
 	}
 }

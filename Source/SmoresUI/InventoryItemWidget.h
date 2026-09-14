@@ -91,6 +91,9 @@ protected:
 	/** Pushes the current entry and orientation to ItemLabel and the BP hook */
 	void RefreshVisuals();
 
+	/** Pushes this item's price, if the window it sits in is part of a trade, onto its hover tooltip */
+	void RefreshPriceTooltip();
+
 	/** Sends this entry to the owning window's equipment target, if it has one and the item is wearable */
 	void TryEquip();
 

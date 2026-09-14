@@ -8,6 +8,7 @@
 #include "EquipmentComponent.h"
 #include "InventoryCellWidget.h"
 #include "InventoryItemWidget.h"
+#include "PricingProvider.h"
 #include "InventoryWidget.generated.h"
 
 class UTextBlock;
@@ -44,6 +45,17 @@ protected:
 	 *  holder has no paperdoll to send it to. Set by whoever opened the window, which is what
 	 *  keeps right-click inert over a chest or a loot panel - see SetEquipmentTarget. */
 	TWeakObjectPtr<UEquipmentComponent> EquipmentTarget;
+
+	/** Who prices this window's contents while a trade is open, or null when this window isn't
+	 *  part of one. Held weakly, and as the bare object rather than a TScriptInterface, so a
+	 *  trader who walks away or dies can't be kept alive by a window still showing their stock. */
+	TWeakObjectPtr<UObject> PricingSource;
+
+	/** True when the items in this window belong to the *trader* (so the player would be buying
+	 *  them), false when they are the player's own (so the player would be selling). Which side
+	 *  of the counter a window is on is decided by whoever opened it, never inferred here - the
+	 *  same rule that makes right-click mean "equip" in a pawn's window and nothing in a chest's. */
+	bool bPricedAsTraderStock = false;
 
 	/** Optional text block that lists the placed entries. Name it "SlotListText" in the WBP to auto-bind. */
 	UPROPERTY(meta = (BindWidgetOptional))
@@ -115,6 +127,32 @@ public:
 
 	/** Worn slots a right-click in this window equips into, or null if this window has none */
 	UEquipmentComponent* GetEquipmentTarget() const { return EquipmentTarget.Get(); }
+
+	/**
+	 *  Puts this window on one side of a trade counter, so its items can quote a price. Call it
+	 *  *after* SetInventory, which clears it along with the previous binding.
+	 *
+	 *  bItemsAreTraderStock says which side: true for the trader's own window (the player would
+	 *  be buying what it shows), false for the player's pack opened alongside it (the player
+	 *  would be selling). A window opened against a chest, a corpse or a plain pack leaves this
+	 *  unset and quotes nothing.
+	 */
+	void SetPricing(const TScriptInterface<IPricingProvider>& InPricing, bool bItemsAreTraderStock);
+
+	/** Takes this window back off the trade counter, so its items stop quoting prices. A window
+	 *  rebound to a different holder clears this on its own; this is for the case where the
+	 *  holder stays and only the trade ends. */
+	void ClearPricing();
+
+	/** Prices for this window's contents, or null when it isn't part of a trade */
+	const IPricingProvider* GetPricing() const;
+
+	/**
+	 *  Hover text quoting what one entry in this window is worth, or empty when this window
+	 *  isn't part of a trade. The one place a price is formatted for the player.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	FText GetItemPriceTooltip(const FInventoryItem& Item) const;
 
 	/** Grid dimensions of the bound inventory (zero if none) */
 	UFUNCTION(BlueprintPure, Category = "Inventory")

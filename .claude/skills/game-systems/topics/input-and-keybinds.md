@@ -20,7 +20,7 @@ Amend this topic in the same change as any new binding.
 
 | Key | Action asset | Does |
 |---|---|---|
-| Left mouse | `IA_Strategy_SelectClick`, `_SelectHold`, `_SelectClickAdditive`, `_SelectAllDoubleClick` | Select; hold to drag a selection box; additive select; double-click a loose world item to pick it up, a container or a body to open it, or empty ground to select all on screen. **Planned (Slice 8):** double-clicking a *living* NPC interacts with them — trade if they carry a trader component, dialog once that exists — taking that gesture over from select-all-on-screen and never firing on a hostile NPC |
+| Left mouse | `IA_Strategy_SelectClick`, `_SelectHold`, `_SelectClickAdditive`, `_SelectAllDoubleClick` | Select; hold to drag a selection box; additive select; double-click a loose world item to pick it up, a container or a body to open it, a *living* NPC to interact with them (trade if they carry a trader component; dialog's future home; never on a hostile one), or empty ground to select all on screen |
 | Right mouse | `IA_Strategy_InteractClick` | Move order / interact at the cursor |
 | Middle mouse (hold) | `IA_Strategy_InteractHold` | Rotate the camera |
 | Mouse wheel | `IA_Strategy_Zoom` | Camera zoom |
@@ -31,6 +31,7 @@ Amend this topic in the same change as any new binding.
 | `I` | `IA_Strategy_Inventory` | Toggle the selected pawn's inventory window |
 | `O` | `IA_Strategy_ToggleContainer` | Open the nearest container, or a Downed NPC's loot |
 | `H` | `IA_Strategy_Attack` | Attack the selected NPC |
+| `T` | `IA_Strategy_Talk` | Talk to / trade with the selected NPC — the keyboard route to the double-click interact, reading the same targeted NPC `H` does |
 
 ### Defaults — inventory (`IMC_Strategy_Inventory`, priority 1, only while a window is open)
 
@@ -160,6 +161,13 @@ because a window now swallows the *press* of every button that lands on it — s
 
 ## Extension Points
 
+**Removed, and worth remembering why:** a single click on an already-Aggressive NPC used to
+issue a squad attack order. It broke the settled rule that a single click selects the actor
+under the cursor and does nothing else, and it only started *mattering* when the double-click
+learned to mean "interact with this person" — the select click fires alongside the
+double-click, so talking to a hostile would have opened their shop and started a fight at once.
+Removed in Slice 8 of `inventory-roadmap.md`; `H` covers attacking a target.
+
 ### Adding a binding — the checklist
 
 1. **Check the tables above and the reserved list below.** If the key is taken in the same
@@ -192,9 +200,10 @@ now means either a conflict later or a default that surprises the player.
 | `B` | Base / build mode |
 | `1`–`9`, `0` | Squad and control-group recall; `Ctrl`+digit to assign |
 | `F1`–`F4` | Select squad member N, if party-slot selection is ever wanted |
-| `T` | Talk / trade with the targeted NPC — the keyboard route to the Slice 8 double-click, same shape as `H`, reading the same `SelectedNPC` |
 | `` ` `` | Console |
 | `Alt` (hold) | Highlight interactables / show ground item names |
+
+`T` has left this list — it is a live binding now, in the world table above.
 
 Broadly free today: `F`, `G`, `L`, `N`, `P`, `U`, `V`, `X`, `Y`, `Z`. `R` is used in the
 inventory context only — prefer not to give it a second, unrelated meaning in the world
@@ -211,14 +220,6 @@ players build muscle memory:
   one key.
 - **`O` to open a container** is unconventional; `E` is the usual interact/open key, which is
   unavailable because `E` raises the camera.
-- **A single click on an NPC that is already Aggressive issues a squad attack order**, which
-  breaks the settled rule that **a single click selects the actor under the cursor and does
-  nothing else**. Clicking picks a target; it never issues an order against that target. `H`
-  already covers attacking, so this shortcut is redundant as well as inconsistent — and it is
-  what forces Slice 8's "never trade with a hostile NPC" guard, since a double-click fires the
-  select click too. **Scheduled for removal**, folded into whichever slice next touches
-  `DoSelectCommand` (Slice 8 is the likely one). See `inventory-roadmap.md`'s Resolved Design
-  Decisions.
 - **`Q`/`E` on camera height** spends two premium keys — in most RPGs they're ability or
   quick-slot keys. Camera height is a rarely-touched control holding valuable real estate.
 
