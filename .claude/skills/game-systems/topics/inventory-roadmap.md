@@ -383,16 +383,67 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
 
 ### Slice 7 — `IInventoryHolder` and loot-dead
 
-- **Build:** `IInventoryHolder` interface in `SmoresItems` (`GetInventory`,
-  `GetHolderDisplayName`, `IsInRangeOf(const AActor*)`), implemented by `AStrategyUnit`,
-  `AStrategyContainer`, and `AWorldItem`; collapse the PC's four `Find*InRange`/
-  `Find*AtLocation` methods into holder-generic versions. Add a Dead state to
-  `UHealthComponent` (`SmoresCombat` — coordinate with `combat.md`) and make the lootable
-  check "Downed or Dead."
+- **Build:** `IInventoryHolder` interface in `SmoresItems` (`GetHolderDisplayName`,
+  `IsInRangeOf(const AActor*)`, and see the open question below about `GetInventory`),
+  implemented by `AStrategyUnit`, `AStrategyContainer`, and `AWorldItem`; collapse the PC's
+  holder-finding methods into holder-generic versions. Add a Dead state to `UHealthComponent`
+  (`SmoresCombat` — coordinate with `combat.md`) and make the lootable check "Downed or Dead."
 - **Touches:** new `InventoryHolder.h`, `StrategyUnit.*`, `StrategyContainer.*`,
   `WorldItem.*`, `StrategyPlayerController.*`, `HealthComponent.*`.
 - **Done when:** the PC has one proximity path for every holder type and a killed NPC is
   lootable exactly like a Downed one.
+
+**Open design question — settle this first, it shapes the whole interface.**
+`AWorldItem` has **no `UInventoryComponent`.** It holds a bare `FInventoryItem`, by design
+(Slice 6: a pickup is one item on a light actor, not a holder). So a `GetInventory` on the
+interface is unimplementable for one of its three implementers, and returning null makes every
+caller null-check a method the interface promises. Three ways out:
+
+  1. **Split the interface** (recommended): `IInventoryHolder` carries only what all three
+     genuinely share — display name and the range check — and grid access stays off it, reached
+     by `Cast` where a caller actually needs a grid. The proximity unification is the part with
+     three real duplicates; grid access has only two implementers and no duplication problem.
+  2. Keep `GetInventory` and let `AWorldItem` return null. Simplest to write, but it puts a
+     "sometimes lies" method on the interface, and the null branch will be forgotten somewhere.
+  3. Leave `AWorldItem` off the interface entirely. Costs the thing the slice is for — its
+     `IsUnitInRange` is one of the three copies being collapsed.
+
+**Facts the entry above used to get wrong — check these against source before planning:**
+
+- **There are six finder methods now, not four.** Slice 6 added `FindWorldItemAtLocation` and
+  `FindPlayerPawnInRangeOfWorldItem` alongside `FindContainerInRange`,
+  `FindLootableNPCInRange`, `FindContainerAtLocation`, `FindLootableNPCAtLocation` (plus
+  `FindClosestPlayerPawn`, which finds a *collector*, not a holder, and shouldn't be swept in).
+- **They share a shape, not a policy** — a naive collapse silently loses behavior. Each has a
+  rule of its own: `FindContainerInRange` prefers `SelectedContainer` when it qualifies;
+  `FindLootableNPCInRange` *only* ever considers `SelectedNPC` and never sweeps the world;
+  `FindWorldItemAtLocation` skips items holding no definition;
+  `FindPlayerPawnInRangeOfWorldItem` uses range as a filter rather than a tiebreak. Whatever
+  replaces them has to keep each rule, probably as a predicate parameter.
+- **Click radius is per type and must stay that way.** `ContainerSelectionRadius` is 250,
+  `WorldItemSelectionRadius` is 100, and Slice 6 separated them on purpose — one radius let an
+  item lying near a chest swallow every double-click meant for the chest. A holder-generic
+  `Find*AtLocation` needs the radius to come from the holder type, not from one shared field.
+- **`IsUnitInRange`'s signature already disagrees across the three.** `AStrategyContainer` and
+  `AWorldItem` take `const AActor*`; `AStrategyUnit` takes `const AStrategyUnit*`. Widening the
+  unit's to `AActor*` is the obvious reconciliation, but check its callers first.
+- **The display-name getters are three different names** — `GetUnitDisplayName`,
+  `GetContainerDisplayName`, `GetItemDisplayName` — all returning `FText`. That part unifies
+  cleanly.
+
+**`UHealthComponent` has no state enum — Downed is a bool.** The entry's "add a Dead state"
+understates it: today there is `bool bIsDowned` with `ReplicatedUsing = OnRep_IsDowned(bool
+bOldIsDowned)`, plus a `DownedDurationSeconds` timer that auto-recovers. Adding Dead means
+either a second bool (two bools encoding three states, one of them impossible) or converting to
+an `EHealthState { Alive, Downed, Dead }` enum — which changes a replicated property's type
+*and* its `OnRep` signature, and has to gate the auto-recovery timer so a dead pawn doesn't
+stand back up. Prefer the enum; budget for it, and coordinate with `combat.md` since combat
+owns what Dead *means* (this slice only needs "lootable").
+
+**Opportunistic, only if you're already in the file:** `AStrategyContainer` never sets
+`bReplicates`, so its replicated `Inventory` currently has no replicated actor to ride on.
+`AWorldItem` sets it (Slice 6). Recorded in `inventory.md`'s Known Gaps as a holder-wide
+multiplayer pass — don't let it expand this slice, but it's a one-liner if the file is open.
 
 ### Slice 8 — Storefront, purchase, and trade
 
