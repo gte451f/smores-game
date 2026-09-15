@@ -5,6 +5,7 @@
 #include "InventoryDragDropOperation.h"
 #include "InventoryMoveHost.h"
 #include "InventoryWidget.h"
+#include "RefusalWidget.h"
 #include "EquipmentComponent.h"
 #include "Components/TextBlock.h"
 #include "Components/SizeBox.h"
@@ -108,10 +109,23 @@ void UInventoryItemWidget::TryEquip()
 
 	UEquipmentComponent* Equipment = OwnerWidget->GetEquipmentTarget();
 
-	// no point sending an RPC the server will only reject - the item's own slot is the gate, and
-	// the client can read it off the same shared definition
-	if (!Equipment || UEquipmentComponent::GetSlotForItem(Entry.Item) == EEquipSlot::None)
+	// no equipment target means this is a chest or a loot panel, where right-click is *inert* by
+	// design rather than refused - see SetEquipmentTarget. Saying "can't be worn there" about
+	// somebody else's chest would be answering a question the player didn't ask.
+	if (!Equipment)
 	{
+		return;
+	}
+
+	// no point sending an RPC the server will only reject - the item's own slot is the gate, and
+	// the client can read it off the same shared definition. But predicting a refusal is only
+	// half the job: this used to return in silence, so right-clicking a cabbage did nothing at
+	// all while *dragging* the same cabbage onto a slot said "Can't be worn there" - the same
+	// rule giving two different answers depending on the gesture.
+	if (UEquipmentComponent::GetSlotForItem(Entry.Item) == EEquipSlot::None)
+	{
+		URefusalWidget::RaiseRefusal(GetOwningPlayer(), ESmoresRefusalReason::WrongSlot);
+
 		return;
 	}
 

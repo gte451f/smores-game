@@ -155,9 +155,22 @@ public:
 	bool Equip(UInventoryComponent* FromInventory, int32 EntryId, EEquipSlot Slot = EEquipSlot::None);
 
 	/**
+	 *  Equip, additionally reporting why it refused - the same split as AddItem vs.
+	 *  AddItemCounted. The two failures the player can see are genuinely different: WrongSlot
+	 *  means this item is never worn there, NoRoom means the item it would have replaced has
+	 *  nowhere to go, and "nothing happened" reads identically for both.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	bool EquipWithReason(UInventoryComponent* FromInventory, int32 EntryId, EEquipSlot Slot, ESmoresRefusalReason& OutReason);
+
+	/**
 	 *  Takes a worn item off and places it back into ToInventory. Fails - leaving the item worn -
 	 *  if the grid has no room for it.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	bool Unequip(EEquipSlot Slot, UInventoryComponent* ToInventory);
+
+	/** Unequip, additionally reporting why it refused (see EquipWithReason) */
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	bool UnequipWithReason(EEquipSlot Slot, UInventoryComponent* ToInventory, ESmoresRefusalReason& OutReason);
 };

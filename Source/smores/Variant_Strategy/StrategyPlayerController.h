@@ -596,6 +596,30 @@ public:
 	//~ End IInventoryMoveHost interface
 
 	/**
+	 *  Puts a refusal on this player's own HUD ("Too far away", "Not enough gold").
+	 *
+	 *  Local and client-side: call it directly from anything that decides on this machine, which
+	 *  is most refusals - reach, hostility and a full grid are all things the client can work out
+	 *  before it asks the server anything. On a listen server this is also what
+	 *  Client_NotifyRefusal ends up calling.
+	 *
+	 *  Does nothing without a HUD, which is the correct behaviour on a dedicated server: server
+	 *  code must route through Client_NotifyRefusal instead, or the player is never told.
+	 */
+	void NotifyRefusal(ESmoresRefusalReason Reason);
+
+	/**
+	 *  Server -> owning client: why a server-side check refused something.
+	 *
+	 *  Only for refusals the client could not have predicted. Most can be: the drop preview
+	 *  already turns cells red before the player lets go, and that is a better answer than this
+	 *  one, because the gesture never completes. This carries the rest - a price the client
+	 *  hasn't priced, a range re-check against a pawn that has moved, a repack that couldn't fit.
+	 */
+	UFUNCTION(Client, Reliable)
+	void Client_NotifyRefusal(ESmoresRefusalReason Reason);
+
+	/**
 	 *  Server-side entry point for collecting a loose world item into a pawn's grid. Re-checks
 	 *  proximity and that the destination really is a player pawn's own inventory rather than
 	 *  trusting the requesting client's own check, since range is the whole gate on a pickup.

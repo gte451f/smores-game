@@ -12,6 +12,7 @@
 #include "Camera/CameraComponent.h"
 #include "InputActionValue.h"
 #include "StrategyHUD.h"
+#include "RefusalWidget.h"
 #include "Engine/CollisionProfile.h"
 #include "Kismet/GameplayStatics.h"
 #include "StrategyUnit.h"
@@ -678,7 +679,12 @@ void AStrategyPlayerController::ToggleContainer(const FInputActionValue& Value)
 	if (AStrategyUnit* LootableNPC = FindLootableNPCInRange())
 	{
 		OpenLoot(LootableNPC);
+		return;
 	}
+
+	// nothing to open. A key that does nothing reads as a broken keybind, which is the one thing
+	// it isn't - the pawn is just standing too far from whatever the player meant
+	NotifyRefusal(ESmoresRefusalReason::TooFar);
 }
 
 void AStrategyPlayerController::CloseContainer()
@@ -851,6 +857,10 @@ void AStrategyPlayerController::InteractWithNPC(AStrategyUnit* NPC)
 	// lives in one predicate, so dialog inherits it rather than re-deriving it
 	if (!IsInteractableNPC(NPC))
 	{
+		// by the time a double-click reaches here the incapacitated cases have already gone down
+		// the loot branch, so this is someone on their feet who is currently hostile
+		NotifyRefusal(ESmoresRefusalReason::NotInteractable);
+
 		return;
 	}
 
@@ -859,6 +869,10 @@ void AStrategyPlayerController::InteractWithNPC(AStrategyUnit* NPC)
 	// no wares means no shop. This is where dialog goes when it exists, and there is
 	// deliberately no stub for it here: an empty hook nobody implements against is clutter, and
 	// the settled *ordering* is what lets dialog drop in later with no rework.
+	//
+	// Deliberately no refusal either, for the same reason. Every other silence in this file is a
+	// rule the player ran into; this one is a feature that isn't built, and "they have nothing to
+	// say" would be a lie the day dialog lands.
 	if (!Stock)
 	{
 		return;
@@ -868,6 +882,8 @@ void AStrategyPlayerController::InteractWithNPC(AStrategyUnit* NPC)
 	// IInventoryHolder through AStrategyUnit, so this needed no new distance code
 	if (!FindPlayerPawnInRangeOfHolder(NPC))
 	{
+		NotifyRefusal(ESmoresRefusalReason::TooFar);
+
 		return;
 	}
 
@@ -974,8 +990,14 @@ void AStrategyPlayerController::SelectAllDoubleClick(const FInputActionValue& Va
 			{
 				Server_PickUpWorldItem(ClickedItem, Collector->GetInventory());
 			}
+			else
+			{
+				// decided here rather than on the server: the client already knows where every
+				// pawn is, so there is no reason to ask and wait to be told no
+				NotifyRefusal(ESmoresRefusalReason::TooFar);
+			}
 
-			// out of range does nothing at all, and still swallows the select-all - same as an
+			// out of range collects nothing, and still swallows the select-all - same as an
 			// out-of-range container or corpse, where the gesture means "that thing", not "everyone"
 			return;
 		}
@@ -990,6 +1012,12 @@ void AStrategyPlayerController::SelectAllDoubleClick(const FInputActionValue& Va
 			if (FindPlayerPawnInRangeOfHolder(Clicked))
 			{
 				OpenContainer(Clicked);
+			}
+			else
+			{
+				// it still highlights, so the player can see they picked the right chest - the
+				// only thing missing is somebody standing near it
+				NotifyRefusal(ESmoresRefusalReason::TooFar);
 			}
 
 			return;
@@ -1010,6 +1038,10 @@ void AStrategyPlayerController::SelectAllDoubleClick(const FInputActionValue& Va
 				if (FindPlayerPawnInRangeOfHolder(Clicked))
 				{
 					OpenLoot(Clicked);
+				}
+				else
+				{
+					NotifyRefusal(ESmoresRefusalReason::TooFar);
 				}
 			}
 			else
@@ -1447,6 +1479,25 @@ void AStrategyPlayerController::Server_MoveUnits_Implementation(const TArray<ASt
 	}
 }
 
+void AStrategyPlayerController::NotifyRefusal(ESmoresRefusalReason Reason)
+{
+	if (Reason == ESmoresRefusalReason::None)
+	{
+		return;
+	}
+
+	// one shared resolver in SmoresUI, so a widget that decides a rule for itself reaches the
+	// same line by the same route - see UInventoryItemWidget::TryEquip. Does nothing without a
+	// HUD, which is the correct behaviour on a dedicated server and exactly why server-side code
+	// has to come through Client_NotifyRefusal rather than calling this.
+	URefusalWidget::RaiseRefusal(this, Reason);
+}
+
+void AStrategyPlayerController::Client_NotifyRefusal_Implementation(ESmoresRefusalReason Reason)
+{
+	NotifyRefusal(Reason);
+}
+
 void AStrategyPlayerController::Server_MoveInventoryItem_Implementation(UInventoryComponent* SourceInventory, int32 EntryId, UInventoryComponent* DestInventory, FIntPoint DestCell, bool bRotated, int32 Quantity)
 {
 	// A trader's stock is a UInventoryComponent like any other, so a drag in or out of a trade
@@ -1465,7 +1516,14 @@ void AStrategyPlayerController::Server_MoveInventoryItem_Implementation(UInvento
 		return;
 	}
 
-	UInventoryComponent::MoveItem(SourceInventory, EntryId, DestInventory, DestCell, bRotated, Quantity);
+	// The drop preview has already refused every placement the client could work out for itself,
+	// so reaching here with a failure means the client predicted wrong - the grid changed under
+	// it between the preview and the drop. Rare, and invisible without this: the item just snaps
+	// back onto cells that still look free.
+	if (!UInventoryComponent::MoveItem(SourceInventory, EntryId, DestInventory, DestCell, bRotated, Quantity))
+	{
+		Client_NotifyRefusal(ESmoresRefusalReason::NoRoom);
+	}
 }
 
 void AStrategyPlayerController::Server_SortInventory_Implementation(UInventoryComponent* Inventory, EInventorySortCriterion Criterion)
@@ -1479,7 +1537,14 @@ void AStrategyPlayerController::Server_SortInventory_Implementation(UInventoryCo
 	// rearrange one holder's own contents, so unlike a pickup or a trade there is nothing here
 	// for a bad request to take. It works on a trader's shelf and a corpse's pack for the same
 	// reason - tidying either one costs nobody anything
-	Inventory->SortEntries(Criterion);
+	ESmoresRefusalReason Reason = ESmoresRefusalReason::None;
+
+	// an already-sorted grid reports None and says nothing; only an abandoned repack speaks up,
+	// because that one is indistinguishable on screen from a grid that was already tidy
+	if (!Inventory->SortEntriesWithReason(Criterion, Reason))
+	{
+		Client_NotifyRefusal(Reason);
+	}
 }
 
 bool AStrategyPlayerController::TryTradeItem(UInventoryComponent* SourceInventory, int32 EntryId, UInventoryComponent* DestInventory, FIntPoint DestCell, bool bRotated, int32 Quantity)
@@ -1507,9 +1572,23 @@ bool AStrategyPlayerController::TryTradeItem(UInventoryComponent* SourceInventor
 	// re-checked here rather than trusted from the client, for the same reason
 	// Server_PickUpWorldItem re-checks its own: MoveItem has no idea how far away the asking pawn
 	// was, or what the counterparty thinks of it
-	if (!IsInteractableNPC(TraderUnit) || !FindPlayerPawnInRangeOfHolder(TraderUnit))
+	if (!IsInteractableNPC(TraderUnit))
 	{
-		UE_LOG(Logsmores, Warning, TEXT("[Trade] Refused: %s is not an interactable trader in range."), *GetNameSafe(TraderUnit));
+		UE_LOG(Logsmores, Warning, TEXT("[Trade] Refused: %s is not an interactable trader."), *GetNameSafe(TraderUnit));
+
+		Client_NotifyRefusal(ESmoresRefusalReason::NotInteractable);
+
+		return false;
+	}
+
+	// split from the check above only so the two can be told apart on screen - "they won't deal
+	// with you" and "walk closer" ask for completely different things from the player
+	if (!FindPlayerPawnInRangeOfHolder(TraderUnit))
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[Trade] Refused: no pawn in range of %s."), *GetNameSafe(TraderUnit));
+
+		Client_NotifyRefusal(ESmoresRefusalReason::TooFar);
+
 		return false;
 	}
 
@@ -1545,6 +1624,10 @@ bool AStrategyPlayerController::TryTradeItem(UInventoryComponent* SourceInventor
 			UE_LOG(Logsmores, Warning, TEXT("[Trade] REJECTED: %s costs %d, balance %d."),
 				*SourceEntry.Item.GetDisplayName().ToString(), MaximumPrice, Wallet->GetGold());
 
+			// the case this whole mechanism was built for: the cells were fine, so there is no
+			// red preview to explain it, and the item snapping back looks exactly like a bad drop
+			Client_NotifyRefusal(ESmoresRefusalReason::CannotAfford);
+
 			return false;
 		}
 	}
@@ -1555,6 +1638,8 @@ bool AStrategyPlayerController::TryTradeItem(UInventoryComponent* SourceInventor
 	// collision) it mutates nothing, and neither does the money half below
 	if (!UInventoryComponent::MoveItemCounted(SourceInventory, EntryId, DestInventory, DestCell, bRotated, Quantity, QuantityMoved) || QuantityMoved <= 0)
 	{
+		Client_NotifyRefusal(ESmoresRefusalReason::NoRoom);
+
 		return false;
 	}
 
@@ -1596,7 +1681,14 @@ void AStrategyPlayerController::Server_EquipItem_Implementation(UInventoryCompon
 
 	// no validation of its own, same as the move RPC - UEquipmentComponent::Equip checks
 	// authority, slot matching and room for the displaced item, and mutates nothing if any fails
-	Equipment->Equip(SourceInventory, EntryId, Slot);
+	ESmoresRefusalReason Reason = ESmoresRefusalReason::None;
+
+	// right-click-to-equip has no preview to refuse it in advance the way a drag does, so this is
+	// the only thing standing between "that item isn't armour" and nothing happening at all
+	if (!Equipment->EquipWithReason(SourceInventory, EntryId, Slot, Reason))
+	{
+		Client_NotifyRefusal(Reason);
+	}
 }
 
 void AStrategyPlayerController::Server_PickUpWorldItem_Implementation(AWorldItem* WorldItem, UInventoryComponent* DestInventory)
@@ -1617,10 +1709,16 @@ void AStrategyPlayerController::Server_PickUpWorldItem_Implementation(AWorldItem
 	// to the requesting client, which may have moved (or lied) since
 	if (!WorldItem->IsInRangeOf(DestInventory->GetOwner()))
 	{
+		Client_NotifyRefusal(ESmoresRefusalReason::TooFar);
+
 		return;
 	}
 
-	WorldItem->TryPickUp(DestInventory);
+	// range was the only thing the client checked, so a full pack is the server's news to break
+	if (!WorldItem->TryPickUp(DestInventory))
+	{
+		Client_NotifyRefusal(ESmoresRefusalReason::NoRoom);
+	}
 }
 
 void AStrategyPlayerController::Server_UnequipItem_Implementation(UEquipmentComponent* Equipment, EEquipSlot Slot, UInventoryComponent* DestInventory)
@@ -1630,7 +1728,14 @@ void AStrategyPlayerController::Server_UnequipItem_Implementation(UEquipmentComp
 		return;
 	}
 
-	Equipment->Unequip(Slot, DestInventory);
+	ESmoresRefusalReason Reason = ESmoresRefusalReason::None;
+
+	// the item stays worn when the grid is full, which on screen is the paperdoll simply
+	// ignoring the click
+	if (!Equipment->UnequipWithReason(Slot, DestInventory, Reason))
+	{
+		Client_NotifyRefusal(Reason);
+	}
 }
 
 AStrategyPlayerState* AStrategyPlayerController::GetStrategyPlayerState() const

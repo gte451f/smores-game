@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "ItemDefinition.h"
+#include "SmoresRefusalReason.h"
 #include "InventoryComponent.generated.h"
 
 class UTexture2D;
@@ -404,6 +405,18 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool SortEntries(EInventorySortCriterion Criterion);
+
+	/**
+	 *  SortEntries, additionally reporting *why* it changed nothing - the same split as AddItem
+	 *  vs. AddItemCounted, for the same reason: the bool collapses two outcomes a caller has to
+	 *  tell apart.
+	 *
+	 *  "Already in this order" and "couldn't fit everything back in" both return false, and only
+	 *  the second is worth interrupting the player over. An OutReason of None means the grid was
+	 *  already sorted (or empty, or this isn't the authority) and nothing needs saying.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	bool SortEntriesWithReason(EInventorySortCriterion Criterion, ESmoresRefusalReason& OutReason);
 
 	/**
 	 *  The single move/transfer entry point, used for repositioning within one grid

@@ -472,6 +472,17 @@ bool UInventoryComponent::SetGridSize(int32 NewWidth, int32 NewHeight)
 
 bool UInventoryComponent::SortEntries(EInventorySortCriterion Criterion)
 {
+	ESmoresRefusalReason UnusedReason = ESmoresRefusalReason::None;
+
+	return SortEntriesWithReason(Criterion, UnusedReason);
+}
+
+bool UInventoryComponent::SortEntriesWithReason(EInventorySortCriterion Criterion, ESmoresRefusalReason& OutReason)
+{
+	// most ways of changing nothing are not worth telling the player about, so the default is
+	// silence and only the one case that surprises them sets a reason
+	OutReason = ESmoresRefusalReason::None;
+
 	// shared gameplay state - only the server may mutate it
 	if (!HasOwnerAuthority())
 	{
@@ -581,6 +592,10 @@ bool UInventoryComponent::SortEntries(EInventorySortCriterion Criterion)
 		{
 			UE_LOG(LogSmoresItems, Warning, TEXT("InventoryComponent on %s could not repack '%s' - the sort was abandoned and nothing changed."),
 				*GetNameSafe(GetOwner()), *GetNameSafe(Entry.Item.Definition));
+
+			// the one outcome here the player can't work out for themselves: the grid is
+			// unchanged and looks exactly like a grid that was already sorted
+			OutReason = ESmoresRefusalReason::NoRoom;
 
 			return false;
 		}

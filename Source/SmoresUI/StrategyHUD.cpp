@@ -7,6 +7,8 @@
 #include "StrategySelectionHost.h"
 #include "WalletComponent.h"
 #include "StrategyUI.h"
+#include "RefusalWidget.h"
+#include "SmoresUI.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
 
@@ -20,6 +22,27 @@ void AStrategyHUD::BeginPlay()
 
 	// add the UI widget to the screen
 	UIWidget->AddToViewport(0);
+
+	// The refusal line is its own widget on its own layer, not part of UIWidget, because Slate
+	// paints same-Z viewport widgets in the order they were added and every inventory window goes
+	// up at 0 *after* this does. A refusal living in the HUD therefore renders behind the window
+	// the player was working in - which is precisely where they were looking when it fired.
+	//
+	// Unlike UIWidget this is not check()ed: a missing class should cost the messages, not the
+	// session.
+	if (RefusalWidgetClass)
+	{
+		RefusalWidget = CreateWidget<URefusalWidget>(GetOwningPlayerController(), RefusalWidgetClass);
+
+		if (RefusalWidget)
+		{
+			RefusalWidget->AddToViewport(RefusalZOrder);
+		}
+	}
+	else
+	{
+		UE_LOG(LogSmoresUI, Warning, TEXT("AStrategyHUD has no RefusalWidgetClass set; refused actions will fail silently."));
+	}
 }
 
 void AStrategyHUD::DragSelectUpdate(FVector2D Start, FVector2D WidthAndHeight, FVector2D CurrentPosition, bool bDraw)

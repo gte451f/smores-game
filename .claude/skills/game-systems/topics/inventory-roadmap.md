@@ -193,12 +193,15 @@ Shipped; see `inventory.md`. Notes worth carrying forward:
   well-defined exchange, so a drop resolves to merge / reposition / place, and anything else
   is rejected whole. Later slices that add a transfer context (purchase, loot, steal) should
   layer their gating *in front of* `MoveItem` rather than adding a fourth resolution to it.
-- **Rejection is silent.** The server mutates nothing and sends nothing back; the client's
-  next refresh redraws unchanged replicated state, which is what makes the item appear to
-  snap back. Slice 8 proved the cost: a purchase refused for insufficient gold is
-  indistinguishable on screen from one that simply didn't fit, and there is not even a red
-  preview to hint at it, since the cells were fine. Explaining *why* still needs a new client
-  RPC — it can't be inferred from the absence of a change.
+- **Rejection was silent, and is no longer.** The server mutates nothing and sends nothing back;
+  the client's next refresh redraws unchanged replicated state, which is what makes the item
+  appear to snap back. Slice 8 proved the cost: a purchase refused for insufficient gold was
+  indistinguishable on screen from one that simply didn't fit, with not even a red preview to
+  hint at it since the cells were fine. **Resolved after Slice 9** by the shared refusal line
+  (`ESmoresRefusalReason` + `Client_NotifyRefusal`) — see `refusals-and-feedback.md`. The
+  principle that came out of it is worth carrying: *preventing* a refusal beats explaining one,
+  so a new rule should first ask whether the client can show it before the gesture completes,
+  the way the drop preview does.
 - **Rotation is only half-shipped.** `FindFreePlacement` uses it; the player can't yet
   invoke it. Slice 3 owns the rotate key and the footprint-spanning item widget.
 - Verify with the `SmoresDumpInventory` / `SmoresAddItem <Count>` console execs on
@@ -677,6 +680,15 @@ Recorded so future sessions don't reopen them:
   it, so the player would read occupied cells as free space and get a silent rejection on the
   drop. Dimmed items stay fully draggable. Shipped in Slice 9. (Rejected: collapsing/hiding
   non-matching entries, which makes the grid lie about what it holds.)
+- **A refusal travels as a code, not as a sentence** — `ESmoresRefusalReason` lives in
+  `SmoresCore` (its first tenant), every rule raises a code, and `URefusalWidget::GetRefusalText` is
+  the only place any of them is worded. Built after Slice 9, once three separate slices had each
+  recorded the same silent-rejection gap. Client-knowable refusals (reach, hostility, a full
+  grid) are raised client-side with no round trip; only what the client couldn't know goes
+  through `Client_NotifyRefusal`. (Rejected: the server sending display strings, which forks the
+  wording and makes localisation a two-place edit; a general notification/message-queue system,
+  which is much bigger than the problem; and announcing refusals the drop preview already
+  prevents, which would tell the player something they were about to be shown anyway.)
 - **Sort criteria are the three figures, not the labels** — weight, value, quantity; no
   alphabetical or category sort, since category is what the *filter* is for and a name sort only
   earns its place once the grid draws icons. Shipped in Slice 9, with a tiebreak chain

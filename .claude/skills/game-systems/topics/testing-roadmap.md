@@ -221,6 +221,20 @@ and every one of its rules is invisible on screen.
   quantity per definition before equals total after, always.
 - Non-authority returns false and mutates nothing, like every other mutator here.
 
+**Refusal reasons (`SortEntriesWithReason`):**
+
+Added with the refusal line — see `refusals-and-feedback.md`. Worth asserting because the whole
+point of these variants is that they distinguish two outcomes the bool collapses, and getting
+one wrong produces a *wrong message* rather than a visible failure, which is far harder to spot
+in PIE than silence was.
+
+- An abandoned repack reports `NoRoom`; an already-sorted grid reports `None`. Both return false,
+  and asserting only the bool would pass either way round.
+- A non-authority call reports `None`, not a reason — the player didn't do anything wrong.
+- The plain `SortEntries` forwarder returns exactly what `SortEntriesWithReason` returns, for
+  every one of the above. A forwarder that drifts is the standing hazard of this whole family
+  (`AddItem`/`AddItemCounted`, `MoveItem`/`MoveItemCounted`, `Equip`/`EquipWithReason`).
+
 **Delegates:**
 
 - `OnInventoryChanged` fires once per successful mutator and **not at all** on a rejected one —
@@ -239,6 +253,10 @@ and every one of its rules is invisible on screen.
   displaced item fails, leaves the original item worn, and leaves the grid untouched. Nothing is
   destroyed by running out of room.
 - `Unequip` into a full grid fails and leaves the item worn.
+- `EquipWithReason` reports `WrongSlot` for a mismatched slot and `NoRoom` when the displaced
+  item has nowhere to go — two failures that look identical through the bool, and that now
+  produce two different messages on screen. `UnequipWithReason` reports `NoRoom` for a full grid.
+  Both plain forwarders must agree with their informative versions.
 - `GetTotalWeight` sums worn items and is reported separately from the grid's weight (the known
   seam recorded in `inventory-roadmap.md` Slice 5 — assert current behavior so the pass that merges
   them has to change a test on purpose).
@@ -433,11 +451,12 @@ The highest-value slice; the reason this roadmap exists.
   `Source/SmoresItems/Tests/InventoryMoveTest.cpp` and
   `Source/SmoresItems/Tests/InventorySortTest.cpp`.
 - **Tests:** the "Stacking", "counted-return family", "Move semantics", "Entries and lifecycle",
-  "Weight", "Sort and repack" and "Delegates" groups.
+  "Weight", "Sort and repack", "Refusal reasons" and "Delegates" groups.
 - **Touches:** new files only.
 - **Done when:** every counted-return case above is asserted; the non-swap case asserts that
-  both grids are unchanged rather than only that the call returned false; and the abandoned-sort
-  case asserts the same thing about the grid it declined to repack.
+  both grids are unchanged rather than only that the call returned false; the abandoned-sort
+  case asserts the same thing about the grid it declined to repack; and each `*WithReason`
+  variant is asserted to report the right reason *and* to agree with its plain forwarder.
 
 ### Slice 3 — Economy: wallet and pricing
 

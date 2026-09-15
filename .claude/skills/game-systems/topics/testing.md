@@ -25,6 +25,7 @@ them test smores.
 | Inventory grid geometry and placement | `SmoresItems` | — | 1 |
 | Inventory stacking, counted returns, moves | `SmoresItems` | — | 2 |
 | Inventory sort repack (determinism, all-or-nothing) | `SmoresItems` | — | 2 |
+| Refusal reasons (`*WithReason` vs. their forwarders) | `SmoresItems` | — | 2 |
 | Wallet and pricing | `SmoresEconomy` | — | 3 |
 | Health state machine (Alive/Downed/Dead) | `SmoresCombat` | — | 4 |
 | Equipment slots and the all-or-nothing swap | `SmoresItems` | — | 5 |

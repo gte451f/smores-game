@@ -231,6 +231,55 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   `only_modified: false` advice above applies to `bp_inspect`, not to `get_properties`.
 - **UMG refPaths need the full `Package.Asset` form** (`/Game/.../WBP_X.WBP_X`); the bare
   package path fails with "is not a valid object path for property 'WidgetBlueprint'".
+- **The `BindWidgetOptional` placeholder row only exists on a *compiled* Widget Blueprint.** On a
+  freshly created, never-compiled WBP, `GetWidgets` returns `widgetCount: 0` with no `widget:
+  "None"` rows at all — so on a new asset the absence of a name proves nothing, and the
+  "placeholder row = my cold build landed" check below applies only to blueprints that have been
+  compiled at least once. Add the widget and confirm the row flips to a real refPath instead.
+- **`UMGToolSet.CreateWidgetBlueprint` takes a native parent class directly**, including a
+  `UCLASS(abstract)` one — `parentClass: {"refPath": "/Script/SmoresUI.RefusalWidget"}` works at
+  creation time with no reparent step. Note the object path drops the `U` prefix
+  (`RefusalWidget`, not `URefusalWidget`); the `U` form is the C++ name, not the path.
+- **`UCanvasPanelSlot` alignment is NOT a top-level property.** `bAutoSize` is, but alignment
+  lives at **`LayoutData.alignment`**, alongside `anchors` and `offsets`. The natural-looking
+  `set_properties(slot, {"Alignment": {...}})` returns `true` and writes nothing — the same
+  silent-write family as the IMC-mappings and material-override bullets above. Correct shape:
+  `{"bAutoSize": true, "LayoutData": {"anchors": {...}, "offsets": {...}, "alignment": {"x": 0, "y": 0}}}`.
+- **`get_properties`' output shape is directly reusable as `set_properties`' input shape** for
+  widget style structs — read the whole struct, change one field, post it back verbatim.
+  `FSlateFontInfo`, `FSlateColor`, `FLinearColor`, `FVector2D` and `FAnchorData` all round-trip
+  cleanly, with null object refs as the bare string `"None"`. **Prefer read-modify-write of the
+  full nested struct** over guessing at a partial one, which is where the silent writes come from.
+- **`UMGToolSet.ToggleWidgetAsVariable` returns `null`**, so success is indistinguishable from
+  failure — the same problem as `BlueprintTools.compile_blueprint`, and notable because
+  `CompileWidgetBlueprint` in that *same* toolset does return a real bool. Confirm the flag
+  through `GetWidgets`' `bIsVariable`, never the return value.
+- **`AddWidget` honours `widgetDisplayName` exactly** when nothing collides — no `_0` suffix.
+  That's what makes name-based `BindWidget` wiring reliable, and it's the flip side of the
+  `_1`-suffix hazard when re-running a partially-failed batch script.
+- **Don't debug a widget from the designer preview.** UMG draws an empty `UTextBlock` as the
+  placeholder string "Text Block", and draws `Collapsed` widgets anyway so they stay selectable.
+  An authored-empty, authored-collapsed block therefore looks exactly like one left at its
+  default. Confirm with `get_properties`, not with your eyes.
+- **`CaptureEditorImage` does not return an image.** It returns ~500 KB of base64 that overflows
+  the token limit and lands in a `.txt` as plain text. Recoverable and worth it for UMG layout
+  work: regex the `"data"` field out, base64-decode to a `.png` in the scratchpad, then `Read`
+  that. Two limits — it captures the **whole desktop**, so panel text is unreadable at the
+  delivered resolution, and **PIL is not installed**, so it can't be cropped or upscaled. A
+  sanity check only.
+- **`bIsVariable` is NOT what makes a `BindWidget` resolve — the name is.** `GetWidgets` reports
+  `bIsVariable: false` on widgets that are correctly bound to a C++ `BindWidget`/
+  `BindWidgetOptional` property (`GoldText` in `UI_Strategy` is the confirmed case, reporting
+  `bIsVariable: false` and `bInherited: true` while working perfectly). UE forces the variable on
+  for bound properties at compile time regardless of the stored flag. Setting it true is harmless,
+  but **if a binding fails, `bIsVariable` is the wrong thing to chase** — check the name's exact
+  spelling and case first.
+- **`ObjectTools.get_properties` double-encodes its result.** `returnValue` comes back as a JSON
+  *string* rather than a nested object, so it needs parsing a second time before any field can be
+  read. Same shape for widget properties as for actor ones.
+- **`GetWidgets` lists children in designer order, and `<Panel>Slot_N` suffixes are object names,
+  not indices.** Three `UOverlay` children came back as slots `_2`, `_3`, `_0` in that order.
+  Don't read the suffix as a z-order or a child index — the list order is the answer.
 - **`UMGToolSet.GetWidgetDescription` mis-reports `bInherited`.** It returns `false` for
   widgets that `GetWidgets` correctly reports as `true` (i.e. `BindWidget`-bound), including
   untouched ones. Never use it to judge whether a `BindWidget` binding survived an edit — use

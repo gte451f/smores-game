@@ -164,10 +164,15 @@ documents what's actually built.
   "Sell: 45 gold" in the pawn's pack open beside it. A stack quotes the per-unit figure and the
   total together. Anywhere else — a chest, a corpse, a pack with no trader across from it —
   hovering an item says nothing, because nobody is offering anything for it.
-- **Not being able to afford something changes nothing at all.** The item stays on the shelf, the
-  balance is untouched, and it snaps back exactly as a drop with no room does. A stack is priced
-  whole, so one the player can only partly afford is refused outright rather than sold short —
-  there is no way yet to ask for fewer.
+- **Not being able to afford something changes nothing at all**, and says "Not enough gold" at
+  the cursor. The item stays on the shelf and the balance is untouched. A stack is priced whole,
+  so one the player can only partly afford is refused outright rather than sold short — there is
+  no way yet to ask for fewer.
+- **A refused action says why**, in a line at the cursor that fades after a couple of seconds:
+  "Too far away" for a chest, body or loose item nobody is near, "No room for that" for a pack
+  that can't take it, "Can't be worn there" for the wrong slot. Reaching for something out of
+  range used to do nothing at all. The full set of messages, and the rule about when a refusal
+  should be *prevented* rather than announced, is in `refusals-and-feedback.md`.
 - **A single click on an NPC only targets it now.** It used to also launch a squad attack when
   that NPC was already hostile, which made one click mean two different things depending on the
   target's mood — and would have made double-clicking a hostile trader open their shop and start
@@ -628,6 +633,12 @@ documents what's actually built.
     everything landed. Entry ids survive the repack, so a UI holding one across a round trip
     still resolves. Returns false when nothing changed — no authority, an empty grid, an
     already-sorted grid, or a repack that couldn't fit something
+  - `UInventoryComponent::SortEntriesWithReason` — `SortEntries` plus *why* it changed nothing,
+    as an `ESmoresRefusalReason`. `SortEntries` is now a one-line forwarder that discards it.
+    Same split as `AddItem`/`AddItemCounted` and for the same reason: an abandoned repack and an
+    already-sorted grid both return false, and only the first is worth telling the player about.
+    `UEquipmentComponent::EquipWithReason` / `UnequipWithReason` are the equivalents for the
+    worn slots — see `refusals-and-feedback.md`
   - `UInventoryComponent::CanPlaceAgainst` / `FindFreePlacementAgainst` (protected) — the bodies
     of `CanPlaceAt` / `FindFreePlacement`, taking the placement array to test against instead of
     assuming `Entries`. They exist so the repack can ask "would this fit?" about an arrangement
@@ -729,9 +740,10 @@ documents what's actually built.
   - `UInventoryItemWidget::SetFilteredOut` / `IsFilteredOut` — the dim itself, via
     `SetRenderOpacity`, which leaves the widget hit-testable and leaves the cell layer covered
   - `AStrategyPlayerController::Server_SortInventory_Implementation` — forwards to
-    `SortEntries`. Deliberately ungated beyond authority, unlike `Server_PickUpWorldItem` and
-    `TryTradeItem`: a sort can only rearrange one holder's own contents, so there is nothing for
-    a bad request to take
+    `SortEntriesWithReason`, relaying a `NoRoom` back through `Client_NotifyRefusal`.
+    Deliberately ungated beyond authority, unlike `Server_PickUpWorldItem` and `TryTradeItem`:
+    a sort can only rearrange one holder's own contents, so there is nothing for a bad request
+    to take
   - `AStrategyPlayerController::SmoresSortInventory <Criterion>` (console exec) — debug-only;
     repacks the selected pawn's grid (0 = weight, 1 = value, 2 = quantity) through the same
     `SortEntries` the buttons call, then dumps the grid
@@ -1050,19 +1062,22 @@ documents what's actually built.
 - No partial-stack drag — the UI always moves the whole stack even though `MoveItem` already
   takes a quantity and supports the split. Splitting needs a player-facing way to say "how
   many", which hasn't been designed.
-- A rejected drop is still silent on the wire. The red preview is computed client-side by
-  `WouldAcceptDrop` mirroring `MoveItem`'s rules, so the two can drift apart if only one is
-  changed; and a drop rejected for a reason the client can't see (a race against another
-  player's move) shows no explanation at all. A context that needs to say *why* — insufficient
-  gold, say — will need a new client RPC.
+- The red preview is computed client-side by `WouldAcceptDrop` mirroring `MoveItem`'s rules, so
+  the two can drift apart if only one is changed. The preview also says only "not here", never
+  "not this" — a drop refused because the destination stack is full looks identical to one
+  refused for overlapping another item.
+  - A drop refused for a reason the client *couldn't* see is no longer silent:
+    `Server_MoveInventoryItem` sends a `NoRoom` back through `Client_NotifyRefusal`, and every
+    other refusal in this system now names itself too. See `refusals-and-feedback.md`.
 - No re-validation when an item definition's footprint changes under already-placed entries —
   they can end up overlapping until something moves them.
 - `SetGridSize` drops entries that no longer fit rather than re-packing them; it's an
   authoring/debug operation, not something gameplay calls. Now that `SortEntries` exists, a
   shrink *could* repack instead of dropping — nothing has needed it yet.
-- **A sort that can't fit everything is silent.** It logs a warning server-side and leaves the
-  grid untouched, which on screen is indistinguishable from a grid that was already sorted. Same
-  root cause as every other silent rejection here: there is no client RPC to say why.
+- A sort that can't fit everything **says so now** — `SortEntriesWithReason` reports `NoRoom` and
+  `Server_SortInventory` sends it back to the asking client, because "abandoned the repack" and
+  "was already sorted" are identical on screen otherwise. An already-sorted grid still says
+  nothing, deliberately. See `refusals-and-feedback.md`.
 - **Nothing sorts by name or category.** The three criteria are the three *figures* an item
   carries, and alphabetical order was left out because the grid has no icons yet — a name sort
   would be the most useful one the day items are recognisable at a glance, and is a one-line
@@ -1095,8 +1110,8 @@ documents what's actually built.
   picked up. Deliberate — it makes the pickup testable without committing to art — but it is
   placeholder, not a design.
 - **A world item can't be reached, only collected.** There's no "go pick that up" order — if no
-  pawn is already in range the double-click does nothing, silently. Routing the pickup through a
-  move command is a unit-commands change, not an inventory one.
+  pawn is already in range the double-click says "Too far away" rather than walking anyone over.
+  Routing the pickup through a move command is a unit-commands change, not an inventory one.
 - **Nothing that a body drops is actually dropped.** A killed NPC keeps its inventory on the
   corpse actor, which is exactly the design (`inventory-roadmap.md`: same actor, same code path,
   no corpse container), but the actor also never despawns — a dead unit stands in the level
@@ -1110,12 +1125,12 @@ documents what's actually built.
   3 gold is priced at 60 and rejected whole at 50 gold, rather than selling 16. Deliberate — it
   is what makes "insufficient gold changes nothing" true — but the *reason* it can't do better
   is that partial-stack drag doesn't exist, so the player has no way to ask for 16. Whichever
-  slice builds partial-stack drag should revisit this.
-- **A refused purchase is silent to the player**, exactly like every other rejected drop: the
-  item snaps back, the server logs `REJECTED` with the price and the balance, and nothing on
-  screen says "you can't afford that". Unlike a bad *placement*, there's no red preview to
-  explain it either — the cells were fine, the purse wasn't. That's the "a rejected drop is
-  still silent on the wire" gap below, now with a case where it actually matters.
+  slice builds partial-stack drag should revisit this. The player is at least told *why* now
+  ("Not enough gold"), which makes the refusal legible but no less absolute.
+- A refused purchase **now says "Not enough gold"** — `TryTradeItem` sends `CannotAfford` back
+  through `Client_NotifyRefusal`. This was the case that justified building the refusal system
+  at all: unlike a bad *placement* there is no red preview to explain it, because the cells were
+  fine and the purse wasn't. See `refusals-and-feedback.md`.
 - **A trader's stock never restocks, and the gold they pay out is imaginary.** `StartingStock` is
   placed once at `BeginPlay`; buying a shelf empty leaves it empty for the session, and a trader
   will buy an unlimited amount from the player without ever running short of money, because

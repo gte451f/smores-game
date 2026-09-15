@@ -130,6 +130,17 @@ UInventoryComponent* UEquipmentComponent::GetOwnerInventory() const
 
 bool UEquipmentComponent::Equip(UInventoryComponent* FromInventory, int32 EntryId, EEquipSlot Slot)
 {
+	ESmoresRefusalReason UnusedReason = ESmoresRefusalReason::None;
+
+	return EquipWithReason(FromInventory, EntryId, Slot, UnusedReason);
+}
+
+bool UEquipmentComponent::EquipWithReason(UInventoryComponent* FromInventory, int32 EntryId, EEquipSlot Slot, ESmoresRefusalReason& OutReason)
+{
+	// the malformed-request failures below say nothing: a null inventory or a stale entry id is
+	// a bug or a race, not something the player did wrong or can do anything about
+	OutReason = ESmoresRefusalReason::None;
+
 	if (!FromInventory)
 	{
 		return false;
@@ -156,6 +167,10 @@ bool UEquipmentComponent::Equip(UInventoryComponent* FromInventory, int32 EntryI
 
 	if (!CanEquipItem(SourceEntry.Item, TargetSlot))
 	{
+		// covers both "this isn't wearable at all" and "not in that slot" - the player's next
+		// move is the same either way, so one reason serves both
+		OutReason = ESmoresRefusalReason::WrongSlot;
+
 		return false;
 	}
 
@@ -181,6 +196,8 @@ bool UEquipmentComponent::Equip(UInventoryComponent* FromInventory, int32 EntryI
 			UE_LOG(LogSmoresItems, Verbose, TEXT("Equip rejected on %s: no room to put down the %s it would replace."),
 				*GetNameSafe(GetOwner()), *GetNameSafe(Displaced.Definition));
 
+			OutReason = ESmoresRefusalReason::NoRoom;
+
 			return false;
 		}
 	}
@@ -202,6 +219,15 @@ bool UEquipmentComponent::Equip(UInventoryComponent* FromInventory, int32 EntryI
 
 bool UEquipmentComponent::Unequip(EEquipSlot Slot, UInventoryComponent* ToInventory)
 {
+	ESmoresRefusalReason UnusedReason = ESmoresRefusalReason::None;
+
+	return UnequipWithReason(Slot, ToInventory, UnusedReason);
+}
+
+bool UEquipmentComponent::UnequipWithReason(EEquipSlot Slot, UInventoryComponent* ToInventory, ESmoresRefusalReason& OutReason)
+{
+	OutReason = ESmoresRefusalReason::None;
+
 	if (!ToInventory)
 	{
 		return false;
@@ -227,6 +253,8 @@ bool UEquipmentComponent::Unequip(EEquipSlot Slot, UInventoryComponent* ToInvent
 	{
 		UE_LOG(LogSmoresItems, Verbose, TEXT("Unequip rejected on %s: no room in the grid for the %s."),
 			*GetNameSafe(GetOwner()), *GetNameSafe(Removed.Definition));
+
+		OutReason = ESmoresRefusalReason::NoRoom;
 
 		return false;
 	}
