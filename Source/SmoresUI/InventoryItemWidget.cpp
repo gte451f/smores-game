@@ -47,6 +47,18 @@ void UInventoryItemWidget::SetPreviewOrientation(bool bInRotated, const FVector2
 	RefreshVisuals();
 }
 
+void UInventoryItemWidget::SetFilteredOut(bool bInFilteredOut, float DimmedOpacity)
+{
+	bFilteredOut = bInFilteredOut;
+
+	// render opacity rather than visibility: it costs the widget nothing, leaves it hit-testable
+	// so the item can still be dragged out from under a filter, and doesn't expose the cell layer
+	// underneath - which would read as free space the grid would then refuse to accept a drop into
+	SetRenderOpacity(bFilteredOut ? FMath::Clamp(DimmedOpacity, 0.0f, 1.0f) : 1.0f);
+
+	BP_FilterChanged(bFilteredOut);
+}
+
 void UInventoryItemWidget::RefreshVisuals()
 {
 	if (ItemLabel)

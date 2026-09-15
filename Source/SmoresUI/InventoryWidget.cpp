@@ -10,6 +10,8 @@
 #include "Components/PanelWidget.h"
 #include "Components/GridPanel.h"
 #include "Components/GridSlot.h"
+#include "Components/Button.h"
+#include "Components/ComboBoxString.h"
 
 #define LOCTEXT_NAMESPACE "InventoryWidget"
 
@@ -46,6 +48,139 @@ void UInventoryWidget::ClearInventory()
 	// nobody is buying
 	PricingSource.Reset();
 	bPricedAsTraderStock = false;
+
+	// and for the same reason again: a filter the player set on a chest would otherwise still be
+	// hiding half of the pawn's pack that reuses this window next
+	SetCategoryFilter(EItemCategory::None);
+}
+
+void UInventoryWidget::SortBy(EInventorySortCriterion Criterion)
+{
+	// the repack is shared world state, so it goes through the controller exactly as a drag-drop
+	// move does - this window can't touch UInventoryComponent's authority-only mutators itself.
+	// Nothing happens on screen until the repacked entries replicate back.
+	if (!BoundInventory.IsValid())
+	{
+		return;
+	}
+
+	if (IInventoryMoveHost* MoveHost = Cast<IInventoryMoveHost>(GetOwningPlayer()))
+	{
+		MoveHost->Server_SortInventory(BoundInventory.Get(), Criterion);
+	}
+}
+
+void UInventoryWidget::SetCategoryFilter(EItemCategory Category)
+{
+	FilterCategory = Category;
+
+	// keep the dropdown showing the filter that is actually in force - this is also reached when
+	// the *window* clears the filter (rebinding to another holder), not just when the box changed
+	// it. Safe against recursion because the handler ignores an ESelectInfo::Direct change.
+	if (CategoryFilterBox)
+	{
+		const int32 SelectedIndex = FilterBoxCategories.IndexOfByKey(FilterCategory);
+
+		if (SelectedIndex != INDEX_NONE && CategoryFilterBox->GetSelectedIndex() != SelectedIndex)
+		{
+			CategoryFilterBox->SetSelectedIndex(SelectedIndex);
+		}
+	}
+
+	// no RPC, no authority check, nothing replicated: a filter changes what this one player is
+	// looking at, not what the holder is carrying
+	ApplyCategoryFilter();
+}
+
+bool UInventoryWidget::PassesCategoryFilter(const FInventoryItem& Item) const
+{
+	return FilterCategory == EItemCategory::None
+		|| (Item.Definition && Item.Definition->Category == FilterCategory);
+}
+
+void UInventoryWidget::ApplyCategoryFilter()
+{
+	for (UInventoryItemWidget* ItemWidget : ItemWidgets)
+	{
+		if (ItemWidget)
+		{
+			ItemWidget->SetFilteredOut(!PassesCategoryFilter(ItemWidget->GetItem()), FilteredOutOpacity);
+		}
+	}
+}
+
+void UInventoryWidget::PopulateCategoryFilterBox()
+{
+	if (!CategoryFilterBox)
+	{
+		return;
+	}
+
+	// the window is reopened rather than respawned, so NativeConstruct runs again on every open -
+	// without clearing first the list would grow a duplicate set of rows each time
+	CategoryFilterBox->ClearOptions();
+	FilterBoxCategories.Reset();
+
+	const UEnum* CategoryEnum = StaticEnum<EItemCategory>();
+
+	if (!CategoryEnum)
+	{
+		return;
+	}
+
+	// "All" is EItemCategory::None reused as the no-filter row - see SetCategoryFilter
+	FilterBoxCategories.Add(EItemCategory::None);
+	CategoryFilterBox->AddOption(LOCTEXT("FilterAllCategories", "All").ToString());
+
+	// NumEnums() counts the hidden _MAX entry, so stop one short of it
+	for (int32 EnumIndex = 0; EnumIndex < CategoryEnum->NumEnums() - 1; ++EnumIndex)
+	{
+		const EItemCategory Category = static_cast<EItemCategory>(CategoryEnum->GetValueByIndex(EnumIndex));
+
+		if (Category == EItemCategory::None)
+		{
+			continue;
+		}
+
+		FilterBoxCategories.Add(Category);
+		CategoryFilterBox->AddOption(CategoryEnum->GetDisplayNameTextByIndex(EnumIndex).ToString());
+	}
+
+	// reflect whatever filter the window is actually on, rather than assuming it starts clear
+	const int32 SelectedIndex = FMath::Max(0, FilterBoxCategories.IndexOfByKey(FilterCategory));
+
+	CategoryFilterBox->SetSelectedIndex(SelectedIndex);
+}
+
+void UInventoryWidget::HandleSortWeightClicked()
+{
+	SortBy(EInventorySortCriterion::Weight);
+}
+
+void UInventoryWidget::HandleSortValueClicked()
+{
+	SortBy(EInventorySortCriterion::Value);
+}
+
+void UInventoryWidget::HandleSortQuantityClicked()
+{
+	SortBy(EInventorySortCriterion::Quantity);
+}
+
+void UInventoryWidget::HandleCategoryFilterChanged(FString SelectedItem, ESelectInfo::Type SelectionType)
+{
+	// Direct means C++ set the selection itself (PopulateCategoryFilterBox syncing the box to the
+	// current filter). Reacting to that would be harmless but circular, so it's ignored
+	if (SelectionType == ESelectInfo::Direct || !CategoryFilterBox)
+	{
+		return;
+	}
+
+	const int32 SelectedIndex = CategoryFilterBox->GetSelectedIndex();
+
+	// the row's own position is the mapping back to the category, so nothing depends on matching
+	// display strings - a localised "Weapon" would break a string lookup and not this
+	SetCategoryFilter(FilterBoxCategories.IsValidIndex(SelectedIndex) ? FilterBoxCategories[SelectedIndex] : EItemCategory::None);
 }
 
 void UInventoryWidget::SetEquipmentTarget(UEquipmentComponent* InEquipment)
@@ -228,6 +363,10 @@ void UInventoryWidget::RefreshDisplay()
 	}
 
 	RebuildGrid();
+
+	// after the rebuild, which respawns every item widget at full opacity - a filter that didn't
+	// re-apply here would silently lift itself the first time anything in the grid moved
+	ApplyCategoryFilter();
 
 	BP_InventoryUpdated();
 }
@@ -585,6 +724,37 @@ bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDrop
 	}
 
 	return false;
+}
+
+void UInventoryWidget::NativeConstruct()
+{
+	Super::NativeConstruct();
+
+	// bound here rather than in the WBP graph, so a designer only has to place the widgets and
+	// name them - the same no-graph-work shape the weight and gold readouts use
+	if (SortWeightButton)
+	{
+		SortWeightButton->OnClicked.AddUniqueDynamic(this, &UInventoryWidget::HandleSortWeightClicked);
+	}
+
+	if (SortValueButton)
+	{
+		SortValueButton->OnClicked.AddUniqueDynamic(this, &UInventoryWidget::HandleSortValueClicked);
+	}
+
+	if (SortQuantityButton)
+	{
+		SortQuantityButton->OnClicked.AddUniqueDynamic(this, &UInventoryWidget::HandleSortQuantityClicked);
+	}
+
+	if (CategoryFilterBox)
+	{
+		CategoryFilterBox->OnSelectionChanged.AddUniqueDynamic(this, &UInventoryWidget::HandleCategoryFilterChanged);
+	}
+
+	// the window is re-added to the viewport rather than respawned, so this runs on every open;
+	// it clears the list first for exactly that reason
+	PopulateCategoryFilterBox();
 }
 
 void UInventoryWidget::NativeDestruct()

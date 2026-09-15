@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "UObject/Interface.h"
 #include "ItemDefinition.h"
+#include "InventoryComponent.h"
 #include "InventoryMoveHost.generated.h"
 
 class UInventoryComponent;
@@ -40,4 +41,14 @@ public:
 
 	/** Server-side entry point for taking a worn item off and putting it back in DestInventory */
 	virtual void Server_UnequipItem(UEquipmentComponent* Equipment, EEquipSlot Slot, UInventoryComponent* DestInventory) = 0;
+
+	/**
+	 *  Server-side entry point for repacking one holder's grid in a chosen order (the sort
+	 *  buttons on an inventory window).
+	 *
+	 *  Only the *sort* goes through here. Its sibling, the category filter, deliberately does
+	 *  not: filtering changes nothing about where anything is stored, so it stays entirely on
+	 *  the client that asked for it and never crosses the wire at all.
+	 */
+	virtual void Server_SortInventory(UInventoryComponent* Inventory, EInventorySortCriterion Criterion) = 0;
 };

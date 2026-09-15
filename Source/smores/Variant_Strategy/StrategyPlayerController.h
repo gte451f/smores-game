@@ -582,6 +582,17 @@ public:
 	UFUNCTION(Server, Reliable)
 	virtual void Server_UnequipItem(UEquipmentComponent* Equipment, EEquipSlot Slot, UInventoryComponent* DestInventory) override;
 
+	/**
+	 *  Server-side entry point for repacking one holder's grid (an inventory window's sort
+	 *  buttons). Forwards to UInventoryComponent::SortEntries, which does all the work.
+	 *
+	 *  Deliberately ungated beyond authority, unlike Server_PickUpWorldItem and TryTradeItem: a
+	 *  sort can only ever rearrange one holder's own contents, so there is nothing for a bad
+	 *  request to take. Proximity is already the gate on the window being open at all.
+	 */
+	UFUNCTION(Server, Reliable)
+	virtual void Server_SortInventory(UInventoryComponent* Inventory, EInventorySortCriterion Criterion) override;
+
 	//~ End IInventoryMoveHost interface
 
 	/**
@@ -628,6 +639,14 @@ public:
 	 */
 	UFUNCTION(Exec)
 	void SmoresAddItem(int32 Count = 1);
+
+	/**
+	 *  Debug exec: repacks the selected pawn's grid by Criterion (0 = weight, 1 = value,
+	 *  2 = quantity), then dumps it - so the occupancy map before and after shows the repack
+	 *  without needing the window open. Runs the same SortEntries the buttons do.
+	 */
+	UFUNCTION(Exec)
+	void SmoresSortInventory(int32 Criterion = 0);
 
 	/** Debug exec: wears the selected pawn's EntryIndex'th placed grid entry, then dumps the paperdoll. */
 	UFUNCTION(Exec)
@@ -679,6 +698,13 @@ protected:
 	/** Server side of the inventory debug execs - optionally adds AddCount items, then logs the grid */
 	UFUNCTION(Server, Reliable)
 	void Server_DebugInventory(UInventoryComponent* Inventory, int32 AddCount);
+
+	/** Server side of the sort debug exec - repacks the grid, then logs it the same way */
+	UFUNCTION(Server, Reliable)
+	void Server_DebugSortInventory(UInventoryComponent* Inventory, EInventorySortCriterion Criterion);
+
+	/** Shared body of the inventory debug execs: logs one grid as an ASCII occupancy map plus a per-entry list */
+	static void LogInventoryGrid(UInventoryComponent* Inventory);
 
 	/** Client side of the equipment debug execs - resolves the selected pawn locally, then hops to the server */
 	void DebugEquipmentForSelection(int32 EquipEntryIndex, int32 UnequipSlotIndex);

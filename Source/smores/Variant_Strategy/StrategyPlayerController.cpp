@@ -1468,6 +1468,20 @@ void AStrategyPlayerController::Server_MoveInventoryItem_Implementation(UInvento
 	UInventoryComponent::MoveItem(SourceInventory, EntryId, DestInventory, DestCell, bRotated, Quantity);
 }
 
+void AStrategyPlayerController::Server_SortInventory_Implementation(UInventoryComponent* Inventory, EInventorySortCriterion Criterion)
+{
+	if (!Inventory)
+	{
+		return;
+	}
+
+	// nothing to gate beyond authority, which SortEntries checks itself: a repack can only ever
+	// rearrange one holder's own contents, so unlike a pickup or a trade there is nothing here
+	// for a bad request to take. It works on a trader's shelf and a corpse's pack for the same
+	// reason - tidying either one costs nobody anything
+	Inventory->SortEntries(Criterion);
+}
+
 bool AStrategyPlayerController::TryTradeItem(UInventoryComponent* SourceInventory, int32 EntryId, UInventoryComponent* DestInventory, FIntPoint DestCell, bool bRotated, int32 Quantity)
 {
 	if (!HasAuthority() || !SourceInventory || !DestInventory)
@@ -1713,6 +1727,51 @@ void AStrategyPlayerController::Server_DebugInventory_Implementation(UInventoryC
 			UE_LOG(Logsmores, Warning, TEXT("[InvDebug] AddItem(%d x %s) -> %s"),
 				AddCount, *GetNameSafe(Existing[0].Item.Definition), bAddedAll ? TEXT("all placed") : TEXT("PARTIAL/FAILED"));
 		}
+	}
+
+	LogInventoryGrid(Inventory);
+}
+
+void AStrategyPlayerController::SmoresSortInventory(int32 Criterion)
+{
+	// same shape as the other inventory execs: resolve the pawn from the local selection, then
+	// hop to the server, where the authoritative grid lives
+	for (AStrategyUnit* CurrentUnit : ControlledUnits)
+	{
+		if (AStrategyPlayerUnit* PlayerUnit = Cast<AStrategyPlayerUnit>(CurrentUnit))
+		{
+			const int32 ClampedCriterion = FMath::Clamp(Criterion, 0, static_cast<int32>(EInventorySortCriterion::Quantity));
+
+			Server_DebugSortInventory(PlayerUnit->GetInventory(), static_cast<EInventorySortCriterion>(ClampedCriterion));
+			return;
+		}
+	}
+
+	UE_LOG(Logsmores, Warning, TEXT("[InvDebug] No player pawn selected."));
+}
+
+void AStrategyPlayerController::Server_DebugSortInventory_Implementation(UInventoryComponent* Inventory, EInventorySortCriterion Criterion)
+{
+	if (!Inventory)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[InvDebug] No inventory to sort."));
+		return;
+	}
+
+	const bool bSorted = Inventory->SortEntries(Criterion);
+
+	UE_LOG(Logsmores, Warning, TEXT("[InvDebug] SortEntries(%s) -> %s"),
+		*UEnum::GetDisplayValueAsText(Criterion).ToString(),
+		bSorted ? TEXT("repacked") : TEXT("no change (already sorted, empty, or nothing would fit)"));
+
+	LogInventoryGrid(Inventory);
+}
+
+void AStrategyPlayerController::LogInventoryGrid(UInventoryComponent* Inventory)
+{
+	if (!Inventory)
+	{
+		return;
 	}
 
 	const FIntPoint GridSize = Inventory->GetGridSize();

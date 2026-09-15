@@ -15,6 +15,24 @@ namespace
 			&& CellA.Y < CellB.Y + SizeB.Y
 			&& CellB.Y < CellA.Y + SizeA.Y;
 	}
+
+	/** The one figure a sort criterion orders by, as a single comparable number */
+	double GetSortKey(const FInventoryEntry& Entry, EInventorySortCriterion Criterion)
+	{
+		switch (Criterion)
+		{
+		case EInventorySortCriterion::Weight:
+			return Entry.Item.GetTotalWeight();
+
+		case EInventorySortCriterion::Value:
+			return Entry.Item.GetTotalBaseValue();
+
+		case EInventorySortCriterion::Quantity:
+			return Entry.Item.Quantity;
+		}
+
+		return 0.0;
+	}
 }
 
 UInventoryComponent::UInventoryComponent()
@@ -127,6 +145,11 @@ int32 UInventoryComponent::GetEntryIdAtCell(FIntPoint Cell) const
 
 bool UInventoryComponent::CanPlaceAt(const FInventoryItem& Item, FIntPoint Cell, bool bRotated, int32 IgnoreEntryId) const
 {
+	return CanPlaceAgainst(Entries, Item, Cell, bRotated, IgnoreEntryId);
+}
+
+bool UInventoryComponent::CanPlaceAgainst(const TArray<FInventoryEntry>& Placements, const FInventoryItem& Item, FIntPoint Cell, bool bRotated, int32 IgnoreEntryId) const
+{
 	if (Item.IsEmpty())
 	{
 		return false;
@@ -145,7 +168,7 @@ bool UInventoryComponent::CanPlaceAt(const FInventoryItem& Item, FIntPoint Cell,
 		return false;
 	}
 
-	for (const FInventoryEntry& Entry : Entries)
+	for (const FInventoryEntry& Entry : Placements)
 	{
 		// the entry being re-anchored doesn't collide with where it currently sits
 		if (Entry.EntryId == IgnoreEntryId)
@@ -163,6 +186,11 @@ bool UInventoryComponent::CanPlaceAt(const FInventoryItem& Item, FIntPoint Cell,
 }
 
 bool UInventoryComponent::FindFreePlacement(const FInventoryItem& Item, FIntPoint& OutCell, bool& bOutRotated, int32 IgnoreEntryId) const
+{
+	return FindFreePlacementAgainst(Entries, Item, OutCell, bOutRotated, IgnoreEntryId);
+}
+
+bool UInventoryComponent::FindFreePlacementAgainst(const TArray<FInventoryEntry>& Placements, const FInventoryItem& Item, FIntPoint& OutCell, bool& bOutRotated, int32 IgnoreEntryId) const
 {
 	if (Item.IsEmpty())
 	{
@@ -185,7 +213,7 @@ bool UInventoryComponent::FindFreePlacement(const FInventoryItem& Item, FIntPoin
 			{
 				const FIntPoint Cell(Column, Row);
 
-				if (CanPlaceAt(Item, Cell, bRotated, IgnoreEntryId))
+				if (CanPlaceAgainst(Placements, Item, Cell, bRotated, IgnoreEntryId))
 				{
 					OutCell = Cell;
 					bOutRotated = bRotated;
@@ -436,6 +464,153 @@ bool UInventoryComponent::SetGridSize(int32 NewWidth, int32 NewHeight)
 
 		return !bStillFits;
 	});
+
+	OnInventoryChanged.Broadcast();
+
+	return true;
+}
+
+bool UInventoryComponent::SortEntries(EInventorySortCriterion Criterion)
+{
+	// shared gameplay state - only the server may mutate it
+	if (!HasOwnerAuthority())
+	{
+		return false;
+	}
+
+	if (Entries.IsEmpty())
+	{
+		return false;
+	}
+
+	TArray<FInventoryEntry> Working = Entries;
+
+	// pour every later stack into the earliest one that will take it, so a sort can't leave two
+	// half-stacks of the same thing sitting side by side looking unsorted. This is exactly the
+	// merge AddItem already does - CanStackWith plus this holder's effective cap - so it adds no
+	// rule the grid didn't already have, and the stolen flag still can't be laundered by it
+	for (int32 Index = 0; Index < Working.Num(); ++Index)
+	{
+		// an entry already drained into an earlier one is on its way out - refilling it from a
+		// later stack would conserve the quantity but resurrect a placement that should just go
+		if (Working[Index].Item.Quantity <= 0)
+		{
+			continue;
+		}
+
+		const int32 MaxStack = GetEffectiveMaxStack(Working[Index].Item.Definition);
+
+		for (int32 OtherIndex = Index + 1; OtherIndex < Working.Num(); ++OtherIndex)
+		{
+			const int32 Space = MaxStack - Working[Index].Item.Quantity;
+
+			if (Space <= 0)
+			{
+				break;
+			}
+
+			if (!Working[Index].Item.CanStackWith(Working[OtherIndex].Item))
+			{
+				continue;
+			}
+
+			const int32 Merged = FMath::Min(Space, Working[OtherIndex].Item.Quantity);
+
+			Working[Index].Item.Quantity += Merged;
+			Working[OtherIndex].Item.Quantity -= Merged;
+		}
+	}
+
+	// an entry emptied by that merge is gone rather than left as a zero-count ghost, the same
+	// rule SetEntryQuantity keeps
+	Working.RemoveAll([](const FInventoryEntry& Entry) { return Entry.Item.Quantity <= 0; });
+
+	Working.Sort([Criterion](const FInventoryEntry& A, const FInventoryEntry& B)
+	{
+		const double KeyA = GetSortKey(A, Criterion);
+		const double KeyB = GetSortKey(B, Criterion);
+
+		// compared exactly rather than with a tolerance: a comparator that calls near values
+		// equal isn't a strict ordering, and Sort is entitled to misbehave on one that isn't
+		if (KeyA != KeyB)
+		{
+			return KeyA > KeyB;
+		}
+
+		// bigger footprints first among equals - first-fit packing strands a large item far more
+		// easily than a small one, so handing it the emptier grid is what keeps a repack from
+		// failing outright
+		const FIntPoint SizeA = A.Item.GetFootprint(false);
+		const FIntPoint SizeB = B.Item.GetFootprint(false);
+
+		const int32 AreaA = SizeA.X * SizeA.Y;
+		const int32 AreaB = SizeB.X * SizeB.Y;
+
+		if (AreaA != AreaB)
+		{
+			return AreaA > AreaB;
+		}
+
+		const FString NameA = A.Item.GetDisplayName().ToString();
+		const FString NameB = B.Item.GetDisplayName().ToString();
+
+		if (NameA != NameB)
+		{
+			return NameA < NameB;
+		}
+
+		// last resort, and it earns its keep: Sort is not stable, so two entries equal all the
+		// way down could otherwise swap places on a repack that changed nothing else - which
+		// would make "sorted" a state the grid never settles into
+		return A.EntryId < B.EntryId;
+	});
+
+	// Built into a scratch array rather than mutated in place. First-fit packing in criterion
+	// order can strand an item the *previous* arrangement had room for (a 1x1 taking the corner
+	// a 2x2 needed), and a sort that silently drops what it can't re-place would be far worse
+	// than one that declines to run.
+	TArray<FInventoryEntry> Packed;
+	Packed.Reserve(Working.Num());
+
+	for (const FInventoryEntry& Entry : Working)
+	{
+		FIntPoint Cell = FIntPoint::ZeroValue;
+		bool bRotated = false;
+
+		if (!FindFreePlacementAgainst(Packed, Entry.Item, Cell, bRotated, INDEX_NONE))
+		{
+			UE_LOG(LogSmoresItems, Warning, TEXT("InventoryComponent on %s could not repack '%s' - the sort was abandoned and nothing changed."),
+				*GetNameSafe(GetOwner()), *GetNameSafe(Entry.Item.Definition));
+
+			return false;
+		}
+
+		// the entry keeps its id through the repack, so a UI holding one across a client->server
+		// round trip still resolves to the same item afterwards
+		Packed.Emplace(Entry.EntryId, Entry.Item, Cell, bRotated);
+	}
+
+	// an already-sorted grid reports no change rather than broadcasting a redraw nobody needs -
+	// the same convention SetGridSize and SetEntryQuantity follow
+	if (Packed.Num() == Entries.Num())
+	{
+		bool bIdentical = true;
+
+		for (int32 Index = 0; Index < Packed.Num() && bIdentical; ++Index)
+		{
+			bIdentical = Packed[Index].EntryId == Entries[Index].EntryId
+				&& Packed[Index].AnchorCell == Entries[Index].AnchorCell
+				&& Packed[Index].bRotated == Entries[Index].bRotated
+				&& Packed[Index].Item.Quantity == Entries[Index].Item.Quantity;
+		}
+
+		if (bIdentical)
+		{
+			return false;
+		}
+	}
+
+	Entries = MoveTemp(Packed);
 
 	OnInventoryChanged.Broadcast();
 

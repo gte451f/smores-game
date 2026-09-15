@@ -199,9 +199,32 @@ The largest and highest-value target. Pure grid arithmetic plus the counted-retu
   matter how much is carried**. A chest holding a tonne is not over capacity.
 - `IsOverWeightCapacity` is a strict comparison — exactly at capacity is not over.
 
+**Sort and repack (`SortEntries`):**
+
+Added with Slice 9 of `inventory-roadmap.md`. This is the single best-suited thing in the whole
+system to an automated test: it is pure, deterministic, all-or-nothing arithmetic over the grid,
+and every one of its rules is invisible on screen.
+
+- Each criterion orders descending — build a grid where weight, value and quantity disagree about
+  the ordering, sort by each in turn, and assert the resulting anchor-cell order differs as
+  expected. A grid where all three agree proves nothing.
+- The result is **deterministic**: sorting an already-sorted grid returns false and mutates
+  nothing, and two grids built with the same contents added in *different orders* sort to
+  identical placements. This is what the `EntryId` tiebreak exists for, and an unstable-sort
+  regression would show up nowhere else.
+- Consolidation: two partial stacks of the same definition become one; a pair that `CanStackWith`
+  rejects (different `bStolen`) stays two; merging never exceeds `GetEffectiveMaxStack`.
+- **All-or-nothing**: construct a case where first-fit in criterion order can't re-place
+  everything, and assert the grid is byte-for-byte what it was — same ids, same anchors, same
+  rotations, same quantities — and that `OnInventoryChanged` did not fire.
+- Entry ids survive a repack (a UI holds one across a round trip), and no entry is lost: total
+  quantity per definition before equals total after, always.
+- Non-authority returns false and mutates nothing, like every other mutator here.
+
 **Delegates:**
 
-- `OnInventoryChanged` fires once per successful mutator and **not at all** on a rejected one.
+- `OnInventoryChanged` fires once per successful mutator and **not at all** on a rejected one —
+  including an abandoned `SortEntries`.
 
 ### `SmoresItems` — `UEquipmentComponent`
 
@@ -406,13 +429,15 @@ conventions every later slice copies.
 
 The highest-value slice; the reason this roadmap exists.
 
-- **Build:** `Source/SmoresItems/Tests/InventoryStackingTest.cpp` and
-  `Source/SmoresItems/Tests/InventoryMoveTest.cpp`.
+- **Build:** `Source/SmoresItems/Tests/InventoryStackingTest.cpp`,
+  `Source/SmoresItems/Tests/InventoryMoveTest.cpp` and
+  `Source/SmoresItems/Tests/InventorySortTest.cpp`.
 - **Tests:** the "Stacking", "counted-return family", "Move semantics", "Entries and lifecycle",
-  "Weight" and "Delegates" groups.
+  "Weight", "Sort and repack" and "Delegates" groups.
 - **Touches:** new files only.
-- **Done when:** every counted-return case above is asserted, and the non-swap case asserts that
-  both grids are unchanged rather than only that the call returned false.
+- **Done when:** every counted-return case above is asserted; the non-swap case asserts that
+  both grids are unchanged rather than only that the call returned false; and the abandoned-sort
+  case asserts the same thing about the grid it declined to repack.
 
 ### Slice 3 — Economy: wallet and pricing
 

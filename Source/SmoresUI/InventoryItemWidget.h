@@ -56,6 +56,10 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
 	bool bDrawRotated = false;
 
+	/** True while this item is dimmed by the window's category filter (see SetFilteredOut) */
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
+	bool bFilteredOut = false;
+
 public:
 
 	/** Binds this widget to a placed entry and refreshes its visuals. Called by the owning UInventoryWidget. */
@@ -78,6 +82,21 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	FIntPoint GetDrawnFootprint() const { return Entry.Item.GetFootprint(bDrawRotated); }
 
+	/**
+	 *  Dims this item because the window's category filter doesn't match it, at the opacity the
+	 *  window passes in.
+	 *
+	 *  Dimmed, never hidden, and still fully interactive: a filtered-out item can be dragged,
+	 *  right-clicked and hovered exactly as before. The filter is there to help the player read
+	 *  a full grid, not to take items away from them - and a hidden widget would leave the empty
+	 *  cell layer showing through, which would be the grid lying about what it holds.
+	 */
+	void SetFilteredOut(bool bInFilteredOut, float DimmedOpacity);
+
+	/** True while this item is dimmed by the window's category filter */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	bool IsFilteredOut() const { return bFilteredOut; }
+
 protected:
 
 	/** Blueprint hook for cosmetic click feedback */
@@ -87,6 +106,10 @@ protected:
 	/** Blueprint hook to rebuild custom item visuals after a bind or a mid-drag rotate */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Inventory", meta = (DisplayName = "Item Updated"))
 	void BP_ItemUpdated();
+
+	/** Blueprint hook for a richer filtered-out look than the flat opacity drop */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Inventory", meta = (DisplayName = "Item Filter Changed"))
+	void BP_FilterChanged(bool bIsFilteredOut);
 
 	/** Pushes the current entry and orientation to ItemLabel and the BP hook */
 	void RefreshVisuals();

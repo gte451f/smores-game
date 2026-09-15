@@ -18,6 +18,12 @@ alongside the grid but still applies no penalty. The player's gold balance lives
 spent and earned: a trader is a `UTraderComponent` on an NPC, and dragging an item across that
 counter is the same drag-and-drop move every other transfer is, with a price attached.
 
+A full grid can also be **tidied and read**: a sort button repacks a holder's contents by weight,
+value or quantity on the server, and a category dropdown dims everything that isn't the kind of
+thing the player is looking for. The two are deliberately different animals — one is a change to
+the world that every player sees, the other is a change to one player's view that never leaves
+their machine.
+
 Alongside the carried grid, every unit has a **paperdoll**: `UEquipmentComponent`, a small set
 of named worn slots that is deliberately *not* a region of the grid. An item goes in only if
 its definition says that's its slot; nothing else gates an equip.
@@ -77,6 +83,29 @@ documents what's actually built.
 - The HUD carries a **gold readout** ("Gold: 250") next to the selection count. Gold isn't an
   item — it has no weight, no footprint, and never appears in a grid — and it updates live as a
   trade settles, which is the only feedback a purchase gives.
+- **Every inventory window has three sort buttons — Weight, Value, Qty — above its grid.**
+  Pressing one repacks that holder's contents from the top-left with no gaps, biggest figure
+  first: heaviest stack, most valuable stack, or biggest stack. It works on a chest, a corpse and
+  a trader's shelf exactly as it does on a pawn's pack.
+- **Sorting also merges stacks.** Two half-stacks of the same thing become one, exactly as though
+  the player had dragged one onto the other — so a sorted grid never leaves two piles of apples
+  sitting side by side. Stolen goods still won't merge with honest ones.
+- **Sorting re-picks each item's orientation**, so a sword the player had turned sideways may
+  come back upright. That's what a repack is: the player asked for the grid to be tidied, not for
+  their arrangement to be preserved.
+- **A sort that can't fit everything does nothing at all.** In rare cases packing biggest-first
+  can strand an item the old arrangement had room for; rather than dropping it, the whole sort is
+  abandoned and the grid is left exactly as it was. Like every other refusal in this system it is
+  silent — the grid simply doesn't move.
+- **A category dropdown beside the sort buttons dims everything that isn't that kind of item** —
+  weapons, armor, consumables, materials, tools, valuables, misc, or "All" for no filter. Dimmed
+  items are still fully there: they can be dragged, right-clicked and hovered as usual, and they
+  still occupy their cells. The filter is a reading aid for a full grid, not a way to put things
+  away.
+- **The filter is personal and temporary.** It affects only the player who set it — another
+  player looking into the same chest sees their own filter — and it clears whenever the window
+  rebinds to a different holder, so a filter set on a chest never comes back to hide half of a
+  pawn's pack.
 - The **inventory key** also opens that pawn's **Equipment window** beside the pack — a second
   floating panel listing its five worn slots (Main Hand, Off Hand, Head, Body, Feet) and the
   combined weight of what's in them. The two open and close together and are moved and resized
@@ -177,6 +206,39 @@ documents what's actually built.
   actually stackable (`MaxStackSize > 1`), and both carry the same `bStolen` flag — so theft
   can't be laundered by merging. `Condition` is deliberately *not* compared, since splitting a
   bulk-material stack per wear value would fragment it uselessly.
+- **A sort is a change to the world; a filter is a change to one screen — and they are built
+  completely differently because of it.** `SortEntries` is an authority-only mutator reached
+  through `IInventoryMoveHost::Server_SortInventory`, replicating like any other grid change, so
+  every player watching that chest sees it repack. The category filter never leaves the client
+  that set it: no RPC, no authority check, nothing replicated, because nothing about the holder
+  changed. Deciding which of the two a new inventory feature is, before writing it, is what keeps
+  view state off the wire and world state off the client.
+- **A repack is all-or-nothing, and that is not paranoia.** It merges, sorts, and re-places into a
+  *scratch* array, committing only once every entry has landed. First-fit packing in criterion
+  order really can strand an item the previous arrangement had room for — a 1×1 taking the corner
+  a 2×2 needed — and a tidy-up button that sometimes eats an item would be far worse than one
+  that occasionally declines to run. Items are ordered biggest-footprint-first among equals for
+  the same reason: it makes that failure rarer.
+- **Sorting merges stacks, and introduces no merging rule of its own.** It pours each later stack
+  into the earliest one that will take it, using the same `CanStackWith` and the same
+  `GetEffectiveMaxStack` `AddItem` already uses — so the stolen flag still blocks a merge,
+  `Condition` is still ignored, and nothing a sort produces could not have been produced by the
+  player dragging stacks together by hand.
+- **The sort order is fully determined by the contents**, never by the array order replication
+  happened to leave: criterion descending, then footprint area descending, then display name, and
+  finally entry id. `TArray::Sort` is not stable, so without that last tiebreak two otherwise
+  equal entries could swap places on a repack that changed nothing else — which would make
+  "sorted" a state the grid never settles into. Keys are compared exactly rather than with a
+  tolerance, because a comparator that calls near values equal isn't a strict ordering and `Sort`
+  is entitled to misbehave on one that isn't.
+- **A filtered-out item is dimmed, never hidden.** Hiding the item widget would expose the empty
+  cell layer beneath it, so the player would read occupied cells as free space, try to drop
+  something there, and be refused with nothing on screen to explain it. A filter may de-emphasise
+  what the grid holds; it may not lie about it. Dimmed items stay fully interactive for the same
+  reason.
+- **`EItemCategory::None` is the filter's "show everything" row**, which is why nothing should
+  author a definition's `Category` as `None` — `Misc` is the catch-all. An item authored as
+  `None` would be visible only while no filter is set.
 - **Weight and footprint are two independent measures, and are meant to disagree.** Footprint
   is bulk/volume — how much *space* an item claims. Weight is density — `Definition->Weight` ×
   quantity, summed over every placed entry by `GetTotalWeight`, with no relation to how many
@@ -443,7 +505,8 @@ documents what's actually built.
 
 - **Primary classes:**
   - `SmoresItems`: `UItemDefinition` (+ `EItemCategory` / `EEquipSlot`), `FInventoryItem`,
-    `UInventoryComponent`, `FEquippedItem` + `UEquipmentComponent` (the paperdoll),
+    `UInventoryComponent` (+ the `EInventorySortCriterion` enum),
+    `FEquippedItem` + `UEquipmentComponent` (the paperdoll),
     `AStrategyContainer` (abstract base for world containers),
     `AStrategyChest` (first concrete container type — no added behavior of its own, exists
     so future chest-specific behavior like locks/keys has a home),
@@ -559,6 +622,16 @@ documents what's actually built.
     `AddItem` is now a one-line forwarder that discards the count. Any caller still holding the
     source copy (a world pickup) needs the count rather than the bool, since a partial add keeps
     what fit. `MoveItemCounted` is the same fix one level up, and is what a purchase charges off
+  - `UInventoryComponent::SortEntries(EInventorySortCriterion)` — authority-only. Merges every
+    stack that can merge, orders what's left by the criterion (descending, with the full
+    tiebreak chain), and re-places it into a scratch array from the top-left, committing only if
+    everything landed. Entry ids survive the repack, so a UI holding one across a round trip
+    still resolves. Returns false when nothing changed — no authority, an empty grid, an
+    already-sorted grid, or a repack that couldn't fit something
+  - `UInventoryComponent::CanPlaceAgainst` / `FindFreePlacementAgainst` (protected) — the bodies
+    of `CanPlaceAt` / `FindFreePlacement`, taking the placement array to test against instead of
+    assuming `Entries`. They exist so the repack can ask "would this fit?" about an arrangement
+    that isn't live yet; the public pair are now one-line forwarders passing `Entries`
   - `AWorldItem::TryPickUp` — authority-only; moves as much as will fit into the destination
     grid, destroys the actor when the whole stack moved and shrinks `Item` when only part did.
     Returns false having changed nothing when nothing fit
@@ -640,6 +713,30 @@ documents what's actually built.
   - `UInventoryWidget::GetWeightSummary` / `IsOverWeightCapacity` — the window's weight
     readout and the red/normal colour choice; `RefreshDisplay` applies both, so weight tracks
     `OnInventoryChanged` with no separate subscription
+  - `UInventoryWidget::SortBy` — dispatches the repack through `IInventoryMoveHost`; the window
+    changes nothing itself and redraws only when the repacked entries replicate back
+  - `UInventoryWidget::SetCategoryFilter` / `GetCategoryFilter` / `PassesCategoryFilter` /
+    `ApplyCategoryFilter` — the whole filter, client-side. `SetCategoryFilter` also syncs the
+    dropdown's own selection, since the *window* clears the filter on rebind as well as the
+    player changing it. `ApplyCategoryFilter` runs at the end of `RefreshDisplay`, because
+    `RebuildGrid` respawns every item widget at full opacity — a filter that didn't re-apply
+    there would silently lift itself the first time anything in the grid moved
+  - `UInventoryWidget::PopulateCategoryFilterBox` — fills `CategoryFilterBox` from the
+    `EItemCategory` enum in `NativeConstruct` and records the row order in `FilterBoxCategories`,
+    so the selection maps back by *index* rather than by matching a display string (which
+    localisation would break). It clears the box first: the window is re-added to the viewport
+    rather than respawned, so this runs on every open
+  - `UInventoryItemWidget::SetFilteredOut` / `IsFilteredOut` — the dim itself, via
+    `SetRenderOpacity`, which leaves the widget hit-testable and leaves the cell layer covered
+  - `AStrategyPlayerController::Server_SortInventory_Implementation` — forwards to
+    `SortEntries`. Deliberately ungated beyond authority, unlike `Server_PickUpWorldItem` and
+    `TryTradeItem`: a sort can only rearrange one holder's own contents, so there is nothing for
+    a bad request to take
+  - `AStrategyPlayerController::SmoresSortInventory <Criterion>` (console exec) — debug-only;
+    repacks the selected pawn's grid (0 = weight, 1 = value, 2 = quantity) through the same
+    `SortEntries` the buttons call, then dumps the grid
+  - `AStrategyPlayerController::LogInventoryGrid` (static) — the ASCII occupancy map plus
+    per-entry list, shared by the add/dump exec and the sort exec so both report identically
   - `AStrategyPlayerController::Server_MoveInventoryItem_Implementation` — the sole
     authoritative caller of `UInventoryComponent::MoveItem` from UI drag-drop. Carries entry
     id, destination cell, rotation and quantity; it does no validation of its own, since
@@ -783,6 +880,14 @@ documents what's actually built.
   same horizontal strip. Optional (`BindWidgetOptional`); C++ fills its text, so no Blueprint
   property binding is involved. `WeightText` in `WBP_Inventory`/`WBP_ContainerInventory` works
   the same way, sitting between the title bar and the grid.
+- **`SortWeightButton` / `SortValueButton` / `SortQuantityButton` / `CategoryFilterBox`** — the
+  sort-and-filter toolbar strip in both inventory WBPs, between `WeightText` and the grid. All
+  four are `BindWidgetOptional`, so a WBP without them still compiles and runs — the feature is
+  simply invisible. **C++ binds the click and selection handlers itself in `NativeConstruct` and
+  fills the combo box's options itself**, so a designer only places the widgets and names them
+  exactly: no Blueprint graph work, no property bindings, and the same "C++ fills it directly"
+  shape `GoldText` and `WeightText` use. Leave the combo box's authored `DefaultOptions` empty —
+  `PopulateCategoryFilterBox` clears it on every open.
 - **`BP_StrategyPlayerState`** — `AStrategyPlayerState` subclass. `StartingGold` is authored on
   its **Wallet component**, not on the actor: the field moved there when gold became a
   component, which silently voided the value previously authored on the Blueprint itself (there
@@ -953,7 +1058,24 @@ documents what's actually built.
 - No re-validation when an item definition's footprint changes under already-placed entries —
   they can end up overlapping until something moves them.
 - `SetGridSize` drops entries that no longer fit rather than re-packing them; it's an
-  authoring/debug operation, not something gameplay calls.
+  authoring/debug operation, not something gameplay calls. Now that `SortEntries` exists, a
+  shrink *could* repack instead of dropping — nothing has needed it yet.
+- **A sort that can't fit everything is silent.** It logs a warning server-side and leaves the
+  grid untouched, which on screen is indistinguishable from a grid that was already sorted. Same
+  root cause as every other silent rejection here: there is no client RPC to say why.
+- **Nothing sorts by name or category.** The three criteria are the three *figures* an item
+  carries, and alphabetical order was left out because the grid has no icons yet — a name sort
+  would be the most useful one the day items are recognisable at a glance, and is a one-line
+  addition to `EInventorySortCriterion` plus `GetSortKey`.
+- **The sort buttons and the filter box have no keyboard route.** They are widget buttons, not
+  keybinds, so a player who prefers the keyboard can't sort at all. Deliberate for now — see
+  `input-and-keybinds.md`'s reserved keys before adding one.
+- **The filter is forgotten every time the window rebinds**, which is right for a window reused
+  across holders but means the player re-picks a category each time they reopen a chest. A
+  remembered per-holder filter is a UI-state question nobody has asked for yet.
+- **A sort re-picks rotation, so it can undo deliberate packing.** A player who carefully turned
+  a sword to fit a corner loses that arrangement to any sort. That's the definition of a repack
+  rather than a bug, but it does mean sort is not an undo-able convenience — there is no undo.
 - **Equipped weight is reported but never summed with carried weight.** Wearing an item takes it
   out of the grid, so a pawn's `Weight:` readout *drops* when it equips something and the worn
   total is shown in a different window. Nothing reads either figure, so it costs nothing today —

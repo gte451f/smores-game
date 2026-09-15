@@ -56,6 +56,13 @@ have their own convention below. In use today:
 |---|---|---|
 | Right-click | An item in a pawn's own inventory window | Wear it (into the slot its definition names) |
 | Right-click | A filled paperdoll slot | Take it off, back into that pawn's pack |
+| Left-click | A `UButton` or dropdown in a window's own chrome (the inventory sort buttons, the category filter) | Whatever that control does |
+
+The last row is the ordinary case, not a special one: a button the player clicks *inside* a
+window is just a button. It needs no action asset and takes no key. The flip side is that a
+control built only as a button has **no keyboard route at all** — the inventory sort and filter
+currently have none, and giving them one means adding a real `UInputAction` to
+`IMC_Strategy_Inventory` like the rotate key, not a `NativeOnKeyDown`.
 
 Right-click means "move order" in the world and "equip" over a window, which works only
 because a window now swallows the *press* of every button that lands on it — see Core Rules.

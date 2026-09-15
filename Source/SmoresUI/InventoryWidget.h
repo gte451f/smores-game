@@ -13,6 +13,8 @@
 
 class UTextBlock;
 class UPanelWidget;
+class UButton;
+class UComboBoxString;
 class UInventoryDragDropOperation;
 
 /**
@@ -72,6 +74,40 @@ protected:
 	/** Colour WeightText takes while carried weight exceeds capacity. Cosmetic only - being over capacity has no gameplay effect yet. */
 	UPROPERTY(EditAnywhere, Category = "Inventory")
 	FLinearColor WeightOverCapacityColor = FLinearColor(1.0f, 0.35f, 0.25f, 1.0f);
+
+	/** Optional "sort by weight" button. Name it "SortWeightButton" in the WBP to auto-bind. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> SortWeightButton;
+
+	/** Optional "sort by value" button. Name it "SortValueButton" in the WBP to auto-bind. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> SortValueButton;
+
+	/** Optional "sort by quantity" button. Name it "SortQuantityButton" in the WBP to auto-bind. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> SortQuantityButton;
+
+	/**
+	 *  Optional category filter dropdown. C++ fills its options from EItemCategory and handles
+	 *  the selection itself, so a WBP only has to place it and name it "CategoryFilterBox" -
+	 *  the same "C++ fills it directly" shape WeightText and GoldText use, and no graph work.
+	 */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UComboBoxString> CategoryFilterBox;
+
+	/**
+	 *  Category currently being filtered for, or EItemCategory::None for "show everything".
+	 *  Purely local to this window - a filter changes nothing about what is stored, so it never
+	 *  crosses the wire and two players looking at the same chest can filter it differently.
+	 */
+	EItemCategory FilterCategory = EItemCategory::None;
+
+	/** Categories the filter box lists, in the order it lists them. Index 0 is the "All" row. */
+	TArray<EItemCategory> FilterBoxCategories;
+
+	/** Render opacity a filtered-out item is drawn at. Dimmed rather than hidden - see SetCategoryFilter. */
+	UPROPERTY(EditAnywhere, Category = "Inventory", meta = (ClampMin = 0.0, ClampMax = 1.0))
+	float FilteredOutOpacity = 0.2f;
 
 	/**
 	 *  Container the grid is built into. A UGridPanel renders the real two-layer grid; any
@@ -154,6 +190,38 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	FText GetItemPriceTooltip(const FInventoryItem& Item) const;
 
+	/**
+	 *  Asks the server to repack this window's holder in the given order. The repack itself is
+	 *  shared world state, so it goes through IInventoryMoveHost like a move does; the window
+	 *  redraws when the changed entries replicate back, not when the button is clicked.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void SortBy(EInventorySortCriterion Criterion);
+
+	/**
+	 *  Shows only items of one category, dimming the rest. EItemCategory::None means "show
+	 *  everything" - which is why nothing should author a definition's Category as None;
+	 *  Misc is the catch-all.
+	 *
+	 *  Non-matching items are **dimmed, not hidden**, and that is deliberate: hiding an item
+	 *  widget exposes the empty-looking cell layer beneath it, so the player would try to drop
+	 *  something into space that is actually occupied and get a rejection with nothing on screen
+	 *  to explain it. A filter is a reading aid; it must not lie about what the grid holds.
+	 *
+	 *  Purely client-side. Nothing here mutates the inventory, so it needs no RPC, no authority
+	 *  check and no replication.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void SetCategoryFilter(EItemCategory Category);
+
+	/** Category currently filtered for, or EItemCategory::None when everything is shown */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	EItemCategory GetCategoryFilter() const { return FilterCategory; }
+
+	/** True if the item would be drawn normally under the current filter (always true with no filter set) */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	bool PassesCategoryFilter(const FInventoryItem& Item) const;
+
 	/** Grid dimensions of the bound inventory (zero if none) */
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	FIntPoint GetGridSize() const;
@@ -197,6 +265,25 @@ protected:
 	UFUNCTION()
 	void HandleDragEnded(UDragDropOperation* Operation);
 
+	UFUNCTION()
+	void HandleSortWeightClicked();
+
+	UFUNCTION()
+	void HandleSortValueClicked();
+
+	UFUNCTION()
+	void HandleSortQuantityClicked();
+
+	/** Bound to CategoryFilterBox's selection change - maps the chosen row back through FilterBoxCategories */
+	UFUNCTION()
+	void HandleCategoryFilterChanged(FString SelectedItem, ESelectInfo::Type SelectionType);
+
+	/** Fills CategoryFilterBox with an "All" row plus every EItemCategory, and records the order in FilterBoxCategories */
+	void PopulateCategoryFilterBox();
+
+	/** Re-dims the item widgets against the current filter. Runs after every grid rebuild, since that respawns them. */
+	void ApplyCategoryFilter();
+
 	/** Pushes current inventory state to the default text block, the grid and the BP hook */
 	void RefreshDisplay();
 
@@ -226,6 +313,7 @@ protected:
 	void ClearDragPreview();
 
 	//~ Begin UUserWidget interface
+	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
 	virtual void NativeOnDragEnter(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 	virtual void NativeOnDragLeave(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;

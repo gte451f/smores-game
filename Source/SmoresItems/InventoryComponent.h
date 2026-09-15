@@ -157,6 +157,25 @@ struct FInventoryEntry
 	}
 };
 
+/**
+ *  What a repack orders a holder's contents by. Every criterion sorts *descending* - the
+ *  biggest figure lands top-left - because every one of them answers a "what is taking up my
+ *  pack?" question, and the answer wants to be the first thing read.
+ *
+ *  Deliberately small: these are the three figures an item carries that a player compares
+ *  between items. Category is not one of them - that's what the filter is for.
+ */
+UENUM(BlueprintType)
+enum class EInventorySortCriterion : uint8
+{
+	/** Heaviest stack first (unit weight x quantity) */
+	Weight		UMETA(DisplayName = "Weight"),
+	/** Most valuable stack first (base value x quantity), before any buy/sell markup */
+	Value		UMETA(DisplayName = "Value"),
+	/** Biggest stack first */
+	Quantity	UMETA(DisplayName = "Quantity")
+};
+
 /** Broadcast whenever the grid size or placed entries change */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryChangedDelegate);
 
@@ -234,6 +253,17 @@ protected:
 
 	/** Index into Entries for the given id, or INDEX_NONE */
 	int32 IndexOfEntry(int32 EntryId) const;
+
+	/**
+	 *  Body of CanPlaceAt, tested against an arbitrary set of placements rather than this
+	 *  holder's own Entries. A repack builds its new arrangement in a scratch array and only
+	 *  commits it if everything fits, so it has to ask "would this fit?" about an array that
+	 *  isn't the live one yet.
+	 */
+	bool CanPlaceAgainst(const TArray<FInventoryEntry>& Placements, const FInventoryItem& Item, FIntPoint Cell, bool bRotated, int32 IgnoreEntryId) const;
+
+	/** Body of FindFreePlacement, scanning against an arbitrary set of placements (see CanPlaceAgainst) */
+	bool FindFreePlacementAgainst(const TArray<FInventoryEntry>& Placements, const FInventoryItem& Item, FIntPoint& OutCell, bool& bOutRotated, int32 IgnoreEntryId) const;
 
 public:
 
@@ -358,6 +388,22 @@ public:
 	/** Resizes the grid, dropping any entry that no longer fits inside it. Returns false if the size was already that. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool SetGridSize(int32 NewWidth, int32 NewHeight);
+
+	/**
+	 *  Repacks the whole grid: merges every stack that can merge, orders what's left by
+	 *  Criterion (descending), and re-places it from the top-left with no gaps between items.
+	 *  Rotation is re-picked per item the way auto-placement does, so a repack can leave an item
+	 *  turned the other way from how the player last held it - that is what "repack" means.
+	 *
+	 *  All-or-nothing. First-fit packing in criterion order can strand an item that the previous
+	 *  arrangement had room for, so the new arrangement is built in a scratch array and committed
+	 *  only once every entry has landed; a repack that can't place something changes nothing at
+	 *  all rather than dropping it.
+	 *
+	 *  Returns false when nothing changed - no authority, an empty grid, or a failed repack.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	bool SortEntries(EInventorySortCriterion Criterion);
 
 	/**
 	 *  The single move/transfer entry point, used for repositioning within one grid

@@ -92,13 +92,12 @@ the `SmoresDropItem` debug exec, but the drag-an-item-onto-the-world gesture is 
 obvious hook (`UDragDropOperation::DragCancelled`) fires for *every* unhandled drop including an
 Escape-cancelled one, so it needs a designed confirmation before it's safe to wire.
 
-## Sort & Filter (Inventory UI)
+## Sort & Filter (Inventory UI) — **SHIPPED (Slice 9)**
 
-- **Sort by**: weight, value, quantity — in a grid, "sort" means a server-side auto-repack
-  of the holder's contents ordered by the chosen criterion, not just a visual reorder.
-- **Filter by**: category (weapons, armor, food, etc.) — purely visual (dim or hide
-  non-matching entries); reads the item type/category field on the definition. No storage
-  change.
+The server-side repack and the client-side category filter both shipped in Slice 9; see
+`inventory.md`. The deliberate omission stands: **no name or category sort** — the three criteria
+are the three *figures* an item carries, and an alphabetical sort only earns its place once the
+grid has icons to make names worth scanning past.
 
 ## Explicitly Out of Scope for This Round
 
@@ -144,6 +143,10 @@ narrow interface turned out to be the one that didn't need to exist), `MoveItem`
 (→ `MoveItemCounted`, so a caller can charge for what actually moved), `FindLootableNPCAtLocation`
 (→ `FindNPCAtLocation` plus a branch, so one sweep serves both a body and a living NPC), and the
 click-an-Aggressive-NPC-to-attack shortcut (removed, per `input-and-keybinds.md`).
+Already reworked in Slice 9: `CanPlaceAt`/`FindFreePlacement` (→ thin forwarders over
+`CanPlaceAgainst`/`FindFreePlacementAgainst`, which take the placement array to test against, so
+a repack can ask "would this fit?" about an arrangement that isn't live yet) and the inventory
+debug exec's grid dump (→ a shared `LogInventoryGrid`, so the sort exec reports identically).
 Nothing structural is left needing rework — what remains in the list below is new building.
 
 ## Implementation Order
@@ -517,14 +520,58 @@ forward:
 there is deliberately no stub — an empty hook nobody implements against is clutter, and the
 branch is one `if` away from existing when dialog is real.
 
-### Slice 9 — Sort and filter
+### Slice 9 — Sort and filter — **DONE**
 
-- **Build:** `Server_SortInventory(criterion)` → server auto-repacks the grid ordered by
-  weight/value/quantity; client-side category filter dims/hides non-matching item widgets.
-  Buttons/dropdown on `WBP_Inventory`.
-- **Touches:** `InventoryComponent.*`, `InventoryMoveHost.h`, `InventoryWidget.*`,
-  `WBP_Inventory`. Can be done any time after Slice 3.
-- **Done when:** sort repacks deterministically and replicates; filter toggles visibility.
+Shipped; see `inventory.md`. It landed exactly as scoped, including on `WBP_ContainerInventory`
+as well as `WBP_Inventory` — same C++ class, same four widget names, so a chest, a corpse and a
+trader's shelf got the toolbar for the cost of doing the wiring twice. Notes worth carrying
+forward:
+
+- **The slice's real content was noticing that its two halves are different kinds of thing.**
+  A sort changes the world and must replicate; a filter changes one player's view and must not
+  leave their machine. They arrived in one entry and read as one feature, but the sort needed an
+  authority-only mutator, an `IInventoryMoveHost` method and an RPC, while the filter needed
+  none of those and would have been actively wrong with them. **Ask which of the two a new
+  inventory feature is before writing it** — it decides the entire shape.
+- **`MoveItem`'s "no swap" reasoning applies to the repack too, and the fix is a scratch array.**
+  First-fit packing in criterion order can strand an item the *previous* arrangement had room
+  for, so a naive in-place repack would silently drop things. Building into a scratch array and
+  committing only on full success makes the failure mode "the button did nothing" instead of
+  "the button ate my sword". Biggest-footprint-first among equal keys makes it rarer still.
+- **Sorting merges stacks, and that was safe to add only because it introduces no new rule.**
+  It reuses `CanStackWith` and `GetEffectiveMaxStack` exactly as `AddItem` does, so a sorted grid
+  is always something the player could have produced by hand: the stolen flag still blocks a
+  merge, `Condition` is still ignored. A merge rule invented *for* sort would have been a second
+  source of truth about stacking.
+- **`TArray::Sort` is not stable, which turns "deterministic" into a real requirement rather than
+  a nicety.** Without a tiebreak chain ending at `EntryId`, two equal entries can swap places on a
+  repack that changed nothing else — so pressing Sort twice would keep moving items and "sorted"
+  would be a state the grid never settles into. Sort keys are also compared *exactly* rather than
+  with `IsNearlyEqual`: a tolerance-based comparator isn't a strict weak ordering, and `Sort` is
+  entitled to misbehave on one that isn't.
+- **Dim, don't hide — and the reason is the cell layer, not taste.** A hidden item widget exposes
+  the empty-looking cells underneath it, so the player reads occupied space as free, drops
+  something there, and gets a silent rejection. Dimmed items also stay draggable, which means the
+  filter never has to be cleared to act on something it dimmed.
+- **`EItemCategory::None` became the "All" row.** It was already a sentinel nothing authored
+  (definitions default to `Misc`, the real catch-all), so reusing it avoided a parallel filter
+  enum that would have had to be kept in step with `EItemCategory` forever. Recorded in
+  `inventory.md`'s Core Rules, because an item actually authored as `None` would now be visible
+  only while no filter is set.
+- **Four more `BindWidgetOptional` widgets and still no Blueprint graph work.** C++ binds
+  `OnClicked`/`OnSelectionChanged` in `NativeConstruct` and fills the combo box from the enum
+  itself, so wiring was "place four widgets, name them exactly" — the Slice 4 `GoldText`/
+  `WeightText` shape extended from text to interactive controls. Two things that shape forced:
+  `NativeConstruct` runs on **every** open (the window is re-added to the viewport, not
+  respawned), so the option list must be cleared first or it grows duplicates; and the filter has
+  to be re-applied at the end of `RefreshDisplay`, since `RebuildGrid` respawns every item widget
+  at full opacity and the filter would otherwise lift itself the first time anything moved.
+- **The dropdown maps back to a category by row index, not by display string.** A localised
+  "Weapon" would break a string lookup and not an index one, and `FilterBoxCategories` is
+  populated in the same pass that adds the rows, so the two can't disagree.
+- Verify with `SmoresSortInventory <0|1|2>` (0 = weight, 1 = value, 2 = quantity) — server-side
+  like the other execs, and it dumps the occupancy map afterwards, so a before/after pair of
+  `SmoresDumpInventory` calls shows the repack without the window open.
 
 ### Slice 10 — Theft (blocked)
 
@@ -610,3 +657,28 @@ Recorded so future sessions don't reopen them:
   storefront shelf, warehouse) should use — weight is a carried-density figure and nothing
   static carries. (Rejected: a sentinel `bHasWeightLimit` flag, or a huge placeholder number.)
 - **Save backend** — not this system's decision; stay `UPROPERTY`-reflected.
+- **A sort replicates; a filter doesn't** — the repack is an authority-only mutator behind an
+  `IInventoryMoveHost` RPC, so every player watching that holder sees it; the category filter is
+  pure client state with no RPC and no authority check, because nothing about the holder changed.
+  Shipped in Slice 9. (Rejected: replicating the filter as per-player view state, which would put
+  screen state on the wire for no gain; and doing the sort client-side, which can't work at all —
+  the mutators are authority-only.)
+- **A repack is all-or-nothing** — built in a scratch array and committed only if every entry
+  re-places, because first-fit in criterion order can strand an item the previous arrangement had
+  room for. Shipped in Slice 9. (Rejected: dropping what won't fit, which would make a tidy-up
+  button occasionally eat an item; and abandoning the criterion to pack purely by footprint,
+  which isn't the sort the player asked for — footprint area is a *tiebreak* instead.)
+- **Sorting consolidates stacks** — using the same `CanStackWith` and effective cap `AddItem`
+  uses, so nothing a sort produces is unreachable by dragging stacks together by hand. Shipped in
+  Slice 9. (Rejected: leaving partial stacks alone, which makes a freshly sorted grid still look
+  untidy; and a merge rule written for sort, which would be a second source of truth about
+  stacking.)
+- **A filter dims, it never hides** — a hidden item widget exposes the empty cell layer beneath
+  it, so the player would read occupied cells as free space and get a silent rejection on the
+  drop. Dimmed items stay fully draggable. Shipped in Slice 9. (Rejected: collapsing/hiding
+  non-matching entries, which makes the grid lie about what it holds.)
+- **Sort criteria are the three figures, not the labels** — weight, value, quantity; no
+  alphabetical or category sort, since category is what the *filter* is for and a name sort only
+  earns its place once the grid draws icons. Shipped in Slice 9, with a tiebreak chain
+  (footprint area → display name → entry id) that gives alphabetical order among equals for
+  free. (Rejected: a Name criterion now.)

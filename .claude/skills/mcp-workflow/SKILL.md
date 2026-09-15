@@ -155,8 +155,32 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   there, so nothing has to be redone.
 - **`SceneTools.save_actor` is broken for World Partition external actors.** It builds a
   `/Game/__ExternalActors__/...` path that doesn't resolve and raises "Asset does not
-  exist". Use `AssetTools.save_assets([])` (save-all-dirty) instead — that does flush
-  external-actor packages to disk.
+  exist". Use `AssetTools.save_assets` with an empty list (save-all-dirty) instead — that does
+  flush external-actor packages to disk. The argument is named **`asset_paths`**, so the call is
+  `{"asset_paths": []}`; `{"assets": []}` fails with a schema error. Note that
+  `CompileWidgetBlueprint`'s own tool description tells you to follow up with
+  `AssetTools.save_asset` (singular), which does not exist — the tool is `save_assets`.
+- **`ProgrammaticToolset.execute_tool_script` does not roll back a partially-run script.** A
+  script that throws part-way through leaves everything it already did in place, and the tool
+  returns *only* a traceback with no output — which reads exactly like "nothing happened". Hit
+  while adding widgets to a WBP: the script added all nine, then threw on the result-formatting
+  line at the very end, and a blind re-run would have added a second set named `SortFilterBox_1`,
+  `SortWeightButton_1`, … whose `_1` names silently fail to `BindWidget`. **Write batch scripts
+  idempotent** — read current state first (`GetWidgets`, `get_properties`) and skip what's
+  already there — rather than assuming a failed script is a no-op. Check the real state before
+  re-running one.
+  - The proximate cause is worth knowing on its own: **the script sandbox's dict is a
+    `_StrictDict` that rejects `.get(key, default)`**, raising
+    `TypeError: _StrictDict.get() does not support a default value. Use direct key access []
+    instead.` Use `x["key"]` with an `if "key" in x` guard; `.get()` with a default will throw at
+    whatever point in the script it's reached.
+- **`UMGToolSet.GetWidgets` lists *unbound* `BindWidgetOptional` properties as placeholder rows**
+  with `widget: "None"` and `bInherited: true`, before any matching widget exists in the tree.
+  That's a cheap, positive confirmation that the C++ binding compiled and the editor has picked
+  up the new build — and after the widget is added the same row flips to a real refPath, which
+  confirms the name matched. Useful in both directions: a name that never appears at all means
+  the C++ property isn't there (stale build), while a name stuck on `None` after an edit means
+  the widget you added is named something else.
 - **A reshaped `USTRUCT` leaves stale per-instance overrides on placed actors.** After any
   C++ change to a struct used in an `EditAnywhere` array, placed actors that carry an
   override of that array keep it — the removed fields simply don't deserialize, so the
