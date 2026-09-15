@@ -157,6 +157,10 @@ by escalating smaller raids. An entirely ungarrisoned base falls to even a small
 
 ## Supply Chains and Upkeep
 
+Buildings don't run themselves — every production, hauling, construction, and repair
+task here is work a named squad member has to be assigned to, through the job queue in
+`orders-and-jobs.md`. A building with nobody on it produces nothing.
+
 Production only matters once it connects to consumption — internal squad needs, export to
 market, or transfer to another base — and disruption anywhere in that chain (an
 intercepted caravan, a destroyed production building) cascades into morale problems and

@@ -6,7 +6,7 @@ Unlike the other topics in this skill, this one isn't documenting a finished, pl
 system — it's a **forward-looking reference** for how `Source/` should eventually split
 into multiple Unreal modules as the project grows to cover the full scope described across
 the `game-design` skill (factions, economy, characters/squads, base building, tech,
-open world, saves, UI, multiplayer, narrative). The goal is that whoever eventually cuts
+open world, AI/behavior, saves, UI, multiplayer, narrative). The goal is that whoever eventually cuts
 the first new module — human or agent — has a plan to extend rather than an ad hoc
 decision to invent mid-refactor. **Nothing here is a mandate to split anything today** —
 see "When to Actually Split" below.
@@ -99,6 +99,8 @@ Source/
     StrategyUnit.* StrategyPlayerUnit.*   # moved from smores/Variant_Strategy/
   SmoresFactions/
   SmoresWorld/
+  SmoresAI/                        # individual behavior + per-character job queues,
+                                   # much later - see the target map
   SmoresBaseBuilding/
   SmoresTechCrafting/
   SmoresUI/
@@ -251,11 +253,12 @@ better answer than a fourth interface.
 
 | Module | Responsibility | Depends on | Design reference |
 |---|---|---|---|
-| `SmoresCore` | Shared low-level types/utilities with no gameplay-specific logic (common structs, interfaces, math/helpers) | Core, CoreUObject, Engine | — |
+| `SmoresCore` | Shared low-level types/utilities with no gameplay-specific logic (common structs, interfaces, math/helpers), plus the **allegiance primitive** — a character's team/faction identity and the "are we enemies?" query | Core, CoreUObject, Engine | `ai-and-behavior.md`'s Stance |
 | `SmoresItems` | Item definitions/data tables, stackable-item storage (today's `FInventoryItem`/`UInventoryComponent`) | `SmoresCore` | `inventory.md` (current), `economy.md`'s Goods |
 | `SmoresCharacters` | Lineage, attributes/skills, recruitment/wages/morale, injuries, squad/division management | `SmoresCore`, `SmoresItems` | `characters-and-squads.md` |
 | `SmoresCombat` | Health/damage, melee resolution, disposition/aggro, incapacitation/capture | `SmoresCore`, `SmoresCharacters` | `combat.md` (both skills) |
-| `SmoresFactions` | Faction simulation, standing, territory, assault intelligence, military progression | `SmoresCore`, `SmoresCharacters` | `factions-and-world-state.md` |
+| `SmoresFactions` | Faction simulation, standing, territory, assault intelligence, military progression, and faction-level decision-making (relationships, settlement investment, raid/assault decisions) on its own slow clock | `SmoresCore`, `SmoresCharacters` | `factions-and-world-state.md` |
+| `SmoresAI` | Individual character behavior: roles/archetypes, perception, drives, goal selection, and the per-character job queue | `SmoresCore`, `SmoresCharacters`, `SmoresCombat`, `SmoresItems`, `SmoresFactions`, `SmoresWorld` | `ai-and-behavior.md`, `orders-and-jobs.md` |
 | `SmoresEconomy` **(EXISTS)** | **Value primitives only**: currency/wallet, pricing interface, traders and their stock | `SmoresCore`, `SmoresItems` | `economy.md` |
 | `SmoresMarkets` | Market simulation proper: supply/demand, emergent regional pricing, trade routes, caravans | `SmoresCore`, `SmoresItems`, `SmoresEconomy`, `SmoresFactions`, `SmoresWorld` | `economy.md` |
 | `SmoresWorld` | Map data, regions/biomes, POIs, fog of war/travel, wildlife, environmental events | `SmoresCore`, `SmoresFactions` (territory overlay) | `open-world.md`, `world-map-and-travel.md` |
@@ -281,6 +284,46 @@ layer (a simulated market that *sets* those prices) genuinely does need factions
 and is years out. Keep them apart so the cheap half isn't held hostage by the expensive
 one, and so the pricing interface has a home that a market sim can later implement from
 above.
+
+**Why `SmoresAI` is separate from `SmoresFactions`, and why neither is `SmoresCharacters`.**
+The design (`ai-and-behavior.md`, `factions-and-world-state.md`) draws a hard line between
+two things that both get called "AI": what one character does in the next few seconds, and
+what a faction decides over in-game weeks. They share almost nothing in practice — the
+faction layer needs no navigation, no perception, and no animation, and must keep running
+for regions no player is near, while individual behavior is the opposite on every count.
+Different cadence, different dependencies, two modules.
+
+Neither belongs in `SmoresCharacters`. Behavior is a *consumer* of nearly everything —
+health, inventory, faction standing, world/POI data — so putting it on the character
+module would eventually force `SmoresCharacters` to depend on `SmoresFactions` and
+`SmoresWorld`, dragging the whole simulation onto the class that just needs to walk and
+swing. That is the same mistake the `SmoresEconomy`/`SmoresMarkets` note above describes.
+`SmoresAI` sits high instead: it depends downward on nearly everything and almost nothing
+depends on it (only `SmoresUI`, to show what a character is currently doing), which is a
+healthy top-of-stack position rather than a hub.
+
+The character module stays unaware of AI policy: the AI controller class is assigned as an
+ordinary Blueprint default (`AIControllerClass` is an engine type), so no upward dependency
+is created.
+
+**What to build first, and the trigger to actually cut `SmoresAI`.** Per "When to Actually
+Split" above, don't create the module speculatively. The piece that unblocks real work is
+the **allegiance primitive** in `SmoresCore`: a character's team/faction identity plus an
+"are we enemies?" answer. Today `AStrategyUnit::TryEngageNearestPlayerPawn` hardcodes "the
+enemy is the nearest player pawn," which contradicts the design in several places at once
+(wildlife has no politics; factions fight each other; the player is unaffiliated; co-op
+means there is no singular player at all) — `game-systems`' `combat.md` already flags this
+as an open extension point. Unreal's built-in `FGenericTeamId` /
+`IGenericTeamAgentInterface` is the natural vehicle, and `UAIPerceptionComponent` reads
+team attitude for free when filtering what a character notices. Low layer in `SmoresCore`
+now (a naive "different id = hostile" answer), real standing in `SmoresFactions` later —
+the same two-layer shape as `SmoresEconomy` vs. `SmoresMarkets`.
+
+**The trigger for cutting `SmoresAI` is the first non-combat behavior** — a shopkeeper
+idling at a counter, a creature grazing, a squad member working a job queue. At that point
+`AStrategyUnit` is carrying behavior policy it has no business owning, which is a real
+ownership seam discovered in practice rather than predicted from a design doc. Until then,
+disposition and engagement can stay where they are.
 
 **Known discrepancy**: the table above lists `SmoresCombat` depending on `SmoresCharacters`,
 but the actual `AStrategyUnit`/`AStrategyPlayerUnit` move (see "Migrating Today's Prototype

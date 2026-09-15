@@ -62,6 +62,8 @@ their own agenda is equally well supported.
 ## What This Game Deliberately Is Not
 
 - **Not a city builder** — the player is always in the field; the base serves the squad.
+  The per-character job queues in `orders-and-jobs.md` are the closest any system comes to
+  this line; that topic states where the boundary sits and why it holds.
 - **Not a traditional RPG** — no single hero; character death is recoverable at the squad
   level but costly.
 - **Not an RTS or turn-based tactics game** — combat is real-time and automated;

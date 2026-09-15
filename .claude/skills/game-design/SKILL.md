@@ -1,6 +1,6 @@
 ---
 name: game-design
-description: Reference and maintain smores' high-level game design intentions — vision, pillars, and the desired end states for every major game system (factions, economy, combat, characters, base building, tech, the open world, saves, player experience, multiplayer/content, menus, UI, narrative, and more), with no implementation detail. Use when discussing game design direction, checking whether a proposed feature fits the game's pillars, or documenting/updating design intent. Skip for engine implementation, C++ systems, or MCP/editor work — use the game-systems skill and Source/smores/ for that.
+description: Reference and maintain smores' high-level game design intentions — vision, pillars, and the desired end states for every major game system (factions, economy, combat, AI/behavior, squad orders and base labor, characters, base building, tech, the open world, saves, player experience, multiplayer/content, menus, UI, narrative, and more), with no implementation detail. Use when discussing game design direction, checking whether a proposed feature fits the game's pillars, or documenting/updating design intent. Skip for engine implementation, C++ systems, or MCP/editor work — use the game-systems skill and Source/smores/ for that.
 ---
 
 # High-Level Game Design
@@ -21,12 +21,14 @@ This topic covers intendent game designs that may not exist yet.
 | Topic | Covers |
 |---|---|
 | [`topics/vision-and-pillars.md`](topics/vision-and-pillars.md) | Core vision, player fantasy, the seven design pillars, what the game deliberately is not, tone/difficulty philosophy, campaign time scale |
-| [`topics/factions-and-world-state.md`](topics/factions-and-world-state.md) | What factions and the living world are for, the player's fixed non-faction role, faction military progression as a readable signal, assault-intelligence design intent |
+| [`topics/factions-and-world-state.md`](topics/factions-and-world-state.md) | What factions and the living world are for, the player's fixed non-faction role, faction military progression as a readable signal, how factions decide relationships and settlement investment, assault-intelligence design intent |
 | [`topics/economy.md`](topics/economy.md) | Emergent/marginal pricing, the trade hierarchy, player economic roles, the illicit economy, currency sinks, biome and advancement resources |
 | [`topics/combat.md`](topics/combat.md) | Automated real-time combat, why melee is primary and how ranged is kept supporting, injury/capture, retreat |
+| [`topics/ai-and-behavior.md`](topics/ai-and-behavior.md) | One behavior system for every inhabitant — roles, derived stance/hostility, awareness, drives, the deliberately narrow behavioral range, distance fidelity, barks |
 | [`topics/characters-and-squads.md`](topics/characters-and-squads.md) | Lineage, attributes vs. skills, recruitment/wages/morale, injuries, stealth and illicit operations |
 | [`topics/character-creation.md`](topics/character-creation.md) | What the player authors and when, fixed vs. adjustable appearance, mid-campaign cosmetic editing, readability-first art direction |
 | [`topics/base-building.md`](topics/base-building.md) | The outpost/town-building split, site selection, raids, supply chains, upkeep |
+| [`topics/orders-and-jobs.md`](topics/orders-and-jobs.md) | Per-character job queues worked in priority order, the city-builder resemblance and its boundary, job categories, training as the slow path, reflex/order/autonomy precedence |
 | [`topics/tech-and-crafting.md`](topics/tech-and-crafting.md) | Tech tree structure, research mechanics, crafting quality, faction military tech progression |
 | [`topics/open-world.md`](topics/open-world.md) | Static handcrafted map, regions/biomes, points of interest, travel/visibility, wildlife, time scale |
 | [`topics/save-system.md`](topics/save-system.md) | What must persist, save slots, version/mod compatibility as player-facing promises |

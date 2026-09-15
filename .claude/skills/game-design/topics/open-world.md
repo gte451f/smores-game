@@ -92,7 +92,10 @@ stronger over time. A region dangerous at campaign start is exactly as dangerous
 campaign end; there's terrain worth routing around early and returning to later with a
 stronger squad, but it never quietly ramps up in the meantime. Wildlife has no standing
 and no politics — it's purely a logistics and route-planning problem, reacting to
-proximity and hunger, never to player reputation.
+proximity and hunger, never to player reputation. How that reaction actually plays out —
+eat, ignore, stalk, or flee — is owned by `ai-and-behavior.md`, which treats creatures as
+the same behavior system as everyone else with drives rather than politics in the
+foreground.
 
 ## Environmental Hazards and World Events
 

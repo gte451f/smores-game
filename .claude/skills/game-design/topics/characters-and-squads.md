@@ -129,8 +129,11 @@ economic progression the rest of the game is built around.
 
 The player manages the squad through assignment (patrol vs. base vs. labor), equipping
 each member for their role, broad formation/behavior orders, and role specialization
-(the designated thief takes illicit jobs, the designated laborer works the forge). There
-is no hard squad size cap — wages create the real, self-regulating economic ceiling (see
+(the designated thief takes illicit jobs, the designated laborer works the forge). The
+specific work a character is queued to carry out, and the order they work through it, is
+owned by `orders-and-jobs.md`; what they do with no instruction at all is
+`ai-and-behavior.md`. There is no hard squad size cap — wages create the
+real, self-regulating economic ceiling (see
 `economy.md`).
 
 ## Squad Divisions

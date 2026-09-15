@@ -2,6 +2,10 @@
 
 ## Purpose
 
+Combat is what happens once a fight has started. What decides *whether* a character
+fights at all — who counts as an enemy, what a character notices, and when they
+disengage on their own — is `ai-and-behavior.md`.
+
 Combat is the mechanism through which physical conflict resolves — real-time and largely
 automated, characters fight on their own using their skills and equipped weapons. The
 player's role is high-level: where to position the squad, when to engage, when to retreat,
@@ -98,7 +102,8 @@ outcome of being badly outmatched.
   pass.
 - Whether mounted combat exists depends on setting.
 - Whether characters (player's or enemy's) can break and flee from overwhelming odds
-  without an explicit order is an open design question.
+  without an explicit order is an open design question — tracked in
+  `ai-and-behavior.md` as well, and it needs one answer covering both sides.
 - Siege/base-defense combat (see `base-building.md`) and settlement-assault participation
   (see `factions-and-world-state.md`) use this same resolution model but carry additional
   context (fortifications, chokepoints, alarm/breach rules) not fully covered here.

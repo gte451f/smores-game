@@ -61,6 +61,56 @@ vacuum, reputation shifts among ideologically aligned/opposed factions, economic
 disruption, permanent loss of any named NPCs in that faction) — not something achievable
 casually.
 
+## Faction Decision-Making
+
+Factions reason about the world on their own, on a clock measured in in-game days and
+weeks rather than seconds. This is a genuinely different system from individual character
+behavior (`ai-and-behavior.md`) and should stay one: it needs no navigation, no line of
+sight, and no animation, and it must keep running for regions where no player has ever
+set foot — that is the whole point of the **Living World** pillar.
+
+Two kinds of decision:
+
+- **Relationships** — how a faction feels about every other faction and about each player.
+  Driven by territorial pressure (a shared, contested border is a standing source of
+  friction), ideology and lineage stance (`characters-and-squads.md`), trade dependency
+  (a faction that needs another's grain is slower to fight it), recent events, and the
+  accumulated consequences of player action. These shift gradually; a faction should not
+  flip from ally to enemy inside an afternoon any more than the map should be repainted in
+  one (see **Why the World Shouldn't "Paint the Map"** above).
+- **Settlement decisions** — what a faction invests its holdings in: garrison strength,
+  fortification, military tier advancement (see **Faction Military Progression** below),
+  production, and whether to mount a raid or a full assault. These decisions are
+  constrained by what the faction actually has — population, materials, money, and the
+  recovery time a recent action already cost it — which is what produces the structural
+  defensive bias the map-painting section relies on.
+
+Three design constraints on all of it:
+
+- **Decisions must be readable in the field, not just in a simulation log.** A faction that
+  invested in its garrison should look garrisoned; one preparing an assault should be
+  visibly mustering. This is the same no-UI-required readability principle already stated
+  for military progression below, applied to faction decisions generally — and it's what
+  makes the scouting and intelligence channels in **Assault Intelligence** worth
+  investing in.
+- **Decisions are made from what the faction plausibly knows.** Factions are not
+  omniscient about each other or about the player. Information propagates slowly and
+  imperfectly (see the open question on propagation below), which is exactly why a player
+  can sell stolen goods in a distant market or work for two hostile parties at once until
+  they find out.
+- **Policy flows down to individuals; individuals never decide policy.** A faction sets
+  stances and dispatches forces; its members read that stance and act locally. What
+  reaches the faction layer from the field is aggregate outcome — a patrol lost, a caravan
+  missing, a holding taken — never individual moment-to-moment behavior. If faction
+  decisions depended on individuals reporting in, nothing would advance in regions no
+  player is watching, which defeats the purpose. See `ai-and-behavior.md`'s
+  **Individuals Don't Decide Faction Policy**.
+
+Deliberately out of scope, per **The Player's Fixed Role** above: the player never
+participates in this layer as a peer. They influence it — through reputation, trade,
+violence, and intelligence — but they never make faction decisions, because that is the
+4X game this explicitly isn't.
+
 ## Player Standing, Not Player Power
 
 Standing with each faction — independently tracked, not a single global reputation — is
