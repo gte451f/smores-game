@@ -58,9 +58,11 @@ tests live in `Source/<Module>/Tests/` behind `#if WITH_DEV_AUTOMATION_TESTS`, n
 world and the authoritative owner actor; item definitions are built in memory by
 `MakeTestItemDefinition`. No `Build.cs` or `.uproject` change was needed.
 
-One thing the plan did not anticipate, now recorded in `testing.md`: **UBA stamps build outputs
-in UTC**, so an edited file can look older than its own `.obj` and UnrealBuildTool silently
-compiles nothing. Build with `-NoUBA` and check for `Compile [x64]` lines.
+One thing the plan did not anticipate, now recorded in `testing.md`: Jim's machine dual-boots and
+**Windows runs four hours fast until he syncs it**, so an NTP sync mid-session jumps the clock
+backwards and leaves build outputs looking newer than freshly-edited sources. UnrealBuildTool then
+correctly reports "up to date" and compiles nothing. Not a build-system bug and not fixable with a
+flag - check the build output for `Compile [x64]` lines, and delete the stale `.obj` when it skips.
 
 ## Test Inventory by System
 
@@ -223,8 +225,8 @@ same protocol, so it isn't repeated per entry:
 1. Read `testing.md`, this slice's entry, and the source files it names.
 2. Write the tests. Every new test is a new `IMPLEMENT_SIMPLE_AUTOMATION_TEST` class in a new or
    existing `.cpp`, which means **a cold build** (close the editor, build, reopen) — never Live
-   Coding. A new file in a module is not something Live Coding picks up reliably. Build with
-   `-NoUBA`, and check the output for `Compile [x64]` lines: without it, UnrealBuildTool can report
+   Coding. A new file in a module is not something Live Coding picks up reliably. Check the build
+   output for `Compile [x64]` lines: after a system-clock correction UnrealBuildTool can report
    success having compiled nothing (see The Harness above).
 3. Run them headless and confirm the count of tests run matches what was added — a test that fails
    to register doesn't fail, it silently doesn't appear. **Check the number, not just the colour.**

@@ -113,32 +113,38 @@ unreliable for new types generally (see CLAUDE.md) and does not reliably pick up
 Building from the command line, which is what an agent should do:
 
 ```powershell
-& "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" smoresEditor Win64 Development -Project="C:\dev\smores\smores.uproject" -WaitMutex -NoUBA
+& "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" smoresEditor Win64 Development -Project="C:\dev\smores\smores.uproject" -WaitMutex
 ```
 
 #### The incremental-build trap, which cost a session once and will again
 
-**UBA (Unreal Build Accelerator) stamps build outputs with UTC rather than local time.** On this
-machine that is four hours in the future, so a freshly-edited `.cpp` looks *older* than the
-`.obj` built from it, and UnrealBuildTool reports **"Target is up to date"** and compiles nothing.
-The tests then run against stale object code and report whatever the previous version did.
+**Jim's machine dual-boots Windows and Ubuntu, and Windows starts up four hours fast until he
+syncs it against an NTP server.** That sync can land in the middle of a session, and when it does
+the system clock jumps *backwards* four hours.
 
-This is silent. Nothing errors; the build says `Result: Succeeded` in about a second.
+Anything built before the jump then carries a timestamp four hours ahead of anything edited after
+it. UnrealBuildTool compares source against object, finds the object newer, and correctly reports
+**"Target is up to date"** having compiled nothing. The tests then run against stale object code
+and report whatever the previous version did.
 
-Three habits defuse it:
+This is silent. Nothing errors; the build says `Result: Succeeded` in about a second. It is **not**
+a bug in UnrealBuildTool, UBA or Unreal — the timestamps really do say what UBT reads them as
+saying, and `-NoUBA` is not a fix for it. Don't go looking for a build-system setting; there isn't
+one to find.
 
-- **Pass `-NoUBA`.** Outputs then get correct local timestamps, so incremental builds work
-  normally from that point on. This is the one that actually fixes it going forward.
-- **Check the build actually compiled something.** If the output has no `Compile [x64] <file>`
-  lines and you just edited a file, it did not build your change. A one-second build is the tell.
-- **When a file is skipped anyway, delete its `.obj`** from
+Two habits defuse it:
+
+- **Check that the build actually compiled something.** If the output has no `Compile [x64] <file>`
+  lines and you just edited a file, it did not build your change. A one-second build is the tell,
+  and it is the only reliable signal.
+- **When a file is skipped, delete its `.obj`** from
   `Intermediate\Build\Win64\x64\UnrealEditor\Development\<Module>\` and build again. Deleting
-  `Intermediate\Build\Win64\x64\smoresEditor\Development\Makefile.bin` is the bigger hammer,
-  needed when UBT has not noticed *new* files in an existing folder — the same skew makes the
-  cached makefile look newer than the directory.
+  `Intermediate\Build\Win64\x64\smoresEditor\Development\Makefile.bin` is the bigger hammer, needed
+  when UBT has not noticed *new* files in an existing folder — the same skew makes the cached
+  makefile look newer than the directory it should be rescanning.
 
-A permanent fix would be `<bAllowUBAExecutor>false</bAllowUBAExecutor>` in
-`BuildConfiguration.xml`, but that is a machine-wide setting and is Jim's call, not an agent's.
+Jim manages the clock himself and has asked that it be left alone. The point of this section is
+only that an agent should recognise the symptom rather than spend a build cycle misdiagnosing it.
 
 ## When to Add a Test
 
