@@ -7,13 +7,9 @@ the standing rule for when a piece of work should add to it. The forward-looking
 still needs building, in what order, and the decisions behind it — lives in
 `Docs/roadmaps/testing-roadmap.md`.
 
-> **Status: the harness does not exist yet.** No test file has been written and the commands
-> below will report zero tests until **Slice 1 of `Docs/roadmaps/testing-roadmap.md`** ships — the first of
-> three build-out slices, not eight; see that file's "Why only three" for the re-cut. The
-> conventions, run commands and protocol are recorded here in advance deliberately, because
-> they are Slice 1's deliverable as much as the code is — but nothing in this file has been
-> executed against this project yet, and the first session to run it should expect to correct
-> details here.
+> **Status: the harness is built and Slice 1 has shipped.** 46 tests run green, covering the
+> whole of `SmoresItems`. Slices 2 and 3 of `Docs/roadmaps/testing-roadmap.md` remain. Everything
+> below has been executed against this project rather than written in advance.
 
 `Automation_smores.slnx` is **not** a test setup. It is a solution file that pulls in Epic's own
 `UnrealBuildTool` and `EpicGames.*` C# projects, several of which are named `*.Tests`. None of
@@ -23,17 +19,21 @@ them test smores.
 
 | System | Module | Covered | Slice |
 |---|---|---|---|
-| Inventory grid geometry and placement | `SmoresItems` | — | 1 |
-| Inventory stacking, counted returns, moves | `SmoresItems` | — | 1 |
-| Inventory sort repack (determinism, all-or-nothing) | `SmoresItems` | — | 1 |
-| Refusal reasons (`*WithReason` vs. their forwarders) | `SmoresItems` | — | 1 |
-| Equipment slots and the all-or-nothing swap | `SmoresItems` | — | 1 |
+| Test world holds authority | `SmoresCore` | ✅ 1 test | 1 |
+| Inventory grid geometry and placement | `SmoresItems` | ✅ 8 tests | 1 |
+| Inventory stacking and counted returns | `SmoresItems` | ✅ 7 tests | 1 |
+| Inventory moves and transfers | `SmoresItems` | ✅ 8 tests | 1 |
+| Inventory entries, grid resize, weight, delegate | `SmoresItems` | ✅ 8 tests | 1 |
+| Inventory sort repack (determinism, all-or-nothing) | `SmoresItems` | ✅ 8 tests | 1 |
+| Refusal reasons (`*WithReason` vs. their forwarders) | `SmoresItems` | ✅ in sort + equipment | 1 |
+| Equipment slots and the all-or-nothing swap | `SmoresItems` | ✅ 6 tests | 1 |
 | Wallet and pricing | `SmoresEconomy` | — | 2 |
 | Health state machine (Alive/Downed/Dead) | `SmoresCombat` | — | 2 |
 | Item definition assets and map loading | `SmoresItems` | — | 2 |
 | Trade transaction ordering | `smores` | — | 3 |
 
-Update this table as slices ship; it is the quick answer to "is this already covered?"
+**46 tests as of Slice 1.** Update this table as slices ship; it is the quick answer to "is this
+already covered?"
 
 ## What Is Deliberately Not Covered
 
@@ -107,9 +107,38 @@ the direct check when it doesn't.
 ### After adding or changing a test file
 
 A new `IMPLEMENT_SIMPLE_AUTOMATION_TEST` is a new C++ class, and a new `.cpp` is a new file in
-the module. **Both require a cold Visual Studio build** — close the editor, build, reopen. Live
-Coding is unreliable for new types generally (see CLAUDE.md) and does not reliably pick up new
-files at all.
+the module. **Both require a cold build** — close the editor, build, reopen. Live Coding is
+unreliable for new types generally (see CLAUDE.md) and does not reliably pick up new files at all.
+
+Building from the command line, which is what an agent should do:
+
+```powershell
+& "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" smoresEditor Win64 Development -Project="C:\dev\smores\smores.uproject" -WaitMutex -NoUBA
+```
+
+#### The incremental-build trap, which cost a session once and will again
+
+**UBA (Unreal Build Accelerator) stamps build outputs with UTC rather than local time.** On this
+machine that is four hours in the future, so a freshly-edited `.cpp` looks *older* than the
+`.obj` built from it, and UnrealBuildTool reports **"Target is up to date"** and compiles nothing.
+The tests then run against stale object code and report whatever the previous version did.
+
+This is silent. Nothing errors; the build says `Result: Succeeded` in about a second.
+
+Three habits defuse it:
+
+- **Pass `-NoUBA`.** Outputs then get correct local timestamps, so incremental builds work
+  normally from that point on. This is the one that actually fixes it going forward.
+- **Check the build actually compiled something.** If the output has no `Compile [x64] <file>`
+  lines and you just edited a file, it did not build your change. A one-second build is the tell.
+- **When a file is skipped anyway, delete its `.obj`** from
+  `Intermediate\Build\Win64\x64\UnrealEditor\Development\<Module>\` and build again. Deleting
+  `Intermediate\Build\Win64\x64\smoresEditor\Development\Makefile.bin` is the bigger hammer,
+  needed when UBT has not noticed *new* files in an existing folder — the same skew makes the
+  cached makefile look newer than the directory.
+
+A permanent fix would be `<bAllowUBAExecutor>false</bAllowUBAExecutor>` in
+`BuildConfiguration.xml`, but that is a machine-wide setting and is Jim's call, not an agent's.
 
 ## When to Add a Test
 
@@ -180,9 +209,12 @@ and Test targets, so nothing written this way reaches a packaged build.
 
 ```cpp
 #include "Misc/AutomationTest.h"
-#include "Tests/AutomationCommon.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
+
+#include "InventoryComponent.h"
+#include "Tests/SmoresItemTestFactory.h"
+#include "Tests/SmoresTestWorld.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FSmoresInventoryStackCapTest,
@@ -191,19 +223,62 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FSmoresInventoryStackCapTest::RunTest(const FString& Parameters)
 {
-    FTestWorldWrapper WorldWrapper;
-    WorldWrapper.CreateTestWorld(EWorldType::Game);
-    UWorld* World = WorldWrapper.GetTestWorld();
+    FSmoresTestWorld TestWorld;
 
-    // ... spawn an owner actor, attach the component, assert ...
+    UInventoryComponent* Inventory = MakeTestInventory(TestWorld, 4, 4);
 
-    WorldWrapper.ForwardErrorMessages(this);
-    WorldWrapper.DestroyTestWorld(true);
+    if (!TestNotNull(TEXT("Inventory created"), Inventory))
+    {
+        return true;
+    }
+
+    UItemDefinition* Definition = MakeTestItemDefinition(TestWorld, FIntPoint(1, 1), /*MaxStack*/ 5);
+
+    TestTrue(TEXT("The stack was placed"), Inventory->AddItemAt(MakeTestItem(Definition, 99), FIntPoint(0, 0), false));
+    TestEqual(TEXT("...clamped to the effective cap"), Inventory->GetEntries()[0].Item.Quantity, 5);
+
+    TestWorld.ForwardErrors(this);
+
     return true;
 }
 
 #endif // WITH_DEV_AUTOMATION_TESTS
 ```
+
+Note the include order: `Misc/AutomationTest.h` sits **above** the `#if`, everything else below
+it. The harness headers are themselves compiled out in Shipping, so including them above the
+guard would break a packaged build.
+
+### What the harness gives you
+
+Three support files, written in Slice 1. None of them needed a `Build.cs` or `.uproject` change.
+
+| File | Holds |
+|---|---|
+| `Source/SmoresCore/Tests/SmoresTestWorld.h` | `FSmoresTestWorld` — the throwaway world, `SpawnOwner()`, `SpawnComponent<T>()`, `AddComponent<T>()`, `NewKeptObject<T>()`, `BeginPlay()`, `Tick()`, `TickFor()`, `ForwardErrors()` |
+| `Source/SmoresCore/Tests/SmoresTestDelegateListener.h` | `USmoresTestDelegateListener` — counts broadcasts of any zero-parameter dynamic multicast delegate |
+| `Source/SmoresItems/Tests/SmoresItemTestFactory.h` | `MakeTestItemDefinition`, `MakeTestItem`, `MakeTestInventory`, `FInventorySnapshot`, and the small print helpers |
+
+`FSmoresTestWorld` is an RAII type: construct it on the stack, and the destructor tears the world
+down and forces a collect. It is also an `FGCObject`, which is why `NewKeptObject<T>()` exists —
+a `UItemDefinition` built in a test has no owner keeping it alive, and a collect part-way through
+would pull it out from under the assertions.
+
+**`FInventorySnapshot` is how "it mutated nothing" gets asserted.** Take one before the call,
+compare after. It covers grid size, entry order, ids, anchors, rotation, quantity, stolen flag and
+condition, and prints itself into the failure message. Asserting only that a call returned `false`
+would pass even if the refusal had destroyed the item on the way out.
+
+**Three things live in the header rather than an anonymous namespace per file, deliberately.** UE's
+unity builds concatenate several `.cpp` files into one translation unit, so two test files each
+defining `MakeTestInventory` in an anonymous namespace would collide the day adaptive unity decides
+to put them together. Shared test helpers go in the header.
+
+**`USmoresTestDelegateListener` is not wrapped in `WITH_DEV_AUTOMATION_TESTS`**, unlike everything
+else. A dynamic delegate can only bind to a `UFUNCTION`, a `UFUNCTION` only exists on a `UCLASS`,
+and UHT parses every header regardless of preprocessor conditions it does not know about. Guarding
+it would generate reflection code for a class the compiler had been told to skip. It is an empty
+`UObject` with one counter; the cost of it existing in a packaged build is a class registration.
 
 ### Conventions
 
@@ -236,11 +311,33 @@ written as "call `RemoveEntry`, assert the grid is unchanged" **passes for entir
 reason**. An entire suite can be green while testing nothing at all. This is the single easiest
 way to waste a session's work here.
 
-Two `FTestWorldWrapper` calls are opt-in and cost time, so use them only when needed:
-`BeginPlayInTestWorld()` (for anything reading a `StartingGold` / `StartingStock` style property)
-and `TickTestWorld(DeltaSeconds)` (for anything on a timer). When ticking for a timer, **lower
-the duration property in the test first** — ticking through `UHealthComponent`'s default
-15-second recovery at 100fps is 1500 iterations for no benefit.
+`FSmoresTestWorld::SpawnComponent<T>()` does the whole thing in one line, and
+`Smores.Core.TestWorld.SpawnedActorHasAuthority` asserts the assumption directly — so if this ever
+stops being true it breaks in one obvious place rather than silently everywhere.
+
+**The one sanctioned exception** is `Smores.Items.Inventory.SortWithoutAuthorityIsSilent`, which
+creates an ownerless component *on purpose* to exercise the gate's refusing branch, and says so in
+a comment. It is not a client — a real non-authority test needs a net driver and waits on
+multiplayer — but it does prove the gate refuses rather than merely that it exists.
+
+Two `FSmoresTestWorld` calls are opt-in and cost time, so use them only when needed: `BeginPlay()`
+(for anything reading a `StartingGold` / `StartingStock` style property) and `Tick(DeltaSeconds)` /
+`TickFor(Seconds)` (for anything on a timer). When ticking for a timer, **lower the duration
+property in the test first** — ticking through `UHealthComponent`'s default 15-second recovery at
+100fps is 1500 iterations for no benefit.
+
+### Expected log output
+
+A test that deliberately drives code down a path that warns should say so:
+
+```cpp
+AddExpectedMessagePlain(TEXT("has no room for"), ELogVerbosity::Warning,
+    EAutomationExpectedMessageFlags::Contains, /*Occurrences*/ 0);
+```
+
+`Occurrences = 0` means "one or more", so this is **stronger than suppression** — it asserts the
+code actually warned, and the run stays green rather than yellow. Slice 1 uses it for the partial
+add, the abandoned repack, and the entries a grid resize drops.
 
 ### Item definitions are built in memory
 
@@ -252,7 +349,11 @@ instead of inside a `.uasset`.
 
 ## Known Gaps
 
-- **Everything.** No test file exists yet; `Docs/roadmaps/testing-roadmap.md` Slice 1 is the first.
+- **`SmoresEconomy`, `SmoresCombat` and the content smoke tests are untested** — Slice 2 of
+  `Docs/roadmaps/testing-roadmap.md`. Nothing in `UWalletComponent`, `UTraderComponent` or
+  `UHealthComponent` has an assertion against it yet, including the kill-cancels-recovery trap.
+- **`BeginPlay()` and `TickFor()` on `FSmoresTestWorld` are written but never exercised.** Slice 1
+  needed neither. Slice 2 is the first to use them, and should expect to correct them.
 - **The off-authority path is untestable** until multiplayer is wired up. Asserting "this mutator
   no-ops on a client" needs an actor whose role is not `ROLE_Authority`, which needs a net driver.
   The gate is asserted positively instead — the mutator runs when it should.
