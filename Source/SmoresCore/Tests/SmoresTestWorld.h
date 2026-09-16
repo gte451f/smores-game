@@ -120,16 +120,36 @@ struct FSmoresTestWorld : public FGCObject
 	/** Runs BeginPlay - needed only by components that read a starting value there */
 	bool BeginPlay() { return Wrapper.BeginPlayInTestWorld(); }
 
-	/** Advances one frame - needed only by components with a timer */
+	/**
+	 *  Advances one frame - needed only by components with a timer.
+	 *
+	 *  **Call BeginPlay() before ticking anything that waits on a timer.** FTimerManager skips
+	 *  any tick landing on a frame it has already ticked, and the engine's wrapper only advances
+	 *  the frame counter once play has begun - so ticking a world that hasn't begun play advances
+	 *  timers exactly once and then silently does nothing forever. A recovery timer then never
+	 *  fires, and a test asserting "it is still Dead afterwards" passes without having waited for
+	 *  anything. TickFor() refuses outright rather than letting that happen quietly.
+	 */
 	bool Tick(float DeltaSeconds = 0.01f) { return Wrapper.TickTestWorld(DeltaSeconds); }
 
 	/**
 	 *  Advances simulated time far enough for a timer to fire. Lower the duration property
 	 *  under test first - ticking through a 15 second default at 100fps is 1500 iterations
 	 *  for no benefit.
+	 *
+	 *  Returns false if play hasn't begun (see Tick), so assert on the return value.
 	 */
 	bool TickFor(float Seconds, float DeltaSeconds = 0.01f)
 	{
+		const UWorld* World = GetWorld();
+
+		if (!World || !World->HasBegunPlay())
+		{
+			// ticking here would advance timers once and then stall - refuse instead of
+			// reporting a wait that never happened
+			return false;
+		}
+
 		const int32 Steps = FMath::CeilToInt32(Seconds / FMath::Max(DeltaSeconds, KINDA_SMALL_NUMBER));
 
 		for (int32 Step = 0; Step < Steps; ++Step)

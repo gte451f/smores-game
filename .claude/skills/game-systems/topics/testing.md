@@ -7,9 +7,10 @@ the standing rule for when a piece of work should add to it. The forward-looking
 still needs building, in what order, and the decisions behind it — lives in
 `Docs/roadmaps/testing-roadmap.md`.
 
-> **Status: the harness is built and Slice 1 has shipped.** 46 tests run green, covering the
-> whole of `SmoresItems`. Slices 2 and 3 of `Docs/roadmaps/testing-roadmap.md` remain. Everything
-> below has been executed against this project rather than written in advance.
+> **Status: the harness is built and Slices 1 and 2 have shipped.** 73 tests run green, covering
+> `SmoresItems`, `SmoresEconomy`, `UHealthComponent` and the content smoke tests. Only Slice 3 of
+> `Docs/roadmaps/testing-roadmap.md` remains. Everything below has been executed against this
+> project rather than written in advance.
 
 `Automation_smores.slnx` is **not** a test setup. It is a solution file that pulls in Epic's own
 `UnrealBuildTool` and `EpicGames.*` C# projects, several of which are named `*.Tests`. None of
@@ -27,12 +28,15 @@ them test smores.
 | Inventory sort repack (determinism, all-or-nothing) | `SmoresItems` | ✅ 8 tests | 1 |
 | Refusal reasons (`*WithReason` vs. their forwarders) | `SmoresItems` | ✅ in sort + equipment | 1 |
 | Equipment slots and the all-or-nothing swap | `SmoresItems` | ✅ 6 tests | 1 |
-| Wallet and pricing | `SmoresEconomy` | — | 2 |
-| Health state machine (Alive/Downed/Dead) | `SmoresCombat` | — | 2 |
-| Item definition assets and map loading | `SmoresItems` | — | 2 |
+| Wallet balance, refusals and broadcasts | `SmoresEconomy` | ✅ 8 tests | 2 |
+| Pricing (markup, markdown, totals, margin) | `SmoresEconomy` | ✅ 6 tests | 2 |
+| Health state machine (Alive/Downed/Dead) and its timer | `SmoresCombat` | ✅ 9 tests | 2 |
+| `UItemDefinition` assets under `Content/` | `SmoresItems` | ✅ 3 tests | 2 |
+| Both maps still load | `smores` | ✅ 1 test | 2 |
+| Attack range / out-of-range branch | `SmoresCombat` | — | unclaimed |
 | Trade transaction ordering | `smores` | — | 3 |
 
-**46 tests as of Slice 1.** Update this table as slices ship; it is the quick answer to "is this
+**73 tests as of Slice 2.** Update this table as slices ship; it is the quick answer to "is this
 already covered?"
 
 ## What Is Deliberately Not Covered
@@ -132,11 +136,33 @@ a bug in UnrealBuildTool, UBA or Unreal — the timestamps really do say what UB
 saying, and `-NoUBA` is not a fix for it. Don't go looking for a build-system setting; there isn't
 one to find.
 
-Two habits defuse it:
+**The nastier variant, seen in Slice 2: the sync can land *inside* a build.** The build then
+compiles plenty of files, prints `Compile [x64]` lines for every source you edited, reports
+`Result: Succeeded` — and still links one module against **stale generated reflection code**,
+because UHT compared a header stamped before the jump against generated output stamped after it and
+decided nothing had changed. The C++ compiles and links fine, because the edits were inline in the
+header; what's missing is the reflection data. A `UFUNCTION` added that session simply isn't
+registered, so an `AddDynamic` binding to it silently never fires.
+
+The tell is that the module's own `Compile`/`Link` lines are *absent* from an otherwise busy build,
+and the check is to look for the new name in the built DLL:
+
+```powershell
+Select-String -Path "C:\dev\smores\Binaries\Win64\UnrealEditor-SmoresCore.dll" -Pattern "MyNewFunction" -Encoding Ascii
+```
+
+UHT writes reflected names into the binary as plain ASCII, so a name that isn't there wasn't built.
+The fix is the bigger hammer below — delete that module's `Intermediate` folders (both the
+`Development\<Module>` objects and the `UnrealEditor\Inc\<Module>` generated headers) plus
+`Makefile.bin`, then rebuild.
+
+Three habits defuse all of it:
 
 - **Check that the build actually compiled something.** If the output has no `Compile [x64] <file>`
   lines and you just edited a file, it did not build your change. A one-second build is the tell,
   and it is the only reliable signal.
+- **After changing a `UCLASS`/`UFUNCTION`/`UPROPERTY`, check the name landed in the DLL**, as
+  above. A green build is not evidence that reflection data was regenerated.
 - **When a file is skipped, delete its `.obj`** from
   `Intermediate\Build\Win64\x64\UnrealEditor\Development\<Module>\` and build again. Deleting
   `Intermediate\Build\Win64\x64\smoresEditor\Development\Makefile.bin` is the bigger hammer, needed
@@ -262,8 +288,21 @@ Three support files, written in Slice 1. None of them needed a `Build.cs` or `.u
 | File | Holds |
 |---|---|
 | `Source/SmoresCore/Tests/SmoresTestWorld.h` | `FSmoresTestWorld` — the throwaway world, `SpawnOwner()`, `SpawnComponent<T>()`, `AddComponent<T>()`, `NewKeptObject<T>()`, `BeginPlay()`, `Tick()`, `TickFor()`, `ForwardErrors()` |
-| `Source/SmoresCore/Tests/SmoresTestDelegateListener.h` | `USmoresTestDelegateListener` — counts broadcasts of any zero-parameter dynamic multicast delegate |
+| `Source/SmoresCore/Tests/SmoresTestDelegateListener.h` | `USmoresTestDelegateListener` — counts broadcasts and records the payload |
 | `Source/SmoresItems/Tests/SmoresItemTestFactory.h` | `MakeTestItemDefinition`, `MakeTestItem`, `MakeTestInventory`, `FInventorySnapshot`, and the small print helpers |
+
+**The listener has three handlers, one per delegate shape.** Bind `OnChanged` to a delegate with
+no parameters (`OnInventoryChanged`, `OnEquipmentChanged`, `OnDowned`, `OnRecovered`, `OnDied`),
+`OnIntChanged` to one carrying an `int32` (`OnGoldChanged` — the value lands in `LastInt`), and
+`OnActorChanged` to one carrying an actor (`OnDamaged` — the actor lands in `LastActor`). All
+three share `CallCount`, and `Reset()` clears the count and both payloads. A delegate of any other
+shape needs a fourth handler added there.
+
+`LastActor` is a `TWeakObjectPtr` and deliberately **not** a `UPROPERTY`. A listener is kept alive
+for the whole test, so holding the recorded actor strongly would keep alive the world it was
+spawned into, and the teardown then fails with *"Previously active world not cleaned up by garbage
+collection"* — a failure that points at the world rather than at the listener that caused it.
+Compare with `LastActor.Get() == Expected`.
 
 `FSmoresTestWorld` is an RAII type: construct it on the stack, and the destructor tears the world
 down and forces a collect. It is also an `FGCObject`, which is why `NewKeptObject<T>()` exists —
@@ -332,6 +371,28 @@ Two `FSmoresTestWorld` calls are opt-in and cost time, so use them only when nee
 property in the test first** — ticking through `UHealthComponent`'s default 15-second recovery at
 100fps is 1500 iterations for no benefit.
 
+### Timers need `BeginPlay()` before they will tick at all
+
+Found the hard way in Slice 2, and silent enough to be worth its own heading.
+
+`FTimerManager::Tick` returns immediately if it has already ticked on the current frame, and the
+engine's test wrapper only advances the frame counter **once play has begun**. So ticking a world
+that never called `BeginPlay()` advances every timer exactly once and then does nothing at all,
+however long you tick for.
+
+The damage is that it fails in the passing direction. `KillCancelsPendingRecovery` asserts a
+killed unit is *still dead* after waiting out its recovery — with no `BeginPlay()` that test goes
+green without ever having waited, because the recovery it was watching for could never have fired.
+The test next to it, which asserts the timer *does* fire, is what exposed it.
+
+Two habits, one of them now enforced:
+
+- **Call `BeginPlay()` before ticking anything on a timer.** `TickFor()` returns `false` outright
+  if play hasn't begun rather than reporting a wait that didn't happen, so **assert on its return
+  value** — `TestTrue(TEXT("The world ticked"), TestWorld.TickFor(0.3f))`.
+- **Write the pair.** A "the timer did not fire" test is only meaningful next to one proving the
+  timer fires at all under the same setup.
+
 ### Expected log output
 
 A test that deliberately drives code down a path that warns should say so:
@@ -353,13 +414,39 @@ asset too, so a designer retuning a sword's weight breaks an unrelated inventory
 failure points at the wrong place. It also keeps the test's inputs visible next to the assertion
 instead of inside a `.uasset`.
 
+### The content smoke tests are the one exception, and run in editor context
+
+`Smores.Content.*` deliberately does the opposite of everything above: it sweeps the real assets
+under `Content/`. It is not asserting what any one asset contains — it asserts every
+`UItemDefinition` is *well formed* (an `ItemId`, a `DisplayName`, a footprint inside the 1–16
+clamps, a stack cap of at least 1) and that no two share an `ItemId`, plus that both maps still
+load as packages. Those are rules about the content tree, not about an asset's tuning, so a
+designer retuning a sword can't break them.
+
+Four things about this group specifically:
+
+- **The rule is proved in memory; the sweep is pointed at real content.**
+  `MalformedDefinitionIsRejected` runs the same validator against a bare `NewObject<UItemDefinition>()`.
+  Deliberately breaking a real asset to watch the sweep fail is hand work in the editor that
+  proves nothing extra.
+- **A failure names the offending asset**, by soft object path. A sweep that only says "something
+  is malformed" costs whoever reads it a manual pass over the folder.
+- **They need `EAutomationTestFlags::EditorContext`**, not `EAutomationTestFlags_ApplicationContextMask`,
+  and they will not run in a headless *game* target. The `UnrealEditor-Cmd` command above covers
+  them; a packaged-build runner would not.
+- **`SmoresItems` depends on `AssetRegistry`** (a private dependency) solely for this file. It is
+  the only `Build.cs` change any test has needed.
+
+A sweep that finds no assets is green having looked at nothing, so both sweeps assert they found at
+least one before checking anything — the same "check the number, not the colour" rule one level down.
+
 ## Known Gaps
 
-- **`SmoresEconomy`, `SmoresCombat` and the content smoke tests are untested** — Slice 2 of
-  `Docs/roadmaps/testing-roadmap.md`. Nothing in `UWalletComponent`, `UTraderComponent` or
-  `UHealthComponent` has an assertion against it yet, including the kill-cancels-recovery trap.
-- **`BeginPlay()` and `TickFor()` on `FSmoresTestWorld` are written but never exercised.** Slice 1
-  needed neither. Slice 2 is the first to use them, and should expect to correct them.
+- **`UCombatComponent` has no tests and belongs to no slice.** Most of it isn't reachable (see
+  below), but three branches are: an attack on a target beyond `AttackRange`, an attack after
+  `NotifyOwnerDowned`, and `ClearCurrentAttackTarget`. `AttackRange` is `protected`, so reaching it
+  wants a test-only subclass in the same module rather than a new accessor. It is catalogued in
+  `Docs/roadmaps/testing-roadmap.md` but no slice claimed it.
 - **The off-authority path is untestable** until multiplayer is wired up. Asserting "this mutator
   no-ops on a client" needs an actor whose role is not `ROLE_Authority`, which needs a net driver.
   The gate is asserted positively instead — the mutator runs when it should.

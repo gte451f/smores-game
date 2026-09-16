@@ -15,7 +15,11 @@ public class SmoresItems : ModuleRules
 			"SmoresCore"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { });
+		// AssetRegistry is here only for Tests/ItemDefinitionAssetTest.cpp, which sweeps every
+		// UItemDefinition asset under Content/. Nothing in the module's own runtime code uses it.
+		PrivateDependencyModuleNames.AddRange(new string[] {
+			"AssetRegistry"
+		});
 
 		PublicIncludePaths.AddRange(new string[] {
 			"SmoresItems"

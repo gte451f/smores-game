@@ -19,7 +19,7 @@ convention `inventory-roadmap.md` uses. When a slice ships, move its content int
 `game-systems` skill's `testing.md`, delete it from here, and mark the slice `DONE` in the
 order list.
 
-**The project had no tests before Slice 1.** It now has 46, all of `SmoresItems`. Note that
+**The project had no tests before Slice 1.** It now has 73. Note that
 `Automation_smores.slnx` is still not a test setup - it is a solution file pulling in Epic's own
 `UnrealBuildTool` and `EpicGames.*` C# projects, several of which are named `*.Tests`. None of them
 test smores.
@@ -75,52 +75,24 @@ ordered roughly by value. Slices below draw from this list; it is not itself the
 refusal reasons, delegates) and `UEquipmentComponent` (slots, one-unit equip, the all-or-nothing
 swap, refusal reasons) are covered by 45 tests. See `testing.md`'s "What Is Covered" table.
 
-### `SmoresEconomy` — `UWalletComponent` and pricing
+### `SmoresEconomy` - SHIPPED (Slice 2)
 
-Small, pure, and about money, which is the category where a silent error costs most.
+`UWalletComponent` (refusals that mutate nothing, the free/negative boundaries, the broadcast,
+`StartingGold` at `BeginPlay`) and pricing (markup, markdown, the never-free rule, the margin
+invariant, totals, negative quantities) are covered by 14 tests. See `testing.md`'s "What Is
+Covered" table.
 
-- `TrySpendGold` with a balance one short returns false and **does not change the balance**.
-- `TrySpendGold` for exactly the balance succeeds and leaves zero.
-- `TrySpendGold` with a negative amount returns false and does not credit the wallet.
-- `CanAfford(0)` and `CanAfford(-5)` are true (a free thing is always affordable).
-- `AddGold` broadcasts `OnGoldChanged` with the new balance; `TrySpendGold` does too on success
-  and not on failure.
-- `StartingGold` is applied at `BeginPlay` — requires `BeginPlayInTestWorld()`.
-- `UTraderComponent::GetUnitBuyPrice` is `BaseValue` x `BuyMarkup`, and **never rounds a saleable
-  item down to free** — a `BaseValue` of 1 with a markup that would floor to 0 still costs 1.
-- `GetUnitSellPrice` is `BaseValue` x `SellMarkdown`.
-- Buy price exceeds sell price at the default markups — the trader's margin, asserted as an
-  invariant rather than as two hardcoded numbers.
-- `IPricingProvider::GetBuyPrice(Item, Quantity)` is unit x quantity, and a **negative quantity
-  prices as zero rather than as a refund**.
-- A `BaseValue` of 0 item prices at 0 on both sides (worthless is not free-with-margin).
+### `SmoresCombat` — `UHealthComponent` - SHIPPED (Slice 2)
 
-### `SmoresCombat` — `UHealthComponent`
+The Alive/Downed/Dead machine, both timer cases (the kill that cancels a pending recovery, and the
+recovery that fires), and the incapacitated queries are covered by 9 tests. The one lesson worth
+carrying forward is in `testing.md` under "Timers need `BeginPlay()` before they will tick at all".
 
-A three-state machine with a timer, which is precisely the shape that hides bugs.
+### `SmoresCombat` — `UCombatComponent` (partial) - UNCLAIMED
 
-- `TakeDamage` reduces health by the amount; a zero or negative amount changes nothing.
-- Damage that doesn't reach zero broadcasts `OnDamaged` and leaves the state `Alive`.
-- Damage reaching or passing zero moves to `Downed`, broadcasts `OnDowned`, and does **not**
-  broadcast `OnDied`.
-- `TakeDamage` on an already-Downed or Dead component changes nothing and broadcasts nothing.
-- `Kill()` from `Alive` moves to `Dead` and broadcasts `OnDied`.
-- `Kill()` twice broadcasts `OnDied` once.
-- **`Kill()` on an already-Downed component cancels the recovery timer.** Tick past
-  `DownedDurationSeconds` afterwards and assert the state is still `Dead`. This is the
-  `inventory-roadmap.md` Slice 7 trap — a corpse standing back up a few seconds later — and it is
-  the single best argument in this
-  document for having tests at all: the failure is silent, delayed, and only reproducible by
-  waiting.
-- `Recover()` restores full health and broadcasts `OnRecovered` from `Downed`, and refuses to run
-  from `Dead`.
-- The recovery timer fires after `DownedDurationSeconds`. **Set `DownedDurationSeconds` to
-  something small in the test** — the default is 15 seconds, and ticking a test world through 15
-  simulated seconds at 100fps is 1500 iterations for no benefit.
-- `IsIncapacitated()` is true for both `Downed` and `Dead` and false for `Alive`; `IsDowned()` is
-  false once `Dead`.
-
-### `SmoresCombat` — `UCombatComponent` (partial)
+**No slice owns this.** Slice 2 shipped the rest of `SmoresCombat` and left it, because it is three
+assertions behind a test-only subclass rather than part of the health group. It is small enough to
+ride along with whatever next touches combat.
 
 Mostly **not** testable, and worth recording why so nobody re-derives it: `PerformAttack` plays a
 montage on the owner's anim instance, which needs a skeletal mesh, a skeleton and authored montage
@@ -149,19 +121,15 @@ an `APlayerController` with an `APlayerState` carrying a `UWalletComponent`, plu
 with a `UTraderComponent`. It gets its own slice, late, and only after the cheap ones are paying
 for themselves.
 
-### Editor smoke tests
+### Editor smoke tests - SHIPPED (Slice 2)
 
-Cheap, high-value, and a different shape from everything above — these run in editor context and
-assert that content still loads:
-
-- Every `UItemDefinition` asset under `Content/` has a non-`None` `ItemId`, a non-empty
-  `DisplayName`, and a footprint within the grid clamps.
-- No two `UItemDefinition` assets share an `ItemId` (they are the stable identity, and a duplicate
-  is silent until something resolves the wrong one).
-- `LVL_Strategy` and `Lvl_MainMenu` load without error.
+The asset sweep (well-formed definitions, unique `ItemId`s, the rule proved in memory) and the map
+load are covered by 4 tests under `Smores.Content.*`. See `testing.md`'s "The content smoke tests
+are the one exception, and run in editor context".
 
 The engine already ships a Blueprint-compile smoke test that covers "did a C++ rename break a
-Blueprint" — it needs no code here, only to be run. That is a run-instruction, not a slice.
+Blueprint" — it needs no code here, only to be run. That is a run-instruction, not a slice, and
+`testing.md`'s "Useful variations" table has the command.
 
 ## Explicitly Out of Scope
 
@@ -219,8 +187,8 @@ exception is a test-only subclass in the same module to reach a `protected` memb
 
 ## Implementation Order
 
-Three slices, **one per clean session**. Slice 1 is done; 2 and 3 remain. Every slice follows the
-same protocol, so it isn't repeated per entry:
+Three slices, **one per clean session**. Slices 1 and 2 are done; only 3 remains. Every slice
+follows the same protocol, so it isn't repeated per entry:
 
 1. Read `testing.md`, this slice's entry, and the source files it names.
 2. Write the tests. Every new test is a new `IMPLEMENT_SIMPLE_AUTOMATION_TEST` class in a new or
@@ -278,39 +246,40 @@ Shipped. 46 tests, all green, run headless in about 0.3 seconds once the editor 
 - **What this cost that the plan did not predict:** the UBA UTC-timestamp trap (see The Harness
   above). It burned a build cycle and would have silently invalidated the whole run.
 
-### Slice 2 — Economy, combat, and the content smoke tests
+### Slice 2 — Economy, combat, and the content smoke tests — **DONE** (2026-09-16)
 
-Everything outside `SmoresItems` that is cheap to reach. Three small subjects in one session.
+Shipped. 27 new tests, 73 in total, all green.
 
-- **Build:** `Source/SmoresEconomy/Tests/WalletComponentTest.cpp`,
-  `Source/SmoresEconomy/Tests/PricingTest.cpp`,
-  `Source/SmoresCombat/Tests/HealthComponentTest.cpp` and
-  `Source/SmoresItems/Tests/ItemDefinitionAssetTest.cpp`.
-- **Why these share a session:** they are small (`WalletComponent.cpp` is 97 lines,
-  `TraderComponent.cpp` 60, `HealthComponent.cpp` 202), and each exercises a *different* part of
-  the harness that Slice 1 never touched — `BeginPlayInTestWorld()` for `StartingGold`,
-  `TickTestWorld()` for the recovery timer, and editor context plus the asset registry for the
-  smoke tests. That makes this one coherent "prove the harness does the rest of its job" session
-  rather than three sessions that each prove one thing.
-- **Tests:** the `SmoresEconomy` group, the `UHealthComponent` group including the timer cases, and
-  the "Editor smoke tests" group.
-- **Touches:** new files, **plus one `Build.cs` change** — enumerating `UItemDefinition` assets
-  needs `AssetRegistry`, which `SmoresItems` does not currently depend on. Add it to
-  `PrivateDependencyModuleNames`. This is the one place this roadmap's "new files only" claim does
-  not hold, and it was previously missed.
-- **Prove the asset rules against an in-memory definition, not a broken asset.** An earlier draft
-  had this slice prove itself by adding a deliberately malformed `UItemDefinition` to `Content/`
-  and then removing it — that is hand work in the editor, it dirties the content tree, and it
-  demonstrates nothing that the same assertion run against a `NewObject<UItemDefinition>()` with an
-  empty `ItemId` doesn't demonstrate for free. Keep the asset-registry sweep pointed at real
-  content; prove the *rule* in memory.
-- **Editor context note:** these smoke tests need `EditorContext` in their flags and will not run
-  in a headless *game* target. The run command in `testing.md` uses `UnrealEditor-Cmd`, so it
-  covers them; a packaged-build runner would not.
-- **Done when:** the insufficient-funds case asserts the balance is unchanged; the margin invariant
-  (buy > sell) is asserted rather than two hardcoded numbers; the kill-cancels-recovery case ticks
-  past `DownedDurationSeconds` and asserts the state is still `Dead`; and a failing asset sweep
-  names the offending asset rather than just failing.
+- **Built:** `SmoresEconomy/Tests/WalletComponentTest.cpp` (8) and `PricingTest.cpp` (6),
+  `SmoresCombat/Tests/HealthComponentTest.cpp` (9),
+  `SmoresItems/Tests/ItemDefinitionAssetTest.cpp` (3) and `smores/Tests/MapLoadTest.cpp` (1), plus
+  the one planned `Build.cs` change (`AssetRegistry` on `SmoresItems`).
+- **Deviations from the plan, both small:** the map check went to `Source/smores/Tests/MapLoadTest.cpp`
+  rather than into the item-definition file, because the maps belong to the game module and not to
+  `SmoresItems`; and the content group is named `Smores.Content.*` rather than `Smores.Items.*`,
+  since it is about the content tree rather than about a module.
+- **The harness needed two corrections**, both of which Slice 1 had never exercised and both now
+  written up in `testing.md`:
+  - **Timers don't tick before `BeginPlay()`.** `FTimerManager` skips a frame it has already
+    ticked, and the engine's wrapper only advances the frame counter once play has begun, so a
+    timer test without `BeginPlay()` waits for nothing — and `KillCancelsPendingRecovery` passes
+    anyway, because what it asserts is that *nothing happened*. `TickFor()` now refuses and returns
+    false when play hasn't begun, and the tests assert its return value.
+  - **The delegate listener may not hold its payload strongly.** Recording the damage instigator in
+    a `UPROPERTY` kept the test world alive through the listener and the teardown failed with
+    "Previously active world not cleaned up by garbage collection". It is a `TWeakObjectPtr` now.
+- **The proving checkpoint came for free.** Both corrections above arrived as real red failures
+  naming the test and the assertion, so no deliberate breakage was needed to show the suite reports
+  honestly.
+- **Everything in the Done-when list holds**: every refusal case asserts the balance afterwards
+  rather than only the returned bool, the margin is asserted as `buy > sell` rather than as two
+  numbers, the kill-cancels-recovery case ticks a full second past a 0.2s recovery (and is paired
+  with a test proving that timer does fire), and a failing asset sweep names the asset by soft
+  object path.
+- **What this cost that the plan did not predict:** the clock skew landed *mid-build* this time
+  rather than between builds, leaving one module linked against stale generated reflection code
+  while the build reported success. The tell was a `UFUNCTION` missing from the built DLL; the fix
+  was deleting that module's `Intermediate` folders and `Makefile.bin` and rebuilding.
 
 ### Slice 3 — The trade transaction, and a run script (optional)
 
