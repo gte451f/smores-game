@@ -18,6 +18,10 @@ public class SmoresUI : ModuleRules
 			"SlateCore",
 			"SmoresCore",
 			"SmoresItems",
+			// arrives transitively through SmoresCharacters, but the HUD reads UHealthComponent
+			// directly (portrait rings, the target panel's health bar) - a real dependency that
+			// shouldn't be hidden behind another module's include
+			"SmoresCombat",
 			"SmoresCharacters",
 			"SmoresEconomy"
 		});

@@ -32,6 +32,33 @@ Amend this topic in the same change as any new binding.
 | `O` | `IA_Strategy_ToggleContainer` | Open the nearest container, or a Downed NPC's loot |
 | `H` | `IA_Strategy_Attack` | Attack the selected NPC |
 | `T` | `IA_Strategy_Talk` | Talk to / trade with the selected NPC — the keyboard route to the double-click interact, reading the same targeted NPC `H` does |
+| `P` | `IA_Strategy_SquadPanel` | Toggle the squad roster panel (a stub today — see `hud-and-panels.md`) |
+| `M` | `IA_Strategy_MapPanel` | Toggle the world map panel (a stub today) |
+| `U` | `IA_Strategy_ResearchPanel` | Toggle the research panel (a stub today) |
+| `F1` | `IA_Strategy_HelpPanel` | Toggle the keybind list — the in-game copy of this table |
+
+Each of those four has a nav-rail button that does the identical thing; both routes run
+`IStrategyHUDCommands::RequestPanel`, so they cannot drift apart. `I` (above) gained a rail button
+the same way.
+
+### Mapped and bound, but not yet implemented
+
+These four keys have real action assets, real mappings in `IMC_Strategy_Mouse`, and real bindings
+in `SetupInputComponent`. Each handler currently only writes a log line naming the slice that will
+implement it.
+
+| Key | Action asset | Will do | Lands in |
+|---|---|---|---|
+| `Space` | `IA_Strategy_TogglePause` | Toggle pause (the bottom tier of the time-pace ladder) | `hud-roadmap.md` Slice 2 |
+| `-` | `IA_Strategy_PaceSlower` | Step the pace ladder one tier slower | Slice 2 |
+| `=` | `IA_Strategy_PaceFaster` | Step the pace ladder one tier faster | Slice 2 |
+| `L` | `IA_Strategy_ToggleActivityFeed` | Expand / collapse the activity feed | Slice 3 |
+
+They were mapped early on purpose: `UInputMappingContext` mappings have to be authored by hand in
+the editor, so all eight of the HUD round's keys were done in one pass rather than three.
+**Treat these four keys as taken** — they are not free, and the logging is what distinguishes a
+mistyped mapping from an unimplemented feature when one of them appears not to work. They are
+deliberately absent from the in-game help panel until they do something.
 
 ### Defaults — inventory (`IMC_Strategy_Inventory`, priority 1, only while a window is open)
 
@@ -57,6 +84,7 @@ have their own convention below. In use today:
 | Right-click | An item in a pawn's own inventory window | Wear it (into the slot its definition names) |
 | Right-click | A filled paperdoll slot | Take it off, back into that pawn's pack |
 | Left-click | A `UButton` or dropdown in a window's own chrome (the inventory sort buttons, the category filter) | Whatever that control does |
+| Left-click | A nav-rail button on the HUD | Opens or closes that panel — the same path as its key |
 
 The last row is the ordinary case, not a special one: a button the player clicks *inside* a
 window is just a button. It needs no action asset and takes no key. The flip side is that a
@@ -99,6 +127,13 @@ because a window now swallows the *press* of every button that lands on it — s
   press the viewport *did* see (a drag-select begun on the world, ended over a window) leaves
   that button stuck down in `UPlayerInput`. Slate bubbles from the deepest widget up, so a child
   that wants the button still gets it first.
+- **The always-on HUD is not a window and gets none of that for free.** It sits at Z-order 0
+  *below* every floating window, and its regions are plain `UUserWidget`s. `UHUDRegionWidget`
+  (`SmoresUI`) is the base that supplies the same press-swallowing behaviour, and every HUD region
+  derives from it — see `hud-and-panels.md`. Two consequences worth knowing here: a clickable
+  element on the HUD should be a real `UButton` (Slate's `SButton` consumes its own press *and*
+  double-click, so it needs nothing extra), and the shield only works if the region actually
+  hit-tests, which is why `bBlockWorldClicks` forces `Visible` on construct.
 - **A double-click is a different Slate event, and claiming the press does not claim it.**
   Windows sends `WM_xBUTTONDBLCLK` instead of `WM_xBUTTONDOWN` for the second click of a rapid
   pair; `FWindowsApplication` turns that into `OnMouseDoubleClick`, which Slate routes as
@@ -155,7 +190,9 @@ because a window now swallows the *press* of every button that lands on it — s
 
 - **`IA_Strategy_*`** (`Content/Variant_Strategy/Input/Actions/`) — one `UInputAction` per
   action. A new Boolean action is most easily made by duplicating an existing Boolean one
-  (`IA_Strategy_CyclePawn`).
+  (`IA_Strategy_CyclePawn`). The HUD round added eight: `_SquadPanel`, `_MapPanel`,
+  `_ResearchPanel`, `_HelpPanel`, `_TogglePause`, `_PaceSlower`, `_PaceFaster`,
+  `_ToggleActivityFeed`.
 - **`IMC_Strategy_Mouse`** — the always-on world context, added at priority 0.
 - **`IMC_Strategy_Inventory`** — added at priority 1 only while an inventory window is open.
 - **`IMC_Strategy_Touch`** — the touch alternative to the mouse context.
@@ -198,21 +235,28 @@ now means either a conflict later or a default that surprises the player.
 | Key | Held for |
 |---|---|
 | `Esc` | Close window / back / system menu — never bind to gameplay |
-| `Space` | Pause. Real-time-with-pause squad RPGs universally use it |
 | `F5` / `F9` | Quicksave / quickload — see `save-system.md` |
-| `M` | World map |
 | `J` | Journal / quests |
 | `C` | Character sheet for the selected unit |
 | `K` | Skills / training |
 | `B` | Base / build mode |
 | `1`–`9`, `0` | Squad and control-group recall; `Ctrl`+digit to assign |
-| `F1`–`F4` | Select squad member N, if party-slot selection is ever wanted |
 | `` ` `` | Console |
 | `Alt` (hold) | Highlight interactables / show ground item names |
 
-`T` has left this list — it is a live binding now, in the world table above.
+**`T`, `M` and `Space` have left this list** — all three are mapped now, in the tables above. `M`
+and `Space` went to the systems they were being held for (the map panel, pause), which is the list
+working as intended.
 
-Broadly free today: `F`, `G`, `L`, `N`, `P`, `U`, `V`, `X`, `Y`, `Z`. `R` is used in the
+**`F1`–`F4` has been dropped rather than shrunk.** It was held for "select squad member N, if
+party-slot selection is ever wanted"; `F1` is now the help panel, which is the near-universal PC
+convention and worth more than a fourth route to a roster. The other three keys are released
+because the thing they were reserved for has two better answers already: `P` opens the roster, and
+the squad portrait bar (`hud-roadmap.md` Slice 3) selects a member with one click. Shrinking to
+`F2`–`F5` was the other option and is wrong — `F5` is quicksave.
+
+Broadly free today: `F`, `G`, `N`, `V`, `X`, `Y`, `Z`, and `F2`–`F4`. `P`, `U` and `L` have left
+this list. `R` is used in the
 inventory context only — prefer not to give it a second, unrelated meaning in the world
 context, since one key meaning two things is exactly what the context system exists to
 *avoid* needing.

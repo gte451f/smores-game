@@ -6,18 +6,28 @@
 #include "Blueprint/UserWidget.h"
 #include "StrategyUI.generated.h"
 
-class UTextBlock;
+class UNavRailWidget;
+class UResourceStripWidget;
 
 /**
- *  Simple UI widget for the strategy game
- *	Keeps track of the number of units currently selected, and carries the quick-access
- *	resource readout (cash on hand)
+ *  The always-on HUD root, spawned by AStrategyHUD::BeginPlay at Z-order 0 (below every floating
+ *  window - see the comment block in RefusalWidget.h for why that ordering matters).
+ *
+ *  This is the **root that hosts the HUD's regions**, not a peer of them: its WBP is a
+ *  full-screen canvas with an anchored slot per region of the wireframe, and each region is its
+ *  own widget class bound by name here. Readouts belong in a region, not on this class - gold
+ *  moved out to UResourceStripWidget for exactly that reason. What stays here is the plumbing
+ *  that AStrategyHUD::DrawHUD pushes into every frame, forwarded on to whichever region wants it.
+ *
+ *  Every region is optional. A WBP that doesn't provide one simply doesn't show it, which is what
+ *  lets the regions arrive one slice at a time (see Docs/roadmaps/hud-roadmap.md) without the
+ *  HUD breaking in between.
  */
 UCLASS(abstract)
 class SMORESUI_API UStrategyUI : public UUserWidget
 {
 	GENERATED_BODY()
-	
+
 protected:
 
 	/** Number of units currently selected */
@@ -26,12 +36,13 @@ protected:
 	/** Text describing the currently targeted pawn, NPC, or container (e.g. "Pawn: Pawn 1") */
 	FText SelectionTargetLabel;
 
-	/** Owning player's current gold balance, pushed by the HUD */
-	int32 Gold = 0;
-
-	/** Optional at-a-glance gold readout. Name it "GoldText" in the WBP to auto-bind; C++ sets its text on every change. */
+	/** The left-hand panel rail. Name it "NavRail" in the WBP to auto-bind. */
 	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> GoldText;
+	TObjectPtr<UNavRailWidget> NavRail;
+
+	/** The top-right at-a-glance figures (gold today). Name it "ResourceStrip" in the WBP to auto-bind. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UResourceStripWidget> ResourceStrip;
 
 public:
 
@@ -41,16 +52,15 @@ public:
 	/** Sets the currently targeted pawn/NPC/container label */
 	void SetSelectionTargetLabel(const FText& Label);
 
-	/** Sets the owning player's gold balance, refreshing the readout if it actually changed */
+	/** Sets the owning player's gold balance. Forwarded to the resource strip, which owns the readout. */
 	void SetGold(int32 NewGold);
+
+	/** Repaints the nav rail's "this panel is open" state. Pushed every frame by the HUD. */
+	void RefreshNavRail();
 
 	/** Blueprint handler to update unit count sub-widgets */
 	UFUNCTION(BlueprintImplementableEvent, Category="UI", meta = (DisplayName="Update Units Count"))
 	void BP_UpdateUnitsCount();
-
-	/** Blueprint handler to update gold sub-widgets beyond the bound GoldText block */
-	UFUNCTION(BlueprintImplementableEvent, Category="UI", meta = (DisplayName="Update Gold"))
-	void BP_UpdateGold();
 
 protected:
 
@@ -61,19 +71,4 @@ protected:
 	/** Returns the currently targeted pawn/NPC/container label */
 	UFUNCTION(BlueprintPure, Category="UI")
 	FText GetSelectionTargetLabel() { return SelectionTargetLabel; }
-
-	/** Returns the owning player's gold balance */
-	UFUNCTION(BlueprintPure, Category="UI")
-	int32 GetGold() const { return Gold; }
-
-	/** Returns the formatted gold readout (e.g. "Gold: 1,250") - what GoldText is filled with */
-	UFUNCTION(BlueprintPure, Category="UI")
-	FText GetGoldLabel() const;
-
-	//~ Begin UUserWidget interface
-	virtual void NativeConstruct() override;
-	//~ End UUserWidget interface
-
-	/** Pushes the current balance into GoldText and the BP hook */
-	void RefreshGoldDisplay();
 };

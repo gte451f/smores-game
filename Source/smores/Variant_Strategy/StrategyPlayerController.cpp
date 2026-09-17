@@ -25,6 +25,7 @@
 #include "InventoryWidget.h"
 #include "EquipmentWidget.h"
 #include "WindowWidget.h"
+#include "HUDPanelWidget.h"
 #include "InventoryDragDropOperation.h"
 #include "InventoryComponent.h"
 #include "EquipmentComponent.h"
@@ -190,6 +191,51 @@ void AStrategyPlayerController::SetupInputComponent()
 			if (RotateDraggedItemAction)
 			{
 				EnhancedInputComponent->BindAction(RotateDraggedItemAction, ETriggerEvent::Started, this, &AStrategyPlayerController::RotateDraggedItem);
+			}
+
+			// HUD panels. Each mirrors a nav-rail button exactly - both routes run RequestPanel,
+			// so the key and the button can't drift apart (desktop only; not mapped in the touch IMC)
+			if (SquadPanelAction)
+			{
+				EnhancedInputComponent->BindAction(SquadPanelAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::SquadPanelKeyPressed);
+			}
+
+			if (MapPanelAction)
+			{
+				EnhancedInputComponent->BindAction(MapPanelAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::MapPanelKeyPressed);
+			}
+
+			if (ResearchPanelAction)
+			{
+				EnhancedInputComponent->BindAction(ResearchPanelAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::ResearchPanelKeyPressed);
+			}
+
+			if (HelpPanelAction)
+			{
+				EnhancedInputComponent->BindAction(HelpPanelAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::HelpPanelKeyPressed);
+			}
+
+			// Time pace and the activity feed. Bound here so the eight key mappings can all be
+			// authored and verified in one editor pass; the behaviour behind them lands in Slices
+			// 2 and 3 of Docs/roadmaps/hud-roadmap.md. Until then each one only logs.
+			if (TogglePauseAction)
+			{
+				EnhancedInputComponent->BindAction(TogglePauseAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::TogglePauseKeyPressed);
+			}
+
+			if (PaceSlowerAction)
+			{
+				EnhancedInputComponent->BindAction(PaceSlowerAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::PaceSlowerKeyPressed);
+			}
+
+			if (PaceFasterAction)
+			{
+				EnhancedInputComponent->BindAction(PaceFasterAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::PaceFasterKeyPressed);
+			}
+
+			if (ToggleActivityFeedAction)
+			{
+				EnhancedInputComponent->BindAction(ToggleActivityFeedAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::ToggleActivityFeedKeyPressed);
 			}
 
 			// Touch Interaction
@@ -439,6 +485,11 @@ void AStrategyPlayerController::CyclePawn(const FInputActionValue& Value)
 
 void AStrategyPlayerController::ToggleInventory(const FInputActionValue& Value)
 {
+	ToggleInventoryPanel();
+}
+
+void AStrategyPlayerController::ToggleInventoryPanel()
+{
 	// if a screen is already open, pressing again closes it
 	if (InventoryWidget && InventoryWidget->IsInViewport())
 	{
@@ -571,6 +622,15 @@ void AStrategyPlayerController::CloseEquipment()
 
 void AStrategyPlayerController::HandleWindowClosed(UWindowWidget* Window)
 {
+	// A nav-rail panel closes alone and brings nothing with it. It returns before the inventory
+	// bookkeeping below on purpose: the inventory input context is the inventory's business, and
+	// a research window that re-scoped it would quietly give `R` a second meaning. The entry stays
+	// in PanelWidgets so re-opening reuses the window.
+	if (Cast<UHUDPanelWidget>(Window))
+	{
+		return;
+	}
+
 	// the window has already removed itself by the time this fires; what it can't do on its own
 	// is take its companions with it, or drop the input context scoped to a window being open
 	if (Window == InventoryWidget)
@@ -652,6 +712,144 @@ void AStrategyPlayerController::UpdateInventoryInputContext()
 	{
 		Subsystem->RemoveMappingContext(InventoryMappingContext);
 	}
+}
+
+void AStrategyPlayerController::RequestPanel(EHUDPanel Panel)
+{
+	// Purely local UI. Nothing here is shared state, so none of it is authority-gated or
+	// replicated - which panels this player has open is nobody else's business, and in co-op
+	// every player's rail answers only for their own windows.
+	if (Panel == EHUDPanel::Inventory)
+	{
+		// the rail button and the `I` key are the same path, refusal and all
+		ToggleInventoryPanel();
+		return;
+	}
+
+	if (Panel == EHUDPanel::None)
+	{
+		return;
+	}
+
+	if (IsPanelOpen(Panel))
+	{
+		if (TObjectPtr<UHUDPanelWidget>* Existing = PanelWidgets.Find(Panel))
+		{
+			// straight through the window's own close path, so it broadcasts OnWindowClosed
+			// exactly as it would have if the player had clicked its X
+			(*Existing)->RequestClose();
+		}
+
+		return;
+	}
+
+	OpenPanel(Panel);
+}
+
+bool AStrategyPlayerController::IsPanelOpen(EHUDPanel Panel) const
+{
+	if (Panel == EHUDPanel::Inventory)
+	{
+		return InventoryWidget && InventoryWidget->IsInViewport();
+	}
+
+	const TObjectPtr<UHUDPanelWidget>* Found = PanelWidgets.Find(Panel);
+
+	return Found && *Found && (*Found)->IsInViewport();
+}
+
+void AStrategyPlayerController::OpenPanel(EHUDPanel Panel)
+{
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
+	const TSubclassOf<UHUDPanelWidget>* PanelClass = PanelWidgetClasses.Find(Panel);
+
+	if (!PanelClass || !*PanelClass)
+	{
+		// an unwired panel is a missing entry in PanelWidgetClasses on BP_StrategyPlayerController,
+		// not a bug here - say which one so it's a one-line fix
+		UE_LOG(Logsmores, Warning, TEXT("StrategyPlayerController has no panel widget class for %s; can't open it."),
+			*UEnum::GetValueAsString(Panel));
+		return;
+	}
+
+	TObjectPtr<UHUDPanelWidget>& Widget = PanelWidgets.FindOrAdd(Panel);
+
+	// spawn on first use, then keep it - re-opening a panel shouldn't rebuild it
+	if (!Widget)
+	{
+		Widget = CreateWidget<UHUDPanelWidget>(this, *PanelClass);
+
+		if (Widget)
+		{
+			Widget->OnWindowClosed.AddUniqueDynamic(this, &AStrategyPlayerController::HandleWindowClosed);
+		}
+	}
+
+	if (Widget && !Widget->IsInViewport())
+	{
+		// Z-order 0, same as every other floating window, so the refusal line still beats it
+		Widget->AddToViewport(0);
+	}
+}
+
+void AStrategyPlayerController::RequestSelectUnit(AStrategyUnit* Unit, bool bFocusCamera)
+{
+	// The squad portrait bar's click and double-click. Nothing calls this yet - see
+	// Docs/roadmaps/hud-roadmap.md, Slice 3, which builds the bar and fills this in.
+}
+
+void AStrategyPlayerController::RequestTargetAction(FName ActionId)
+{
+	// The target panel's action row. Nothing calls this yet - see Docs/roadmaps/hud-roadmap.md,
+	// Slice 2, which builds the panel and routes each action back through the gating helpers
+	// (GetLootableNPC, GetInteractableNPC and friends) rather than duplicating their rules.
+}
+
+void AStrategyPlayerController::SquadPanelKeyPressed(const FInputActionValue& Value)
+{
+	RequestPanel(EHUDPanel::Squad);
+}
+
+void AStrategyPlayerController::MapPanelKeyPressed(const FInputActionValue& Value)
+{
+	RequestPanel(EHUDPanel::Map);
+}
+
+void AStrategyPlayerController::ResearchPanelKeyPressed(const FInputActionValue& Value)
+{
+	RequestPanel(EHUDPanel::Research);
+}
+
+void AStrategyPlayerController::HelpPanelKeyPressed(const FInputActionValue& Value)
+{
+	RequestPanel(EHUDPanel::Help);
+}
+
+void AStrategyPlayerController::TogglePauseKeyPressed(const FInputActionValue& Value)
+{
+	// Bound and mapped now so the key mapping can be proven in the same editor pass as the other
+	// seven; the pace ladder it drives is Slice 2. Logging rather than doing nothing is the point -
+	// it's how a mistyped mapping is told apart from an unimplemented one.
+	UE_LOG(Logsmores, Log, TEXT("Pause key pressed - time pace arrives in Slice 2 of the HUD roadmap."));
+}
+
+void AStrategyPlayerController::PaceSlowerKeyPressed(const FInputActionValue& Value)
+{
+	UE_LOG(Logsmores, Log, TEXT("Pace-slower key pressed - time pace arrives in Slice 2 of the HUD roadmap."));
+}
+
+void AStrategyPlayerController::PaceFasterKeyPressed(const FInputActionValue& Value)
+{
+	UE_LOG(Logsmores, Log, TEXT("Pace-faster key pressed - time pace arrives in Slice 2 of the HUD roadmap."));
+}
+
+void AStrategyPlayerController::ToggleActivityFeedKeyPressed(const FInputActionValue& Value)
+{
+	UE_LOG(Logsmores, Log, TEXT("Activity-feed key pressed - the feed arrives in Slice 3 of the HUD roadmap."));
 }
 
 void AStrategyPlayerController::ToggleContainer(const FInputActionValue& Value)

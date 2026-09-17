@@ -7,6 +7,7 @@
 #include "GameFramework/PlayerController.h"
 #include "StrategySelectionHost.h"
 #include "StrategyCameraCommands.h"
+#include "StrategyHUDCommands.h"
 #include "InventoryMoveHost.h"
 #include "StrategyPlayerController.generated.h"
 
@@ -23,6 +24,7 @@ class UStrategyTouchControls;
 class UWindowWidget;
 class UInventoryWidget;
 class UEquipmentWidget;
+class UHUDPanelWidget;
 class AStrategyContainer;
 class AWorldItem;
 class UInventoryComponent;
@@ -38,7 +40,7 @@ class IInventoryHolder;
  *  Implements both mouse and touch controls.
  */
 UCLASS(abstract)
-class AStrategyPlayerController : public APlayerController, public IStrategySelectionHost, public IStrategyCameraCommands, public IInventoryMoveHost
+class AStrategyPlayerController : public APlayerController, public IStrategySelectionHost, public IStrategyCameraCommands, public IStrategyHUDCommands, public IInventoryMoveHost
 {
 	GENERATED_BODY()
 
@@ -135,6 +137,39 @@ protected:
 	/** Input Action for rotating the item currently being dragged in an inventory window */
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* RotateDraggedItemAction;
+
+	/** Input Action for the squad roster panel */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* SquadPanelAction;
+
+	/** Input Action for the world map panel */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* MapPanelAction;
+
+	/** Input Action for the research panel */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* ResearchPanelAction;
+
+	/** Input Action for the keybind/help panel */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* HelpPanelAction;
+
+	/** Input Action for toggling pause. Mapped and bound now, implemented with the time-pace
+	 *  component - see Docs/roadmaps/hud-roadmap.md, Slice 2. */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* TogglePauseAction;
+
+	/** Input Action for stepping the pace ladder one tier slower (Slice 2) */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* PaceSlowerAction;
+
+	/** Input Action for stepping the pace ladder one tier faster (Slice 2) */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* PaceFasterAction;
+
+	/** Input Action for expanding/collapsing the activity feed (Slice 3) */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* ToggleActivityFeedAction;
 
 	/**
 	 *  Mapping context added only while an inventory or container window is open, at a higher
@@ -310,6 +345,22 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UEquipmentWidget> EquipmentWidget;
 
+	/**
+	 *  Window class for each nav-rail panel. A map rather than one TSubclassOf per panel so that
+	 *  adding a panel later is an entry here plus a value on EHUDPanel, not another pair of
+	 *  properties to remember to wire.
+	 *
+	 *  EHUDPanel::Inventory is deliberately *not* in here - the inventory has its own window path
+	 *  that predates the rail, and RequestPanel routes to it instead.
+	 */
+	UPROPERTY(EditAnywhere, Category="UI")
+	TMap<EHUDPanel, TSubclassOf<UHUDPanelWidget>> PanelWidgetClasses;
+
+	/** Panel windows spawned so far, keyed by panel. An entry survives the window being closed,
+	 *  so re-opening a panel reuses it rather than building a fresh one each time. */
+	UPROPERTY()
+	TMap<EHUDPanel, TObjectPtr<UHUDPanelWidget>> PanelWidgets;
+
 	/** World pickup class spawned when an item leaves a grid for the ground. Only the drop debug
 	 *  exec uses it today; the drag-an-item-onto-the-world gesture is a later slice. */
 	UPROPERTY(EditAnywhere, Category="World Item")
@@ -363,6 +414,24 @@ public:
 
 	//~ End IStrategyCameraCommands interface (remaining members below, alongside the other camera commands)
 
+	//~ Begin IStrategyHUDCommands interface
+
+	/** Opens the named panel, or closes it if it's already open. The nav rail button and the
+	 *  panel's key both arrive here, so neither can drift from the other. */
+	virtual void RequestPanel(EHUDPanel Panel) override;
+
+	/** True while the named panel's window is on screen */
+	virtual bool IsPanelOpen(EHUDPanel Panel) const override;
+
+	/** Selects the given unit, optionally cutting the camera to it. Stub until the squad portrait
+	 *  bar exists - Docs/roadmaps/hud-roadmap.md, Slice 3. */
+	virtual void RequestSelectUnit(AStrategyUnit* Unit, bool bFocusCamera) override;
+
+	/** Runs a target-panel action by id. Stub until the target panel exists - Slice 2. */
+	virtual void RequestTargetAction(FName ActionId) override;
+
+	//~ End IStrategyHUDCommands interface
+
 	/** This controller's player state, or null if it hasn't replicated in yet */
 	AStrategyPlayerState* GetStrategyPlayerState() const;
 
@@ -399,6 +468,39 @@ protected:
 
 	/** Toggles the inventory screen for the selected pawn (requires exactly one selected player pawn) */
 	void ToggleInventory(const FInputActionValue& Value);
+
+	/** The inventory key's behaviour without the input plumbing, so the nav rail's Inventory
+	 *  button can run exactly the same path rather than a lookalike of it. */
+	void ToggleInventoryPanel();
+
+	/** Opens the given nav-rail panel's window, spawning it on first use. RequestPanel decides
+	 *  whether opening is what was meant; this just does it. */
+	void OpenPanel(EHUDPanel Panel);
+
+	/** Opens or closes the squad roster panel */
+	void SquadPanelKeyPressed(const FInputActionValue& Value);
+
+	/** Opens or closes the world map panel */
+	void MapPanelKeyPressed(const FInputActionValue& Value);
+
+	/** Opens or closes the research panel */
+	void ResearchPanelKeyPressed(const FInputActionValue& Value);
+
+	/** Opens or closes the keybind/help panel */
+	void HelpPanelKeyPressed(const FInputActionValue& Value);
+
+	/** Toggles pause. Bound so the key mapping can be verified now; the pace ladder it will drive
+	 *  arrives in Slice 2 of Docs/roadmaps/hud-roadmap.md. */
+	void TogglePauseKeyPressed(const FInputActionValue& Value);
+
+	/** Steps the pace ladder one tier slower (Slice 2) */
+	void PaceSlowerKeyPressed(const FInputActionValue& Value);
+
+	/** Steps the pace ladder one tier faster (Slice 2) */
+	void PaceFasterKeyPressed(const FInputActionValue& Value);
+
+	/** Expands or collapses the activity feed (Slice 3) */
+	void ToggleActivityFeedKeyPressed(const FInputActionValue& Value);
 
 	/** Closes the inventory screen if one is open */
 	void CloseInventory();

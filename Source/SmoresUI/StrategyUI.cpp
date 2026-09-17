@@ -2,9 +2,8 @@
 
 
 #include "StrategyUI.h"
-#include "Components/TextBlock.h"
-
-#define LOCTEXT_NAMESPACE "StrategyUI"
+#include "NavRailWidget.h"
+#include "ResourceStripWidget.h"
 
 void UStrategyUI::SetSelectedUnitsCount(int32 Count)
 {
@@ -28,38 +27,18 @@ void UStrategyUI::SetSelectionTargetLabel(const FText& Label)
 
 void UStrategyUI::SetGold(int32 NewGold)
 {
-	// the HUD pushes this every frame, so only touch the readout when the balance actually moved
-	if (Gold == NewGold)
+	// the readout lives in the resource strip; this is only the route the HUD's per-frame push
+	// already takes. The strip itself is what decides whether the balance actually moved.
+	if (ResourceStrip)
 	{
-		return;
+		ResourceStrip->SetGold(NewGold);
 	}
-
-	Gold = NewGold;
-
-	RefreshGoldDisplay();
 }
 
-FText UStrategyUI::GetGoldLabel() const
+void UStrategyUI::RefreshNavRail()
 {
-	return FText::Format(LOCTEXT("GoldReadout", "Gold: {0}"), FText::AsNumber(Gold));
-}
-
-void UStrategyUI::NativeConstruct()
-{
-	Super::NativeConstruct();
-
-	// the first balance push may well have happened before this widget existed
-	RefreshGoldDisplay();
-}
-
-void UStrategyUI::RefreshGoldDisplay()
-{
-	if (GoldText)
+	if (NavRail)
 	{
-		GoldText->SetText(GetGoldLabel());
+		NavRail->RefreshPanelStates();
 	}
-
-	BP_UpdateGold();
 }
-
-#undef LOCTEXT_NAMESPACE

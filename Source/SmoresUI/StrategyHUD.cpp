@@ -115,6 +115,11 @@ void AStrategyHUD::DrawHUD()
 			{
 				UIWidget->SetGold(Wallet->GetGold());
 			}
+
+			// the nav rail's "this panel is open" state - the controller owns the windows, so the
+			// rail can only find out by being asked. Same per-frame push as everything above it;
+			// the rail early-outs unless the set of open panels actually changed.
+			UIWidget->RefreshNavRail();
 		}
 
 		// process each selected unit

@@ -99,7 +99,7 @@ Notes on the pieces that matter:
 | `Automation List` | Prints every registered test name — use it to confirm a new test registered at all |
 | `Automation RunTests Smores.Items` | Runs one module's subtree |
 | `Automation RunTests Smores.Combat.Health` | Runs one subject |
-| `Automation RunTests Project.Blueprints` | Engine's Blueprint-compile smoke test — **run this after any C++ rename**, it is the cheapest way to catch a Blueprint broken by a moved or renamed property |
+| `Automation RunTests Blueprint` | Everything with "Blueprint" in its path (442 tests, mostly engine and toolset) — **run this after any C++ rename or removed `UFUNCTION`/`UPROPERTY`**, it is the cheapest way to catch a Blueprint broken by it. Note: `Project.Blueprints` is named in a lot of UE documentation but matches **no registered test in this 5.8 build** — it produces no report at all, which reads as a pass if you only check the exit code. Verified 2026-09-16 |
 
 ### Reading the result — the one rule that matters
 

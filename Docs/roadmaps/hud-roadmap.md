@@ -141,7 +141,7 @@ The rail's labels change to match; the mock's letters are a suggestion, not a co
 | `I` | Inventory | **Already bound** — the rail button mirrors the key, same code path |
 | `M` | Map panel | Reserved *for* the world map — this is that system |
 | `U` | Research panel | Free. The weakest pick of the set; see Open Questions |
-| `F1` | Help panel | Conventional. Needs the reserved-key list amended (F1–F4 are currently earmarked for party-slot selection — shrink to F2–F5, or drop, since `P` now covers the roster) |
+| `F1` | Help panel | Conventional. **Done** — the F1–F4 party-slot reservation was dropped outright (F2–F5 would have collided with quicksave) |
 | `Space` | Toggle pause | Reserved *for* pause — this is that |
 | `-` / `=` | Step the pace ladder slower / faster | Free. Digits stay reserved for control groups |
 | `L` | Expand / collapse the activity feed | Free. The mock's `Tab` keeps its cycle-pawn meaning |
@@ -151,6 +151,10 @@ is a widget key handler. **`UInputMappingContext` key mappings must be authored 
 editor** (MCP cannot write them safely), so all eight mappings are created in **one manual pass in
 Slice 1**, including the ones Slices 2 and 3 use. That single editor hand-off is the main reason
 Slice 1 comes first.
+
+> **Status:** all eight `UInputAction` assets exist and are bound in `SetupInputComponent`; the
+> eight key mappings are the one step still outstanding. The live bindings are recorded in
+> `game-systems`' `input-and-keybinds.md`, which is authoritative — this table is the plan.
 
 ## Panels
 
@@ -306,28 +310,81 @@ pattern, same frame, typing), "portraits need a cold build" (slow, not blocking)
 rail works before adding the feed" (the check is a PIE glance Jim does at the end of Slice 1
 anyway).
 
-### Slice 1 — The frame: root layout, nav rail, stub panels, resource strip
+### Slice 1 — The frame: root layout, nav rail, stub panels, resource strip — SHIPPED
 
-The screen's skeleton, and the one manual editor pass.
+Built and documented in `game-systems`' `hud-and-panels.md` and `input-and-keybinds.md`; read
+those, not this, for how any of it works. `UStrategyUI` is the region host, the nav rail opens
+four panel windows, gold lives in `UResourceStripWidget`, and the eight input actions exist and
+are bound.
 
-- `UStrategyUI` becomes the HUD root: a full-screen canvas with anchored regions for all six
-  areas, hosting child widgets rather than holding readouts itself.
-- `IStrategyHUDCommands` with `RequestPanel` implemented; the other three members stubbed so
-  Slices 2 and 3 only fill them in.
-- `UNavRailWidget`, `UHUDPanelWidget` bases; `USquadPanelWidget`, `UMapPanelWidget`,
-  `UResearchPanelWidget` as stubs, `UHelpPanelWidget` with its static keybind list.
-- `UResourceStripWidget` takes over the gold readout from `UStrategyUI` — the `GoldText` binding
-  moves, the `AStrategyHUD` push path does not.
-- Eight `IA_Strategy_*` actions created and bound in `SetupInputComponent`; **hand Jim the eight
-  key mappings as a single checklist.**
-- New `game-systems` topic `hud-and-panels.md`; `input-and-keybinds.md` updated with all eight
-  keys and the amended `F1`–`F4` reservation.
+**The eight `IMC_Strategy_Mouse` key mappings are authored** (`P`, `M`, `U`, `F1`, `Space`, `-`,
+`=`, `L`) — Jim did them by hand, since MCP cannot write IMC mappings safely (see `mcp-workflow`).
+That manual pass was the reason this slice came first, and it is done.
 
-**Done when:** every rail button and every panel key opens its window; windows drag, resize and
-close; gold still reads correctly after the move; the six regions sit where the wireframe puts
-them at 1080p and at ultrawide; nothing on the HUD leaks a click through to the world.
+**Jim's first PIE pass found two bugs, both fixed** — see items 3 and 3b below. Neither was in the
+C++ logic; both were in how the regions were authored in UMG.
+
+**Still to judge in PIE:** whether the six regions sit right at 1080p and at ultrawide, and a
+re-check that nothing else on the HUD leaks a click.
+
+#### What shipped differently from the plan above
+
+1. **`RequestPace` is not on `IStrategyHUDCommands` yet.** Stubbing it needed `EGamePace`, and
+   creating that enum here would have left a `SmoresCore` type nothing read. Slice 2 adds the
+   enum, the component and the interface member together. The three pace keys and the feed key
+   *are* bound now — each logs the slice that implements it, so the mappings can be verified in
+   the one editor pass.
+2. **`UHUDRegionWidget` was added**, unplanned: the base every HUD region derives from, carrying
+   the click shield and the controller lookup. Slices 2 and 3's four regions inherit it rather
+   than re-solving the clickable-HUD trap each time.
+3. **The four unbuilt regions are labelled placeholder boxes in `UI_Strategy`**
+   (`TimePaceRegion`, `TargetPanelRegion`, `SquadBarRegion`, `ActivityFeedRegion`), so the whole
+   frame can be judged now. **Each of Slices 2 and 3 replaces its own placeholders** with the real
+   widget and a `BindWidgetOptional` property on `UStrategyUI` — use
+   `UMGToolSet.ReplaceWidgetWithTemplate`, which keeps the name, slot and anchors.
+
+   They shipped first as plain `UBorder`s, which **was a bug Jim caught in PIE**: a `UBorder`
+   doesn't consume the mouse press, so a right-click over the bottom-right box issued a move order
+   to the selected squad. They are now `UHUDPlaceholderRegionWidget` instances. The rule this is an
+   instance of is in `hud-and-panels.md`: *anything on the HUD that reads as a panel must be a
+   `UHUDRegionWidget`, placeholder or not.* The clickable-HUD trap section above called this out
+   and it still got missed — the trap is real.
+3b. **Contrast had to be set after all.** Every region shipped invisible: UMG's default `UBorder`
+   brush is white and its default `UTextBlock` colour is white, so the gold readout, the region
+   labels and the help panel's keybind list were all white-on-white. Backgrounds are now dark
+   translucent and text near-white. This does **not** reopen Resolved Decision #4 — it is the
+   legibility floor a layout has to clear to be judged at all, and the styling pass still replaces
+   it wholesale.
+4. **`UHelpPanelWidget` lists only keys that do something.** `Space`, `-`, `=` and `L` are
+   deliberately absent from it. **Slices 2 and 3 must add their keys to
+   `UHelpPanelWidget::GetDefaultBodyText()` in the same change that makes them work** — a help
+   screen naming a dead key is worse than an incomplete one.
+5. **`SmoresUI.Build.cs` already has `SmoresCombat`** — done here rather than in Slice 3.
+6. **The `F1`–`F4` reservation was dropped, not shrunk to `F2`–`F5`.** `F5` is quicksave, so the
+   roadmap's suggestion collided; and party-slot selection now has two better answers (`P` opens
+   the roster, and Slice 3's portrait bar selects with one click).
+7. **`UI_Strategy` kept its root `Overlay`** with a new full-screen `HUDCanvas` nested inside it,
+   rather than having the root replaced — non-destructive to the three surviving bindings
+   (`BP_UpdateUnitsCount`, `GetSelectedUnitsCount`, `GetSelectionTargetLabel`). The panel and
+   region WBPs use a `Border` root, matching `WBP_Inventory`'s proven chrome.
+
+#### Worth knowing before Slice 2
+
+**Build all seven modules together after adding source files.** An incremental build during this
+slice relinked six modules and left `SmoresCharacters.dll` at an earlier vintage; the editor then
+crashed on startup with a near-null access violation on the async-loading worker, naming no
+project asset, ~10s in at `MAP LOAD`. It looks exactly like the new C++ broke serialization, and
+it isn't — `Rebuild.bat` fixed it with no source change. The headless suite passed 73/73 against
+those same binaries the whole time, so a green `-nullrhi` run is **not** evidence the editor will
+start.
 
 ### Slice 2 — Time pace and the target panel
+
+> **Inherited from Slice 1:** `SelectionTargetBorder` / `SelectionTargetText` are plain `UBorder`s
+> loose on `HUDCanvas` and **leak right-clicks to the world**. Building `UTargetPanelWidget` as a
+> `UHUDRegionWidget` and deleting them is the fix — don't try to shield them in place. Also add
+> `Space`, `-` and `=` to `UHelpPanelWidget::GetDefaultBodyText()` in this slice, and replace
+> `TimePaceRegion` / `TargetPanelRegion` with `UMGToolSet.ReplaceWidgetWithTemplate`.
 
 - `EGamePace` + `UTimePaceComponent` in `SmoresCore`; `AStrategyGameState` in `smores` hosting it;
   `Server_RequestPace` on the controller; `UTimePaceWidget` reading the component the way
@@ -343,6 +400,12 @@ what `-`/`=` stepped to, and targeting a chest, an NPC and a downed body each pr
 name, distance, health bar and action row — with the disabled cases actually disabled.
 
 ### Slice 3 — Squad portrait bar and the activity feed
+
+> **Inherited from Slice 1:** `Border_0` / `SelectionCount` (the "N selected" readout) is a plain
+> `UBorder` loose on `HUDCanvas` and **leaks right-clicks to the world**; `USquadBarWidget`
+> subsumes it. `Border_361` is a collapsed empty leftover in the bottom-right corner — delete it
+> once the feed owns that corner. Add `L` to `UHelpPanelWidget::GetDefaultBodyText()` here, and
+> replace `SquadBarRegion` / `ActivityFeedRegion` with `UMGToolSet.ReplaceWidgetWithTemplate`.
 
 - `DisplayName` + `PortraitTexture` on `AStrategyUnit`; `USquadBarWidget` +
   `USquadPortraitWidget` with health ring, selection ring, click-to-select and
