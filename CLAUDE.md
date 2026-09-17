@@ -179,3 +179,27 @@ token-discipline habits, and the known tool bugs/caveats.
 ## Your Human Partner
 
 His name is Jim and he's new to Unreal and C++ programming but came from a PHP background.  Avoid Jargon heavy reponses until he learns the terms and concepts.
+
+
+## Roadmaps
+Agents layout implementation plans via *-roadmap.md files, which live in `Docs/roadmaps/`.  
+These describe related programming work to be done in Unreal and split along boundaries call slices.
+When writing roadmaps and organizing work, strive to inject as few sclices as possible.
+
+Roadmaps are **temporary working documents** — read one only when implementing a slice from it
+or when Jim references it, not as general background. The permanent record of how a system
+works belongs in the `game-systems` skill; when a slice ships, write what it built into the
+matching topic there and trim it out of the roadmap.
+
+### Genuine reasons to slice
+
+1. A human has to look at something. PIE feel, layout, whether a number reads right. 
+2. You have to do something in a GUI the agent can't drive — hand-wiring an asset, a Blueprint change MCP does badly.
+3. Context genuinely runs out. Build errors and log output are expensive. This is a budget limit, not a design principle — and with a 1M-context session it's a much higher ceiling than these roadmaps assume.
+
+### Reasons that look real but aren't
+
+1. "It needs a cold build." The agent can close the editor, build, and reopen — your CLAUDE.md already permits it during an approved plan. Cold builds are slow, not blocking.
+2. "It's a different module / different file / different system." If it's the same pattern applied to new code, that's typing, not a decision.
+3. "Keeps the commit tidy." One session can make five commits.
+4. "We should check it works before building on it." Only if you have to check. If the check is Automation RunTests Smores and reading a number, the agent does that itself and carries on.

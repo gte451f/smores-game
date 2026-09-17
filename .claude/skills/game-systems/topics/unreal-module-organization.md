@@ -600,7 +600,7 @@ first:
   class, not a module."
 - **DONE** — `AStrategyPlayerState::Gold` moved into a `UWalletComponent` in the new
   `SmoresEconomy`, and `IStrategyResourceHost` was deleted, both in Slice 8 of
-  `inventory-roadmap.md`. See "Framework Classes vs. Feature Modules."
+  `Docs/roadmaps/inventory-roadmap.md`. See "Framework Classes vs. Feature Modules."
 - Migration is complete — `SmoresCore`, `SmoresCombat`, `SmoresItems`, `SmoresCharacters` and
   `SmoresUI` (steps 1-4, see "Migrating Today's Prototype Code") are all done, and no further
   *migration* step is planned; the remaining modules in the target map correspond to systems

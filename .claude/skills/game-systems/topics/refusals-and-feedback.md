@@ -120,7 +120,7 @@ inventory idea. Items, equipment and trade all raise refusals today and orders a
 all of them need to name a reason in a vocabulary `SmoresUI` can read, and `SmoresCore` is the
 one module every one of them can already see. Putting it in `SmoresItems` would have left
 `SmoresCombat` unable to use it (that module does not depend on `SmoresItems`), which is the
-same constraint `testing-roadmap.md` records for its own shared test helper.
+same constraint `Docs/roadmaps/testing-roadmap.md` records for its own shared test helper.
 
 **`URefusalWidget`** (`Source/SmoresUI/RefusalWidget.*`) — the display. Its own `UUserWidget`,
 added to the viewport by `AStrategyHUD::BeginPlay` at `RefusalZOrder` (100), above every window:
@@ -222,7 +222,7 @@ completely different things of the player.
   `RefusalWidgetClass` to `WBP_RefusalLine`. If that assignment is ever lost, the failure is
   silent at compile time and shows up only as refusals never appearing, plus one
   `LogSmoresUI` warning at `BeginPlay` — the same shape as the `PlayerStateClass` hazard recorded
-  in `inventory-roadmap.md`'s Slice 4.
+  in `Docs/roadmaps/inventory-roadmap.md`'s Slice 4.
 - **`RefusalSound`** is an `EditAnywhere` property on `UStrategyUI` with no default. Assigning a
   `USoundBase` in the WBP's class defaults is the whole wiring step; leaving it unset is
   supported and only costs the sound.

@@ -2,7 +2,11 @@
 
 ## Purpose
 
-Unlike `inventory.md`, this topic isn't documenting built behavior — it's a **forward-looking
+This is a **roadmap**, not a system reference: read it while implementing one of its slices,
+or when Jim points at it. The permanent record of what inventory actually does lives in the
+`game-systems` skill's `inventory.md`.
+
+Unlike that topic, this document isn't describing built behavior — it's a **forward-looking
 target design**, the result of a brainstorming pass against the `game-design` skill (mainly
 `economy.md`, `characters-and-squads.md`, and `combat.md`) and the actual current
 `UInventoryComponent`/`SmoresUI` implementation. It exists so the next several rounds of
@@ -14,8 +18,8 @@ section has moved to `inventory.md` and only its summary line remains here.
 The work is deliberately cut into **one slice per clean session** (see "Implementation
 Order" below). Each session should start by reading `inventory.md`, this file's slice
 entry, and the current source — not the conversation that produced this document. When a
-slice ships, move its content into `inventory.md`, delete it from here, and mark the slice
-`DONE` in the order list (the same convention `unreal-module-organization.md` uses).
+slice ships, move its content into the `game-systems` skill's `inventory.md`, delete it from
+here, and mark the slice `DONE` in the order list.
 
 ## Item Definitions vs. Item Instances — **SHIPPED (Slice 1)**
 

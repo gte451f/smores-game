@@ -31,7 +31,7 @@ its definition says that's its slot; nothing else gates an equip.
 Items also exist *outside* any grid: an `AWorldItem` is a single item instance lying on the
 ground, drawn with its definition's 3D mesh and collected by double-clicking it with a pawn in
 range. It is the one holder shape with no grid and no window behind it. This system does
-**not** yet handle theft. See `inventory-roadmap.md` for the target design — this topic only
+**not** yet handle theft. See `Docs/roadmaps/inventory-roadmap.md` for the target design — this topic only
 documents what's actually built.
 
 ## Player Surface
@@ -984,7 +984,7 @@ documents what's actually built.
   a per-holder code path.
 - **Theft and sort/filter** — neither exists in code yet, though `UItemDefinition` already
   carries the fields they'll read (`bStolen` on the instance, `Category` on the definition).
-  Full target design and rationale live in `inventory-roadmap.md`.
+  Full target design and rationale live in `Docs/roadmaps/inventory-roadmap.md`.
 - **A new kind of trader** — add a `UTraderComponent` to the NPC Blueprint and it works; nothing
   else is per-trader. A caravan is exactly this on a unit that walks.
 - **Real market pricing** — implement `IPricingProvider` and have `UTraderComponent` consult it
@@ -1113,7 +1113,7 @@ documents what's actually built.
   pawn is already in range the double-click says "Too far away" rather than walking anyone over.
   Routing the pickup through a move command is a unit-commands change, not an inventory one.
 - **Nothing that a body drops is actually dropped.** A killed NPC keeps its inventory on the
-  corpse actor, which is exactly the design (`inventory-roadmap.md`: same actor, same code path,
+  corpse actor, which is exactly the design (`Docs/roadmaps/inventory-roadmap.md`: same actor, same code path,
   no corpse container), but the actor also never despawns — a dead unit stands in the level
   permanently holding its pack. Lifetime for bodies is a combat/characters question, not an
   inventory one.

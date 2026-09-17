@@ -20,7 +20,6 @@ documented as part of each system topic, in its "Player Surface" section, plus t
 | [`topics/strategy-camera-and-selection.md`](topics/strategy-camera-and-selection.md) | RTS-style camera pawn, mouse/touch camera movement and zoom, unit selection, drag selection, double-tap, pawn cycling |
 | [`topics/strategy-unit-commands.md`](topics/strategy-unit-commands.md) | Move commands, lead-unit/formation targeting, movement completion, interaction triggering |
 | [`topics/inventory.md`](topics/inventory.md) | `UItemDefinition` shared item-type assets vs. `FInventoryItem` carried instances, `UInventoryComponent` 2D grid storage with rectangular footprints, rotation and per-holder stacking, `UInventoryWidget` drag-and-drop display, `UEquipmentComponent` worn slots and the `UEquipmentWidget` paperdoll, `AWorldItem` loose world pickups, server-side sort repack and client-side category filter, PlayerController-managed open/close/toggle for pawn/container/loot/equipment |
-| [`topics/inventory-roadmap.md`](topics/inventory-roadmap.md) | *(forward-looking)* Target design for the inventory slices still ahead — a unified proximity-gated `IInventoryHolder` transfer interface (loot-dead/trade/purchase/theft), a `SmoresEconomy` wallet and pricing layer, and grid sort/filter — plus a dependency-ordered, one-slice-per-session Implementation Order with status and a Resolved Design Decisions log |
 | [`topics/refusals-and-feedback.md`](topics/refusals-and-feedback.md) | The shared "why was that refused?" line — the `ESmoresRefusalReason` vocabulary in `SmoresCore`, the single place refusals are worded, the client-side vs. server-RPC routes to it, and the rule that preventing a refusal beats explaining one. **Read before making any action fail silently.** |
 | [`topics/combat.md`](topics/combat.md) | `UHealthComponent` health/damage/Downed-recovery, NPC self-hunting, player-issued squad attacks, auto-retaliation |
 | [`topics/input-and-keybinds.md`](topics/input-and-keybinds.md) | Every bound key and mouse button with its action asset and context, the reserved-key list for systems not built yet, the Enhanced Input wiring rule every binding must follow, and the checklist for adding one. **Check before adding any player-facing control.** |
@@ -29,19 +28,20 @@ documented as part of each system topic, in its "Player Surface" section, plus t
 | [`topics/multiplayer-discipline.md`](topics/multiplayer-discipline.md) | The standing server-authority rules all gameplay code is written against — no singleton-player assumptions, `HasAuthority()` gating, replication/RPCs over ad hoc sync, deciding data ownership up front, no speculative prediction, and the Linux dedicated-server constraint. **Read before writing or changing gameplay state.** |
 | [`topics/unreal-module-organization.md`](topics/unreal-module-organization.md) | *(forward-looking)* Current single-module state, a proposed target module map sized against the full `game-design` scope, DLC/mod-as-Plugin guidance, and concrete triggers for when to actually split |
 | [`topics/testing.md`](topics/testing.md) | How to run the automated test suite (in-editor and headless), what it covers, the standing rule for when finished work should add a test, and the conventions for writing one. **Read when finishing work that changes a counted return, an all-or-nothing operation, or a state machine.** |
-| [`topics/testing-roadmap.md`](topics/testing-roadmap.md) | *(forward-looking)* Target design for automated testing — the harness choice (in-module automation tests, no new module or build plumbing), the catalogue of what's worth asserting across inventory/economy/combat/equipment, what stays in PIE permanently, and a dependency-ordered, one-slice-per-session Implementation Order with a Resolved Design Decisions log |
 
 ## Working in this skill
 
 - **Describe current implementation, not aspiration.** Put future ideas under a "Known
   Gaps" section in the relevant topic, not into the main description. The deliberate
-  exceptions are `topics/unreal-module-organization.md`, `topics/inventory-roadmap.md` and
-  `topics/testing-roadmap.md`, each explicitly a forward-looking reference rather than a
-  record of built behavior — all three say so up front. `topics/multiplayer-discipline.md`
-  and `topics/testing.md` are a different exception: standing rules for how code gets
-  written, not a description of one system. When a roadmap topic's content
-  ships, move it into the paired current-implementation topic and trim the roadmap
-  accordingly.
+  exception is `topics/unreal-module-organization.md`, explicitly a forward-looking
+  reference rather than a record of built behavior — it says so up front.
+  `topics/multiplayer-discipline.md` and `topics/testing.md` are a different exception:
+  standing rules for how code gets written, not a description of one system.
+- **Roadmaps do not live here.** Multi-slice implementation plans (`*-roadmap.md`) live in
+  `Docs/roadmaps/` — they are temporary working documents, read only while a slice is being
+  implemented or when Jim points at one. This skill is the permanent record. When a slice
+  ships, write what it built into the matching topic here; the roadmap keeps only its
+  status and its Resolved Design Decisions log.
 - **Update when behavior changes.** Any change to gameplay behavior, controls, camera
   behavior, selection rules, or UI-visible rules should be reflected here in the same
   change, alongside the code.

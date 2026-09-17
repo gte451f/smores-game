@@ -5,10 +5,11 @@
 This topic documents smores' **built** automated test suite: how to run it, what it covers, and
 the standing rule for when a piece of work should add to it. The forward-looking plan — what
 still needs building, in what order, and the decisions behind it — lives in
-`testing-roadmap.md`.
+`Docs/roadmaps/testing-roadmap.md`.
 
 > **Status: the harness does not exist yet.** No test file has been written and the commands
-> below will report zero tests until **Slice 1 of `testing-roadmap.md`** ships. The
+> below will report zero tests until **Slice 1 of `Docs/roadmaps/testing-roadmap.md`** ships — the first of
+> three build-out slices, not eight; see that file's "Why only three" for the re-cut. The
 > conventions, run commands and protocol are recorded here in advance deliberately, because
 > they are Slice 1's deliverable as much as the code is — but nothing in this file has been
 > executed against this project yet, and the first session to run it should expect to correct
@@ -23,14 +24,14 @@ them test smores.
 | System | Module | Covered | Slice |
 |---|---|---|---|
 | Inventory grid geometry and placement | `SmoresItems` | — | 1 |
-| Inventory stacking, counted returns, moves | `SmoresItems` | — | 2 |
-| Inventory sort repack (determinism, all-or-nothing) | `SmoresItems` | — | 2 |
-| Refusal reasons (`*WithReason` vs. their forwarders) | `SmoresItems` | — | 2 |
-| Wallet and pricing | `SmoresEconomy` | — | 3 |
-| Health state machine (Alive/Downed/Dead) | `SmoresCombat` | — | 4 |
-| Equipment slots and the all-or-nothing swap | `SmoresItems` | — | 5 |
-| Item definition assets and map loading | `SmoresItems` | — | 6 |
-| Trade transaction ordering | `smores` | — | 7 |
+| Inventory stacking, counted returns, moves | `SmoresItems` | — | 1 |
+| Inventory sort repack (determinism, all-or-nothing) | `SmoresItems` | — | 1 |
+| Refusal reasons (`*WithReason` vs. their forwarders) | `SmoresItems` | — | 1 |
+| Equipment slots and the all-or-nothing swap | `SmoresItems` | — | 1 |
+| Wallet and pricing | `SmoresEconomy` | — | 2 |
+| Health state machine (Alive/Downed/Dead) | `SmoresCombat` | — | 2 |
+| Item definition assets and map loading | `SmoresItems` | — | 2 |
+| Trade transaction ordering | `smores` | — | 3 |
 
 Update this table as slices ship; it is the quick answer to "is this already covered?"
 
@@ -43,7 +44,7 @@ They do not, and will not, cover anything whose pass/fail is a human judgment.
 **These stay in PIE, permanently:** drag-and-drop feel, the rotate-while-dragging gesture,
 window layout and stacking order, camera pan/zoom tuning, animation and montage timing, EQS
 destination quality, NPC behavior, and whether any number *feels* right. See
-`testing-roadmap.md`'s "Explicitly Out of Scope" for the full list and the reasoning.
+`Docs/roadmaps/testing-roadmap.md`'s "Explicitly Out of Scope" for the full list and the reasoning.
 
 The console `exec` commands remain the manual counterpart and are not replaced by any of this —
 `SmoresDumpInventory`, `SmoresAddItem`, `SmoresDropItem`, `SmoresDumpEquipment`, `SmoresAddGold`,
@@ -119,13 +120,14 @@ The standing rule for any session — human or agent — finishing a piece of wo
 1. **A function that returns a count, or a bool that means "did it work."** Assert the count,
    and assert the *partial* case specifically. This project has shipped the same bug in this
    shape three times (`AddItem`, then `MoveItem`, then the purchase built on it) — a `true`
-   return that meant "some of it landed." `inventory-roadmap.md` puts it as a standing warning:
+   return that meant "some of it landed." `Docs/roadmaps/inventory-roadmap.md` puts it as a standing warning:
    *assume any other "did it work?" bool in this system is hiding a quantity until checked.* A
    test is how you check.
 2. **An all-or-nothing operation.** Assert the failure path **mutates nothing** — not merely
    that it returned false. The equip swap with no room for the displaced item, a purchase the
    wallet can't cover: both are correct only if the world is byte-identical afterwards.
-3. **A state machine transition**, especially one with a timer behind it. The Slice 7 trap — a
+3. **A state machine transition**, especially one with a timer behind it. The
+   `Docs/roadmaps/inventory-roadmap.md` Slice 7 trap — a
    `Kill()` on an already-Downed unit leaving a recovery timer in flight, so the corpse stands
    back up seconds later — is exactly this shape, and is silent, delayed, and reproducible only
    by waiting.
@@ -159,7 +161,7 @@ playing, don't.
 3. Run headless. Confirm the count went up.
 4. Add a line to the "What Is Covered" table above if the work opened a new subject.
 5. If the work made something *harder* to test — a rule that moved onto a class needing a
-   controller, say — say so in `testing-roadmap.md` rather than reshaping the code to suit a
+   controller, say — say so in `Docs/roadmaps/testing-roadmap.md` rather than reshaping the code to suit a
    test. That is a design signal worth its own session.
 
 ## Writing a Test
@@ -250,7 +252,7 @@ instead of inside a `.uasset`.
 
 ## Known Gaps
 
-- **Everything.** No test file exists yet; `testing-roadmap.md` Slice 1 is the first.
+- **Everything.** No test file exists yet; `Docs/roadmaps/testing-roadmap.md` Slice 1 is the first.
 - **The off-authority path is untestable** until multiplayer is wired up. Asserting "this mutator
   no-ops on a client" needs an actor whose role is not `ROLE_Authority`, which needs a net driver.
   The gate is asserted positively instead — the mutator runs when it should.
@@ -259,7 +261,8 @@ instead of inside a `.uasset`.
   the out-of-range branch, which never reaches a montage, is reachable from a test.
 - **`AStrategyPlayerController` is expensive to test.** Selection, input, window management and
   the trade transaction all meet there and none of it separates cleanly. That is the price of the
-  controller being where variant-specific glue lives; `testing-roadmap.md` Slice 7 takes one
+  controller being where variant-specific glue lives; `Docs/roadmaps/testing-roadmap.md` Slice 3 takes one
   scoped run at the transaction and is allowed to abandon it.
-- **No CI.** Every run is manual. `testing-roadmap.md` Slice 8 wraps the command in a script; there
+- **No CI.** Every run is manual. `Docs/roadmaps/testing-roadmap.md` Slice 3 optionally wraps the command in a script;
+  there
   is no build server and none is planned.

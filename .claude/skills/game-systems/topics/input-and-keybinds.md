@@ -173,7 +173,7 @@ issue a squad attack order. It broke the settled rule that a single click select
 under the cursor and does nothing else, and it only started *mattering* when the double-click
 learned to mean "interact with this person" — the select click fires alongside the
 double-click, so talking to a hostile would have opened their shop and started a fight at once.
-Removed in Slice 8 of `inventory-roadmap.md`; `H` covers attacking a target.
+Removed in Slice 8 of `Docs/roadmaps/inventory-roadmap.md`; `H` covers attacking a target.
 
 ### Adding a binding — the checklist
 

@@ -2,7 +2,11 @@
 
 ## Purpose
 
-Unlike `testing.md`, this topic isn't documenting a built harness — it's a **forward-looking
+This is a **roadmap**, not a system reference: read it while implementing one of its slices,
+or when Jim points at it. The permanent record of how testing actually works lives in the
+`game-systems` skill's `testing.md`.
+
+Unlike that topic, this document isn't describing a built harness — it's a **forward-looking
 target design**, the result of a pass over `SmoresItems`, `SmoresEconomy` and `SmoresCombat`
 asking one question: *what in this codebase can be verified by code rather than by a human in
 PIE?* It exists so testing gets built deliberately, in slices, instead of appearing as three
@@ -11,8 +15,9 @@ not "what exists" — **except** where a heading is marked SHIPPED, which means 
 moved to `testing.md` and only its summary line remains here.
 
 The work is cut into **one slice per clean session** (see "Implementation Order" below), the same
-convention `inventory-roadmap.md` uses. When a slice ships, move its content into `testing.md`,
-delete it from here, and mark the slice `DONE` in the order list.
+convention `inventory-roadmap.md` uses. When a slice ships, move its content into the
+`game-systems` skill's `testing.md`, delete it from here, and mark the slice `DONE` in the
+order list.
 
 **The project has no tests today.** `Automation_smores.slnx` is not a test setup — it is a
 solution file that pulls in Epic's own `UnrealBuildTool` and `EpicGames.*` C# projects, several of
@@ -26,10 +31,11 @@ The honest scope, stated up front so no later session mistakes this for a qualit
 prove the game is fun, not to replace PIE, and not to reach a coverage number. The specific
 failure this protects against is the one this project has already hit repeatedly and recorded in
 `inventory-roadmap.md`: a function that returns `true` while having done only part of the job.
-`AddItem` returning true on a partial add (Slice 6), `MoveItem` doing the same one level up
-(Slice 8), a `Kill()` landing on a Downed unit that leaves a recovery timer in flight so the
-corpse stands back up (Slice 7). Every one of those is invisible on screen until it isn't, and
-every one is three lines to assert.
+`AddItem` returning true on a partial add (`inventory-roadmap.md` Slice 6), `MoveItem` doing the
+same one level up (its Slice 8), a `Kill()` landing on a Downed unit that leaves a recovery timer
+in flight so the corpse stands back up (its Slice 7). Those are that roadmap's slice numbers, not
+this one's. Every one of those is invisible on screen until it isn't, and every one is three
+lines to assert.
 
 **What stays in PIE, permanently:** drag-and-drop feel, the rotate-while-dragging gesture, window
 layout and stacking order, camera pan/zoom tuning, animation and montage timing, EQS destination
@@ -170,7 +176,8 @@ The largest and highest-value target. Pure grid arithmetic plus the counted-retu
 - `AddItem` returns false in that same case while still keeping what fit.
 - `AddItemCounted` splits a quantity above the effective cap into as many entries as needed.
 - `MoveItemCounted` merging into a destination stack already near its cap reports only what fit,
-  not what was asked for — this is the bug Slice 8 found in the purchase path, and the one that
+  not what was asked for — this is the bug `inventory-roadmap.md` Slice 8 found in the purchase
+  path, and the one that
   would have overcharged a player.
 - `MoveItemCounted` on a pure reposition within one grid reports the whole entry as moved.
 
@@ -293,8 +300,9 @@ A three-state machine with a timer, which is precisely the shape that hides bugs
 - `Kill()` from `Alive` moves to `Dead` and broadcasts `OnDied`.
 - `Kill()` twice broadcasts `OnDied` once.
 - **`Kill()` on an already-Downed component cancels the recovery timer.** Tick past
-  `DownedDurationSeconds` afterwards and assert the state is still `Dead`. This is the Slice 7 trap
-  — a corpse standing back up a few seconds later — and it is the single best argument in this
+  `DownedDurationSeconds` afterwards and assert the state is still `Dead`. This is the
+  `inventory-roadmap.md` Slice 7 trap — a corpse standing back up a few seconds later — and it is
+  the single best argument in this
   document for having tests at all: the failure is silent, delayed, and only reproducible by
   waiting.
 - `Recover()` restores full health and broadcasts `OnRecovered` from `Downed`, and refuses to run
@@ -404,8 +412,8 @@ exception is a test-only subclass in the same module to reach a `protected` memb
 
 ## Implementation Order
 
-Dependency-ordered slices, **one per clean session**. Every slice follows the same protocol, so it
-isn't repeated per entry:
+Three slices, **one per clean session**. Every slice follows the same protocol, so it isn't
+repeated per entry:
 
 1. Read `testing.md`, this slice's entry, and the source files it names.
 2. Write the tests. Every new test is a new `IMPLEMENT_SIMPLE_AUTOMATION_TEST` class in a new or
@@ -416,96 +424,113 @@ isn't repeated per entry:
 4. Commit the slice on its own, then move its shipped content from this file into `testing.md` and
    mark the slice `DONE` below.
 
-No slice here needs `unreal-mcp`, Blueprint wiring, or a PIE pass — that is the point of them.
-Slice 6 is the exception and says so.
+### Why only three, and why none of them need Jim
 
-### Slice 1 — Harness, helpers, and the geometry tests
+An earlier draft of this roadmap cut the same work into eight slices. That was wrong, and the
+reasoning is worth keeping because it applies to every roadmap in this project.
 
-The proving slice. Small on purpose: its job is to establish that the plumbing works and to fix the
-conventions every later slice copies.
+**There is no human in this work.** No slice needs a PIE pass, `unreal-mcp`, Blueprint wiring, or
+an asset touched by hand — the entire point of the harness is that it decides pass/fail by
+comparing two numbers. Nothing here is a thing Jim has to look at.
 
-- **Build:** a test-support header (the in-memory `MakeTestItemDefinition` factory, and a small
-  RAII helper wrapping `FTestWorldWrapper` plus a spawned owner actor) and
-  `Source/SmoresItems/Tests/InventoryGeometryTest.cpp`.
-- **Decide where the support header lives, and decide it here.** `SmoresCombat` does not depend on
-  `SmoresItems`, so a helper placed in `SmoresItems` is unreachable from Slice 4. If the world/owner
-  helper is wanted by more than one module — and it is — it belongs in `SmoresCore`, which is
-  currently an empty proving module looking for exactly this kind of tenant. The item-definition
-  factory is `SmoresItems`-specific and stays there.
-- **Tests:** the authority sanity check first (`HasOwnerAuthority()` is true in a test world), then
-  the "Placement and geometry" group from the inventory above.
+The three things that split the old eight were not reasons:
+
+- **"It needs a cold build."** Cold builds are slow, not blocking. An agent can close the editor,
+  build, reopen, and carry on inside one session.
+- **"It's a different file, or a different module."** Once the first test file compiles, every file
+  after it is the same pattern applied to different code. That is typing, not a decision.
+- **"We should check the last one works first."** The check here is `Automation RunTests Smores`
+  and reading a count. The agent does that itself, mid-session, and continues.
+
+What remains is the one honest reason to split — **context budget**, since build errors and log
+output are expensive — plus exactly one genuine judgment call, which is whether the expensive
+controller test is worth attempting at all. Hence three.
+
+### Slice 1 — The harness, and all of `SmoresItems`
+
+The big one, and the one carrying most of the value in this document. It is large deliberately:
+everything in it is the same shape, against components that need nothing but a world and an owner.
+
+- **Build:** a test-support header (the RAII helper wrapping `FTestWorldWrapper` plus a spawned
+  owner actor, and the in-memory `MakeTestItemDefinition` factory), then
+  `Source/SmoresItems/Tests/InventoryGeometryTest.cpp`, `InventoryStackingTest.cpp`,
+  `InventoryMoveTest.cpp`, `InventorySortTest.cpp` and `EquipmentComponentTest.cpp`.
+- **Where the support header lives, decided here:** `SmoresCombat` does not depend on
+  `SmoresItems`, so a helper placed in `SmoresItems` is unreachable from Slice 2's health tests.
+  The world/owner helper therefore goes in **`SmoresCore`**, which every module already depends on
+  and which is currently an empty proving module looking for exactly this kind of tenant. The
+  item-definition factory is `SmoresItems`-specific and stays there.
+- **The proving checkpoint — which is a checkpoint, not a session boundary.** Write the authority
+  sanity check (`HasOwnerAuthority()` is true in a test world) plus the first geometry test
+  *first*, cold build, run headless, then **deliberately break one assertion, re-run, and confirm
+  it reports a failure**. A suite that has never gone red has not been shown to work. Do all of
+  that inside this session, fix the assertion back, and keep writing. Everything unknown about the
+  harness — the 5.5+ flag spellings, the `FTestWorldWrapper` API, whether a new `.cpp` registers at
+  all — surfaces at this checkpoint. After it, the risk is gone.
+- **Tests:** the authority check, then the "Placement and geometry", "Stacking", "counted-return
+  family", "Move semantics", "Entries and lifecycle", "Weight", "Sort and repack", "Refusal
+  reasons" and "Delegates" groups from the `UInventoryComponent` inventory above, then the whole
+  `UEquipmentComponent` group.
 - **Also produces:** the "Running the tests" and "When to add a test" sections of `testing.md`.
   Those are the deliverable as much as the code is — a suite nobody knows how to run is worth
   nothing, and a convention nobody records gets re-invented three different ways.
 - **Touches:** new files only. No existing source, no `Build.cs`, no `.uproject`.
-- **Done when:** `Automation RunTests Smores` runs headless, reports the expected number of tests,
-  all pass, and the authority assertion is among them. Then deliberately break one assertion,
-  re-run, and confirm it reports a failure — a suite that has never gone red has not been shown to
-  work.
+- **Done when:** `Automation RunTests Smores` runs headless and reports the expected count; the
+  authority assertion is among them; the suite has been seen to go red on purpose; every
+  counted-return case is asserted; the non-swap case asserts **both grids are unchanged** rather
+  than only that the call returned false; the abandoned-sort case asserts the same about the grid
+  it declined to repack; each `*WithReason` variant reports the right reason *and* agrees with its
+  plain forwarder; and the all-or-nothing equip swap asserts three things together — false
+  returned, original item still worn, grid untouched.
+- **If context runs short:** stop after the sort and refusal groups and finish equipment in a fresh
+  session. That is a budget decision taken on the day, not a change to the plan — don't re-cut the
+  roadmap around it.
 
-### Slice 2 — Inventory stacking and the counted returns
+### Slice 2 — Economy, combat, and the content smoke tests
 
-The highest-value slice; the reason this roadmap exists.
+Everything outside `SmoresItems` that is cheap to reach. Three small subjects in one session.
 
-- **Build:** `Source/SmoresItems/Tests/InventoryStackingTest.cpp`,
-  `Source/SmoresItems/Tests/InventoryMoveTest.cpp` and
-  `Source/SmoresItems/Tests/InventorySortTest.cpp`.
-- **Tests:** the "Stacking", "counted-return family", "Move semantics", "Entries and lifecycle",
-  "Weight", "Sort and repack", "Refusal reasons" and "Delegates" groups.
-- **Touches:** new files only.
-- **Done when:** every counted-return case above is asserted; the non-swap case asserts that
-  both grids are unchanged rather than only that the call returned false; the abandoned-sort
-  case asserts the same thing about the grid it declined to repack; and each `*WithReason`
-  variant is asserted to report the right reason *and* to agree with its plain forwarder.
+- **Build:** `Source/SmoresEconomy/Tests/WalletComponentTest.cpp`,
+  `Source/SmoresEconomy/Tests/PricingTest.cpp`,
+  `Source/SmoresCombat/Tests/HealthComponentTest.cpp` and
+  `Source/SmoresItems/Tests/ItemDefinitionAssetTest.cpp`.
+- **Why these share a session:** they are small (`WalletComponent.cpp` is 97 lines,
+  `TraderComponent.cpp` 60, `HealthComponent.cpp` 202), and each exercises a *different* part of
+  the harness that Slice 1 never touched — `BeginPlayInTestWorld()` for `StartingGold`,
+  `TickTestWorld()` for the recovery timer, and editor context plus the asset registry for the
+  smoke tests. That makes this one coherent "prove the harness does the rest of its job" session
+  rather than three sessions that each prove one thing.
+- **Tests:** the `SmoresEconomy` group, the `UHealthComponent` group including the timer cases, and
+  the "Editor smoke tests" group.
+- **Touches:** new files, **plus one `Build.cs` change** — enumerating `UItemDefinition` assets
+  needs `AssetRegistry`, which `SmoresItems` does not currently depend on. Add it to
+  `PrivateDependencyModuleNames`. This is the one place this roadmap's "new files only" claim does
+  not hold, and it was previously missed.
+- **Prove the asset rules against an in-memory definition, not a broken asset.** An earlier draft
+  had this slice prove itself by adding a deliberately malformed `UItemDefinition` to `Content/`
+  and then removing it — that is hand work in the editor, it dirties the content tree, and it
+  demonstrates nothing that the same assertion run against a `NewObject<UItemDefinition>()` with an
+  empty `ItemId` doesn't demonstrate for free. Keep the asset-registry sweep pointed at real
+  content; prove the *rule* in memory.
+- **Editor context note:** these smoke tests need `EditorContext` in their flags and will not run
+  in a headless *game* target. The run command in `testing.md` uses `UnrealEditor-Cmd`, so it
+  covers them; a packaged-build runner would not.
+- **Done when:** the insufficient-funds case asserts the balance is unchanged; the margin invariant
+  (buy > sell) is asserted rather than two hardcoded numbers; the kill-cancels-recovery case ticks
+  past `DownedDurationSeconds` and asserts the state is still `Dead`; and a failing asset sweep
+  names the offending asset rather than just failing.
 
-### Slice 3 — Economy: wallet and pricing
+### Slice 3 — The trade transaction, and a run script (optional)
 
-- **Build:** `Source/SmoresEconomy/Tests/WalletComponentTest.cpp` and
-  `Source/SmoresEconomy/Tests/PricingTest.cpp`.
-- **Tests:** the `SmoresEconomy` group above. `StartingGold` needs `BeginPlayInTestWorld()`, which
-  makes this the first slice to exercise that path — expect that to be where any surprise is.
-- **Touches:** new files only. `SmoresEconomy` already depends on both `SmoresCore` and
-  `SmoresItems`, so both of Slice 1's helpers are directly includable.
-- **Done when:** the insufficient-funds case asserts the balance is unchanged, and the margin
-  invariant (buy > sell) is asserted rather than two hardcoded numbers.
+The only slice with a real decision in it, which is why it stays separate rather than folding into
+Slice 2.
 
-### Slice 4 — Combat: the health state machine
-
-- **Build:** `Source/SmoresCombat/Tests/HealthComponentTest.cpp`.
-- **Tests:** the `UHealthComponent` group above, including the timer cases.
-- **Touches:** new files only. `SmoresCombat` depends on `SmoresCore` but **not** on `SmoresItems`
-  — which is why Slice 1 puts the world/owner helper in `SmoresCore`. If that decision was made
-  differently, this is the slice that pays for it.
-- **Done when:** the kill-cancels-recovery case ticks past the recovery duration and asserts the
-  state is still `Dead`.
-
-### Slice 5 — Equipment
-
-- **Build:** `Source/SmoresItems/Tests/EquipmentComponentTest.cpp`.
-- **Tests:** the `UEquipmentComponent` group above.
-- **Touches:** new files only.
-- **Done when:** the all-or-nothing swap failure asserts three things together — the return is
-  false, the original item is still worn, and the grid is unchanged.
-
-### Slice 6 — Asset and map smoke tests
-
-Different in kind from the rest: editor-context, and the first slice that touches `Content/`.
-
-- **Build:** `Source/SmoresItems/Tests/ItemDefinitionAssetTest.cpp`, using the asset registry to
-  enumerate every `UItemDefinition` rather than naming them.
-- **Tests:** the "Editor smoke tests" group above.
-- **Touches:** new files only, but requires `EditorContext` in its flags and will not run in a
-  headless *game* target. The headless run command in `testing.md` uses `UnrealEditor-Cmd`, so it
-  covers these — a packaged-build runner would not.
-- **Done when:** adding a deliberately malformed definition asset makes it fail, and removing it
-  makes it pass again.
-
-### Slice 7 — The trade transaction
-
-The expensive one. Do not start it before Slices 1-5 have shipped and proven useful.
-
+- **Start it only once Slices 1 and 2 have shipped and proven useful.** That judgment is Jim's, and
+  it is the single genuine human gate in this roadmap — not a verification step, a decision about
+  whether an expensive test is worth its setup cost.
 - **Build:** `Source/smores/Tests/TradeTransactionTest.cpp`, standing up enough of a controller,
-  player state and pawn to reach `TryTradeItem`.
+  player state and pawn to reach `TryTradeItem`; plus, if wanted, a small `RunTests.ps1` at the
+  project root wrapping the headless command with a non-zero exit on failure.
 - **Tests:** the all-or-nothing ordering — a purchase the player can't fully afford is refused with
   nothing moved and nothing debited; a purchase truncated by a destination stack cap debits for
   what actually moved and not for what was asked.
@@ -515,14 +540,9 @@ The expensive one. Do not start it before Slices 1-5 have shipped and proven use
   clothes, and it deserves its own session.
 - **Done when:** both ordering cases are asserted, or the slice is abandoned with a written reason.
   Abandoning it is an acceptable outcome; the ordering is already documented and the manual
-  `SmoresBuyItem` exec exercises the same path.
-
-### Slice 8 — Headless run as one command (optional)
-
-- **Build:** a small `RunTests.ps1` at the project root wrapping the headless command with the
-  right flags and a non-zero exit on failure.
-- **Why it's optional and last:** it is convenience, not coverage. Worth doing once the suite is
-  large enough that the full command line is annoying to retype, and not before.
+  `SmoresBuyItem` exec exercises the same path. The `RunTests.ps1` wrapper is convenience rather
+  than coverage and rides along here only because it has nowhere better to go — skip it if the full
+  command line isn't annoying anyone yet.
 
 ## Resolved Design Decisions
 
@@ -570,10 +590,20 @@ Recorded so future sessions don't reopen them:
 - **No test for the off-authority no-op path** until multiplayer is testable, because it needs a net
   driver to produce a non-authoritative actor. The gate is asserted positively instead — the mutator
   runs when it should.
-- **Tests are added per slice of the system they cover, not in one big pass**, and the protocol in
-  `testing.md` ties them to the work that creates the need. (**Rejected:** a "write tests for
-  everything" session — it produces a suite matched to the code as it was that day, with no habit
-  behind it.)
+- **Once the harness exists, tests are added alongside the work that creates the need**, per the
+  protocol in `testing.md`, rather than in periodic catch-up passes. (**Rejected:** a standing
+  "write tests for everything" habit — it produces a suite matched to the code as it was that day,
+  with no habit behind it.) This is about *ongoing* work and does not conflict with the three
+  build-out slices below, which are a one-time catch-up on code that already shipped untested.
+- **The build-out is three slices, not eight.** Re-cut on 2026-09-16. The original eight split on
+  module and file boundaries, which are not reasons — nothing in this roadmap needs a PIE pass,
+  `unreal-mcp`, Blueprint wiring or a hand-touched asset, so there is no human step to slice
+  around, and a cold build is slow rather than blocking. The remaining boundaries are context
+  budget (Slices 1 and 2) and one genuine judgment call about whether an expensive test is worth
+  its setup (Slice 3). (**Rejected:** one single slice — Slice 1 is already five files and the
+  bulk of the assertions, and Slice 3's decision genuinely belongs to a different session.
+  **Rejected:** keeping a separate slice per module — "same pattern, new code" is typing, and
+  a session boundary is not free.)
 - **A test-only subclass is the sanctioned way to reach a `protected` member** (`AttackRange`), not
   a test-only public accessor on the production class. (**Rejected:** widening access for tests — it
   makes the production API lie about its own encapsulation.)
