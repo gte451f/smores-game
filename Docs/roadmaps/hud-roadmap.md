@@ -152,9 +152,10 @@ editor** (MCP cannot write them safely), so all eight mappings are created in **
 Slice 1**, including the ones Slices 2 and 3 use. That single editor hand-off is the main reason
 Slice 1 comes first.
 
-> **Status:** all eight `UInputAction` assets exist and are bound in `SetupInputComponent`; the
-> eight key mappings are the one step still outstanding. The live bindings are recorded in
-> `game-systems`' `input-and-keybinds.md`, which is authoritative — this table is the plan.
+> **Status:** all eight `UInputAction` assets exist, are mapped in `IMC_Strategy_Mouse` and are
+> bound in `SetupInputComponent`. Seven of the eight now *do* something — only `L` still just logs,
+> pending Slice 3. The live bindings are recorded in `game-systems`' `input-and-keybinds.md`, which
+> is authoritative — this table is the plan.
 
 ## Panels
 
@@ -329,11 +330,11 @@ re-check that nothing else on the HUD leaks a click.
 
 #### What shipped differently from the plan above
 
-1. **`RequestPace` is not on `IStrategyHUDCommands` yet.** Stubbing it needed `EGamePace`, and
-   creating that enum here would have left a `SmoresCore` type nothing read. Slice 2 adds the
-   enum, the component and the interface member together. The three pace keys and the feed key
-   *are* bound now — each logs the slice that implements it, so the mappings can be verified in
-   the one editor pass.
+1. **`RequestPace` was not on `IStrategyHUDCommands` yet.** Stubbing it needed `EGamePace`, and
+   creating that enum here would have left a `SmoresCore` type nothing read, so Slice 2 added the
+   enum, the component and the interface member together — **done**. The three pace keys and the
+   feed key were bound here, each logging the slice that implements it, so the mappings could be
+   verified in the one editor pass.
 2. **`UHUDRegionWidget` was added**, unplanned: the base every HUD region derives from, carrying
    the click shield and the controller lookup. Slices 2 and 3's four regions inherit it rather
    than re-solving the clickable-HUD trap each time.
@@ -378,26 +379,71 @@ it isn't — `Rebuild.bat` fixed it with no source change. The headless suite pa
 those same binaries the whole time, so a green `-nullrhi` run is **not** evidence the editor will
 start.
 
-### Slice 2 — Time pace and the target panel
+### Slice 2 — Time pace and the target panel — SHIPPED
 
-> **Inherited from Slice 1:** `SelectionTargetBorder` / `SelectionTargetText` are plain `UBorder`s
-> loose on `HUDCanvas` and **leak right-clicks to the world**. Building `UTargetPanelWidget` as a
-> `UHUDRegionWidget` and deleting them is the fix — don't try to shield them in place. Also add
-> `Space`, `-` and `=` to `UHelpPanelWidget::GetDefaultBodyText()` in this slice, and replace
-> `TimePaceRegion` / `TargetPanelRegion` with `UMGToolSet.ReplaceWidgetWithTemplate`.
+Built and documented in `game-systems`' `hud-and-panels.md`, `input-and-keybinds.md` and
+`testing.md`; read those, not this, for how any of it works. `EGamePace` + `UTimePaceComponent`
+live on `AStrategyGameState`, `Space`/`-`/`=` and four buttons drive the ladder,
+`GetSelectionTargetInfo()` replaced `GetSelectionTargetLabel()`, and the target panel's action row
+is assembled from the controller's own gating helpers.
 
-- `EGamePace` + `UTimePaceComponent` in `SmoresCore`; `AStrategyGameState` in `smores` hosting it;
-  `Server_RequestPace` on the controller; `UTimePaceWidget` reading the component the way
-  `AStrategyHUD::GetWallet()` reads the wallet (retry while null — the GameState replicates in
-  late on a client).
-- `FStrategyTargetInfo` / `FTargetAction`; `GetSelectionTargetInfo()` replacing
-  `GetSelectionTargetLabel()` on `IStrategySelectionHost`; `UTargetPanelWidget` with its live
-  action row built from the controller's existing gating helpers.
-- Tests: the pace ladder and target-action assembly groups above.
+Tests: **86 green, up from 73** — six for the pace ladder (`Smores.Core.TimePace.*`) and seven for
+target-action assembly (`Smores.Strategy.TargetInfo.*`). The `Blueprint` sweep was run too, since
+this slice removed a `BlueprintPure` that a Blueprint consumed.
 
-**Done when:** `Space` and the buttons visibly change simulation speed in PIE, the readout matches
-what `-`/`=` stepped to, and targeting a chest, an NPC and a downed body each produces the right
-name, distance, health bar and action row — with the disabled cases actually disabled.
+**Still to judge in PIE:** whether the pace tiers feel right, whether the target panel should
+survive deselection, and the pace buttons' label contrast (see note 6 below).
+
+#### What shipped differently from the plan above
+
+1. **`UTargetActionWidget` was added**, unplanned. The action row needs a widget per button, and
+   the project's established pattern for a dynamic row is a `TSubclassOf` property plus
+   `CreateWidget`/`AddChild` (`UInventoryWidget`'s cells, `UEquipmentWidget`'s slots). `ActionBox`
+   holds them and the row is resized rather than rebuilt, since it usually keeps its shape.
+2. **`FStrategyTargetInfo` gained an explicit `bHasTarget`.** The plan's struct had no validity
+   flag, so "is there a target" would have meant "is the name empty" — and a target's name is
+   authored data, so an actor nobody got round to naming would have made the whole panel vanish.
+   The bug would have read as the panel being broken rather than as a blank field.
+3. **`BuildTargetInfo` is a `public static` taking the selection as a parameter**, not an instance
+   method reading `ControlledUnits`. That is what makes the roadmap's own "target action
+   assembly" test group possible at all — `testing.md` had already catalogued
+   `AStrategyPlayerController` as expensive to test, and this is the worked example of the way
+   out. `IsHolderInRangeOfUnits` was extracted from `IsHolderInRangeOfSelection` for the same
+   reason, so both paths apply one reach rule.
+4. **The action row is narrower than the plan implied in two places, both deliberate.** Attack has
+   **no range gate** (`DoAttackCommand` sends the squad to close the distance, so "too far to
+   attack" isn't a thing this game has), and one of your own squad gets an **empty row** rather
+   than disabled buttons — every verb that applies to your own pawn already has a route that isn't
+   this panel. The second is the roadmap's own stated test case.
+5. **`AStrategyGameState` is `UCLASS(abstract)` with a `BP_StrategyGameState`**, following the
+   project's standing class-hierarchy rule even though the class binds no assets. It costs an
+   empty Blueprint and one `GameStateClass` entry on `BP_StrategyGameMode`; the alternative
+   (concrete C++ set as a constructor default) would not have needed the editor pass, but would
+   have been the only gameplay framework class in the project not following the rule. **If that
+   property is ever cleared the pace silently does nothing**, which is now recorded in
+   `hud-and-panels.md`.
+6. **Text inside buttons is near-*black*, not near-white.** `UTimePaceWidget` tints its buttons
+   white/gold at runtime, and `UTargetActionWidget` sits on UMG's default light-grey button brush,
+   so the Slice 1 legibility floor ("dark panel, light text") inverts inside a button. Worth an
+   eyeball in PIE; the styling pass replaces it wholesale either way.
+7. **The old selection-target readout was an `Event Tick` chain, not a property binding.**
+   Deleting `SelectionTargetBorder`/`SelectionTargetText` left a dead
+   `Event Tick → SetText → GetSelectionTargetLabel` chain in `UI_Strategy`'s EventGraph that broke
+   the compile. Both this and a second MCP trap found here (a failed `GetWidgets` probe poisoning
+   an asset name for the rest of the session) are now in the `mcp-workflow` skill.
+
+#### Worth knowing before Slice 3
+
+**Test-only concrete actors now exist.** `Source/smores/Tests/SmoresStrategyTestActors.h` holds a
+spawnable subclass of `AStrategyUnit`, `AStrategyPlayerUnit` and `AStrategyContainer` — the real
+ones are all `UCLASS(abstract)` and cannot be spawned at all. Slice 3's portrait bar wants the same
+three; add to that file rather than starting a second one.
+
+**Don't drive real AI entry points from a test.** `SetAggressive(true)` fails in both directions:
+with no player pawn in the world the unit stands straight back down on its first retarget tick, and
+with one it starts a real fight needing a skeletal mesh or a navmesh. `ATestStrategyNPC::
+MakeHostileForTest` sets the one piece of state the code under test reads, and says why in a
+comment. Recorded in `testing.md`.
 
 ### Slice 3 — Squad portrait bar and the activity feed
 

@@ -4,10 +4,14 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "GamePace.h"
 #include "StrategyUI.generated.h"
 
 class UNavRailWidget;
 class UResourceStripWidget;
+class UTimePaceWidget;
+class UTargetPanelWidget;
+struct FStrategyTargetInfo;
 
 /**
  *  The always-on HUD root, spawned by AStrategyHUD::BeginPlay at Z-order 0 (below every floating
@@ -33,9 +37,6 @@ protected:
 	/** Number of units currently selected */
 	int32 SelectedUnitCount = 0;
 
-	/** Text describing the currently targeted pawn, NPC, or container (e.g. "Pawn: Pawn 1") */
-	FText SelectionTargetLabel;
-
 	/** The left-hand panel rail. Name it "NavRail" in the WBP to auto-bind. */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UNavRailWidget> NavRail;
@@ -44,13 +45,24 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UResourceStripWidget> ResourceStrip;
 
+	/** The top-centre simulation-speed strip. Name it "TimePaceRegion" in the WBP to auto-bind. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTimePaceWidget> TimePaceRegion;
+
+	/** The top-right "what did I just click" panel. Name it "TargetPanelRegion" in the WBP to auto-bind. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTargetPanelWidget> TargetPanelRegion;
+
 public:
 
 	/** Sets the number of units selected */
 	void SetSelectedUnitsCount(int32 Count);
 
-	/** Sets the currently targeted pawn/NPC/container label */
-	void SetSelectionTargetLabel(const FText& Label);
+	/** Sets everything the target panel draws. Forwarded to that region, which owns the display. */
+	void SetTargetInfo(const FStrategyTargetInfo& TargetInfo);
+
+	/** Sets the simulation's current speed. Forwarded to the pace strip, which owns the readout. */
+	void SetPace(EGamePace Pace);
 
 	/** Sets the owning player's gold balance. Forwarded to the resource strip, which owns the readout. */
 	void SetGold(int32 NewGold);
@@ -67,8 +79,4 @@ protected:
 	/** Returns the number of units selected */
 	UFUNCTION(BlueprintPure, Category="UI")
 	int32 GetSelectedUnitsCount() { return SelectedUnitCount; }
-
-	/** Returns the currently targeted pawn/NPC/container label */
-	UFUNCTION(BlueprintPure, Category="UI")
-	FText GetSelectionTargetLabel() { return SelectionTargetLabel; }
 };

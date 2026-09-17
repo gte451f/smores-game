@@ -9,6 +9,7 @@
 class UStrategyUI;
 class URefusalWidget;
 class UWalletComponent;
+class UTimePaceComponent;
 
 /**
  *  Simple strategy game HUD
@@ -67,6 +68,11 @@ protected:
 	 *  lookup re-runs only while the pointer is still null. */
 	TWeakObjectPtr<UWalletComponent> CachedWallet;
 
+	/** The session's pace component, resolved once and held. Same shape as CachedWallet and for
+	 *  the same reason: the GameState replicates in late on a client, so a miss early on is
+	 *  normal and simply retries next frame rather than being cached as a negative. */
+	TWeakObjectPtr<UTimePaceComponent> CachedTimePace;
+
 public:
 
 	/** Initialization */
@@ -92,4 +98,13 @@ protected:
 
 	/** The owning player's wallet component, looked up through its PlayerState and cached */
 	UWalletComponent* GetWallet();
+
+	/**
+	 *  The session's simulation-pace component, looked up on the GameState and cached.
+	 *
+	 *  Found by component class rather than by casting to AStrategyGameState, because SmoresUI
+	 *  cannot include anything from `smores` - and doesn't need to: AGameStateBase is an engine
+	 *  type, exactly like the APlayerState the wallet hangs off.
+	 */
+	UTimePaceComponent* GetTimePace();
 };

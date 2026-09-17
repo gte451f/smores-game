@@ -7,9 +7,10 @@ the standing rule for when a piece of work should add to it. The forward-looking
 still needs building, in what order, and the decisions behind it — lives in
 `Docs/roadmaps/testing-roadmap.md`.
 
-> **Status: the harness is built and Slices 1 and 2 have shipped.** 73 tests run green, covering
-> `SmoresItems`, `SmoresEconomy`, `UHealthComponent` and the content smoke tests. Only Slice 3 of
-> `Docs/roadmaps/testing-roadmap.md` remains. Everything below has been executed against this
+> **Status: the harness is built and Slices 1 and 2 have shipped.** 86 tests run green, covering
+> `SmoresItems`, `SmoresEconomy`, `UHealthComponent`, the content smoke tests, and (added by the
+> HUD roadmap's Slice 2) the time-pace ladder and the target panel's action assembly. Only Slice 3
+> of `Docs/roadmaps/testing-roadmap.md` remains. Everything below has been executed against this
 > project rather than written in advance.
 
 `Automation_smores.slnx` is **not** a test setup. It is a solution file that pulls in Epic's own
@@ -33,11 +34,15 @@ them test smores.
 | Health state machine (Alive/Downed/Dead) and its timer | `SmoresCombat` | ✅ 9 tests | 2 |
 | `UItemDefinition` assets under `Content/` | `SmoresItems` | ✅ 3 tests | 2 |
 | Both maps still load | `smores` | ✅ 1 test | 2 |
+| Time-pace ladder (tiers, dilation, stepping, clamping, authority) | `SmoresCore` | ✅ 6 tests | HUD 2 |
+| Target-panel action assembly (per target kind, reach, hostility) | `smores` | ✅ 7 tests | HUD 2 |
 | Attack range / out-of-range branch | `SmoresCombat` | — | unclaimed |
 | Trade transaction ordering | `smores` | — | 3 |
 
-**73 tests as of Slice 2.** Update this table as slices ship; it is the quick answer to "is this
-already covered?"
+**86 tests.** The last two rows were added by `Docs/roadmaps/hud-roadmap.md`'s Slice 2, not by the
+testing roadmap — a slice that ships numbers-and-state-machine code writes its own tests, whichever
+roadmap it came from. Update this table as slices ship; it is the quick answer to "is this already
+covered?"
 
 ## What Is Deliberately Not Covered
 
@@ -457,6 +462,26 @@ least one before checking anything — the same "check the number, not the colou
   the trade transaction all meet there and none of it separates cleanly. That is the price of the
   controller being where variant-specific glue lives; `Docs/roadmaps/testing-roadmap.md` Slice 3 takes one
   scoped run at the transaction and is allowed to abandon it.
+  - **`BuildTargetInfo` is the worked example of the way out**, and worth copying. It was written
+    as a `public static` taking the selection as a parameter rather than reading `ControlledUnits`
+    off the instance, so a test calls it with a hand-built array and no controller at all. Where a
+    rule genuinely belongs on the controller, making it a static that takes its inputs explicitly
+    costs nothing and is the difference between testable and not.
+- **Abstract gameplay actors need a concrete stand-in to be spawned at all.**
+  `AStrategyUnit`, `AStrategyPlayerUnit` and `AStrategyContainer` are all `UCLASS(abstract)` per
+  the project's standing rule, and an abstract class cannot be spawned. `Source/smores/Tests/
+  SmoresStrategyTestActors.h` holds one concrete subclass of each, unguarded by
+  `WITH_DEV_AUTOMATION_TESTS` for the same reason `USmoresTestDelegateListener` is — UHT parses
+  every header regardless. Each disables `AutoPossessAI`; a unit test has no navmesh and wants no
+  AI controller. Add to that file rather than starting a second one.
+- **Driving real AI entry points from a test costs more than it's worth.** `SetAggressive(true)`
+  looked like the honest way to make an NPC hostile and is a trap in both directions: with no
+  player pawn in the world it immediately stands the unit back down (`TryEngageNearestPlayerPawn`
+  finds nothing to fight), and *with* one it starts a real fight — an attack montage needing a
+  skeletal mesh, or an EQS move needing a navmesh and a query asset. `ATestStrategyNPC::
+  MakeHostileForTest` sets the one piece of state the code under test reads. The general shape:
+  when a setter has behaviour attached, a test of something downstream of its *state* should set
+  the state, and say in a comment why it isn't using the setter.
 - **No CI.** Every run is manual. `Docs/roadmaps/testing-roadmap.md` Slice 3 optionally wraps the command in a script;
   there
   is no build server and none is planned.

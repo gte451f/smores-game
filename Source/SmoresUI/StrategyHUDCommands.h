@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "UObject/Interface.h"
 #include "HUDPanel.h"
+#include "GamePace.h"
 #include "StrategyHUDCommands.generated.h"
 
 class AStrategyUnit;
@@ -45,6 +46,16 @@ public:
 	virtual bool IsPanelOpen(EHUDPanel Panel) const = 0;
 
 	/**
+	 *  Asks for the simulation to run at the given tier. The pace strip's buttons and the `Space`,
+	 *  `-` and `=` keys all come through here.
+	 *
+	 *  A request, not a setter: pace is shared world state living on the GameState, which a client
+	 *  cannot RPC. The controller owns the client, so it is the one thing that can carry the ask
+	 *  to the server. Whether it is granted is the server's call - see UTimePaceComponent.
+	 */
+	virtual void RequestPace(EGamePace Pace) = 0;
+
+	/**
 	 *  Selects the given unit, optionally cutting the camera to it. The squad portrait bar's
 	 *  click and double-click.
 	 *
@@ -56,8 +67,6 @@ public:
 	 *  Runs the action the target panel offered under this id (open a container, talk, attack,
 	 *  loot). The panel only ever offers what the controller's own gating helpers already
 	 *  permit, so this re-checks rather than trusts.
-	 *
-	 *  Stubbed until the target panel exists - see Docs/roadmaps/hud-roadmap.md, Slice 2.
 	 */
 	virtual void RequestTargetAction(FName ActionId) = 0;
 };

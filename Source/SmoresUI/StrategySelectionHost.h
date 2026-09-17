@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Interface.h"
+#include "StrategyTargetInfo.h"
 #include "StrategySelectionHost.generated.h"
 
 class AStrategyUnit;
@@ -27,6 +28,14 @@ public:
 	/** Returns the currently selected units */
 	virtual const TArray<AStrategyUnit*>& GetSelectedUnits() = 0;
 
-	/** Returns the label text for whichever pawn, NPC, or container was most recently selected, or empty if none */
-	virtual FText GetSelectionTargetLabel() const = 0;
+	/**
+	 *  Everything the target panel draws about whichever pawn, NPC, or container was most recently
+	 *  selected - name, what it is, how far away, its health, and what the player may do to it.
+	 *  Returns a struct with an empty DisplayName when nothing is targeted.
+	 *
+	 *  This **replaced** GetSelectionTargetLabel rather than joining it. One path, not two: a
+	 *  label built separately from the panel would eventually name a different target than the
+	 *  action row acted on.
+	 */
+	virtual FStrategyTargetInfo GetSelectionTargetInfo() const = 0;
 };

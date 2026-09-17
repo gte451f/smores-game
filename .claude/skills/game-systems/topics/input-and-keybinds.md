@@ -36,29 +36,37 @@ Amend this topic in the same change as any new binding.
 | `M` | `IA_Strategy_MapPanel` | Toggle the world map panel (a stub today) |
 | `U` | `IA_Strategy_ResearchPanel` | Toggle the research panel (a stub today) |
 | `F1` | `IA_Strategy_HelpPanel` | Toggle the keybind list — the in-game copy of this table |
+| `Space` | `IA_Strategy_TogglePause` | Freeze the simulation, or return it to the speed it was running at |
+| `-` | `IA_Strategy_PaceSlower` | Step the pace ladder one tier slower, clamping at paused |
+| `=` | `IA_Strategy_PaceFaster` | Step the pace ladder one tier faster, clamping at 8× |
 
-Each of those four has a nav-rail button that does the identical thing; both routes run
+Each of the four panel keys has a nav-rail button that does the identical thing; both routes run
 `IStrategyHUDCommands::RequestPanel`, so they cannot drift apart. `I` (above) gained a rail button
 the same way.
 
-### Mapped and bound, but not yet implemented
+The three time keys work the same way against the pace strip's buttons, through
+`IStrategyHUDCommands::RequestPace` — but they cover **more** ground than the buttons do. The
+ladder is paused, 1/3×, 1/2×, 3/4×, 1×, 2×, 4×, 8×; the strip has buttons for only four of those,
+and `-`/`=` walk all eight. That is deliberate, not an omission — see `hud-and-panels.md`.
 
-These four keys have real action assets, real mappings in `IMC_Strategy_Mouse`, and real bindings
-in `SetupInputComponent`. Each handler currently only writes a log line naming the slice that will
-implement it.
+`T`, `O` and `H` likewise each have a button on the target panel's action row when the current
+target is one they apply to.
+
+### Mapped and bound, but not yet implemented
 
 | Key | Action asset | Will do | Lands in |
 |---|---|---|---|
-| `Space` | `IA_Strategy_TogglePause` | Toggle pause (the bottom tier of the time-pace ladder) | `hud-roadmap.md` Slice 2 |
-| `-` | `IA_Strategy_PaceSlower` | Step the pace ladder one tier slower | Slice 2 |
-| `=` | `IA_Strategy_PaceFaster` | Step the pace ladder one tier faster | Slice 2 |
-| `L` | `IA_Strategy_ToggleActivityFeed` | Expand / collapse the activity feed | Slice 3 |
+| `L` | `IA_Strategy_ToggleActivityFeed` | Expand / collapse the activity feed | `hud-roadmap.md` Slice 3 |
 
-They were mapped early on purpose: `UInputMappingContext` mappings have to be authored by hand in
-the editor, so all eight of the HUD round's keys were done in one pass rather than three.
-**Treat these four keys as taken** — they are not free, and the logging is what distinguishes a
-mistyped mapping from an unimplemented feature when one of them appears not to work. They are
-deliberately absent from the in-game help panel until they do something.
+This key has a real action asset, a real mapping in `IMC_Strategy_Mouse`, and a real binding in
+`SetupInputComponent`; its handler currently only writes a log line naming the slice that will
+implement it.
+
+It was mapped early on purpose, along with `Space`, `-` and `=` (which Slice 2 implemented):
+`UInputMappingContext` mappings have to be authored by hand in the editor, so all eight of the HUD
+round's keys were done in one pass rather than three. **Treat `L` as taken** — it is not free, and
+the logging is what distinguishes a mistyped mapping from an unimplemented feature when it appears
+not to work. It is deliberately absent from the in-game help panel until it does something.
 
 ### Defaults — inventory (`IMC_Strategy_Inventory`, priority 1, only while a window is open)
 
@@ -246,7 +254,7 @@ now means either a conflict later or a default that surprises the player.
 
 **`T`, `M` and `Space` have left this list** — all three are mapped now, in the tables above. `M`
 and `Space` went to the systems they were being held for (the map panel, pause), which is the list
-working as intended.
+working as intended, and `Space` now actually pauses rather than logging that it will.
 
 **`F1`–`F4` has been dropped rather than shrunk.** It was held for "select squad member N, if
 party-slot selection is ever wanted"; `F1` is now the help panel, which is the near-universal PC

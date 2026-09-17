@@ -38,6 +38,9 @@
 #include "ItemDefinition.h"
 #include "Components/CapsuleComponent.h"
 #include "Blueprint/UserWidget.h"
+#include "StrategyGameState.h"
+#include "TimePaceComponent.h"
+#include "StrategyTargetInfo.h"
 #include "smores.h"
 
 #define LOCTEXT_NAMESPACE "StrategyPlayerController"
@@ -758,6 +761,22 @@ bool AStrategyPlayerController::IsPanelOpen(EHUDPanel Panel) const
 	return Found && *Found && (*Found)->IsInViewport();
 }
 
+void AStrategyPlayerController::RequestPace(EGamePace Pace)
+{
+	// Unlike RequestPanel, this is *not* local UI state - it changes the simulation for everyone
+	// in the session. The client can't touch the GameState that owns it, so the ask goes to the
+	// server through the one actor this client does own.
+	Server_RequestPace(Pace);
+}
+
+void AStrategyPlayerController::Server_RequestPace_Implementation(EGamePace Pace)
+{
+	if (UTimePaceComponent* TimePace = GetTimePace())
+	{
+		TimePace->SetPace(Pace);
+	}
+}
+
 void AStrategyPlayerController::OpenPanel(EHUDPanel Panel)
 {
 	if (!IsLocalPlayerController())
@@ -804,9 +823,71 @@ void AStrategyPlayerController::RequestSelectUnit(AStrategyUnit* Unit, bool bFoc
 
 void AStrategyPlayerController::RequestTargetAction(FName ActionId)
 {
-	// The target panel's action row. Nothing calls this yet - see Docs/roadmaps/hud-roadmap.md,
-	// Slice 2, which builds the panel and routes each action back through the gating helpers
-	// (GetLootableNPC, GetInteractableNPC and friends) rather than duplicating their rules.
+	AActor* Target = LastSelectionTarget.Get();
+
+	if (!IsValid(Target))
+	{
+		return;
+	}
+
+	// Rebuild the row and look the action up in it, rather than trusting the button that sent it.
+	// The panel the player clicked is a frame old, and a frame is long enough for the squad to
+	// have walked out of range - so the gate that *offered* the action is the gate that decides
+	// it, by construction rather than by two checks that agree today.
+	const FStrategyTargetInfo Info = BuildTargetInfo(Target, ControlledUnits);
+
+	const FTargetAction* Action = Info.Actions.FindByPredicate([ActionId](const FTargetAction& Candidate)
+	{
+		return Candidate.Id == ActionId;
+	});
+
+	if (!Action)
+	{
+		// no longer on offer at all - the target changed state between the draw and the click
+		return;
+	}
+
+	if (!Action->bEnabled)
+	{
+		// the button was greyed out and the player clicked it anyway (or it went grey in between).
+		// Saying why beats doing nothing - same line the key press would have raised.
+		NotifyRefusal(Action->DisabledReason);
+		return;
+	}
+
+	// each branch runs exactly what the equivalent key runs. Nothing here re-implements an
+	// action; the panel is a second route to the same behaviour, never a lookalike of it.
+	if (ActionId == StrategyTargetAction::Open())
+	{
+		if (AStrategyContainer* Container = Cast<AStrategyContainer>(Target))
+		{
+			// opening a container always leaves it highlighted, same as the `O` key's path
+			SetSelectedContainer(Container);
+
+			OpenContainer(Container);
+		}
+	}
+	else if (ActionId == StrategyTargetAction::Loot())
+	{
+		if (AStrategyUnit* Body = Cast<AStrategyUnit>(Target))
+		{
+			OpenLoot(Body);
+		}
+	}
+	else if (ActionId == StrategyTargetAction::Talk())
+	{
+		if (AStrategyUnit* NPC = Cast<AStrategyUnit>(Target))
+		{
+			InteractWithNPC(NPC);
+		}
+	}
+	else if (ActionId == StrategyTargetAction::Attack())
+	{
+		if (AStrategyUnit* NPC = Cast<AStrategyUnit>(Target))
+		{
+			DoAttackCommand(NPC);
+		}
+	}
 }
 
 void AStrategyPlayerController::SquadPanelKeyPressed(const FInputActionValue& Value)
@@ -831,20 +912,37 @@ void AStrategyPlayerController::HelpPanelKeyPressed(const FInputActionValue& Val
 
 void AStrategyPlayerController::TogglePauseKeyPressed(const FInputActionValue& Value)
 {
-	// Bound and mapped now so the key mapping can be proven in the same editor pass as the other
-	// seven; the pace ladder it drives is Slice 2. Logging rather than doing nothing is the point -
-	// it's how a mistyped mapping is told apart from an unimplemented one.
-	UE_LOG(Logsmores, Log, TEXT("Pause key pressed - time pace arrives in Slice 2 of the HUD roadmap."));
+	const UTimePaceComponent* TimePace = GetTimePace();
+
+	if (!TimePace)
+	{
+		return;
+	}
+
+	// The tier to come back to is read off the component, not remembered here: in co-op one
+	// player can pause and another unpause, and they have to arrive at the same speed. Both
+	// values are replicated, so this reads correctly on a client.
+	RequestPace(TimePace->IsPaused() ? TimePace->GetResumePace() : EGamePace::Paused);
 }
 
 void AStrategyPlayerController::PaceSlowerKeyPressed(const FInputActionValue& Value)
 {
-	UE_LOG(Logsmores, Log, TEXT("Pace-slower key pressed - time pace arrives in Slice 2 of the HUD roadmap."));
+	RequestPaceStep(-1);
 }
 
 void AStrategyPlayerController::PaceFasterKeyPressed(const FInputActionValue& Value)
 {
-	UE_LOG(Logsmores, Log, TEXT("Pace-faster key pressed - time pace arrives in Slice 2 of the HUD roadmap."));
+	RequestPaceStep(1);
+}
+
+void AStrategyPlayerController::RequestPaceStep(int32 Steps)
+{
+	if (const UTimePaceComponent* TimePace = GetTimePace())
+	{
+		// stepping from the replicated current tier rather than from a local guess, so holding the
+		// key can't run the client's idea of the pace ahead of the server's
+		RequestPace(UTimePaceComponent::StepPace(TimePace->GetPace(), Steps));
+	}
 }
 
 void AStrategyPlayerController::ToggleActivityFeedKeyPressed(const FInputActionValue& Value)
@@ -1949,6 +2047,15 @@ UWalletComponent* AStrategyPlayerController::GetWallet() const
 	return StrategyPlayerState ? StrategyPlayerState->GetWallet() : nullptr;
 }
 
+UTimePaceComponent* AStrategyPlayerController::GetTimePace() const
+{
+	// one per session, on the GameState - never a per-player copy, and never a singleton lookup
+	// that assumes there is only one of anything else
+	AStrategyGameState* StrategyGameState = GetWorld() ? GetWorld()->GetGameState<AStrategyGameState>() : nullptr;
+
+	return StrategyGameState ? StrategyGameState->GetTimePace() : nullptr;
+}
+
 void AStrategyPlayerController::SmoresAddGold(int32 Amount)
 {
 	Server_DebugGold(Amount, /*bSpend =*/ false);
@@ -2611,14 +2718,20 @@ AActor* AStrategyPlayerController::FindHolderActorAtLocation(TSubclassOf<AActor>
 
 bool AStrategyPlayerController::IsHolderInRangeOfSelection(const AActor* HolderActor) const
 {
+	return IsHolderInRangeOfUnits(HolderActor, ControlledUnits);
+}
+
+bool AStrategyPlayerController::IsHolderInRangeOfUnits(const AActor* HolderActor, const TArray<AStrategyUnit*>& Units)
+{
 	const IInventoryHolder* Holder = Cast<IInventoryHolder>(HolderActor);
 
 	if (!Holder)
 	{
+		// an actor that isn't a holder has no reach to be inside of, so it is never in range
 		return false;
 	}
 
-	for (AStrategyUnit* CurrentUnit : ControlledUnits)
+	for (AStrategyUnit* CurrentUnit : Units)
 	{
 		if (IsValid(CurrentUnit) && Holder->IsInRangeOf(CurrentUnit))
 		{
@@ -2873,32 +2986,154 @@ void AStrategyPlayerController::SetSelectedNPC(AStrategyUnit* NewNPC)
 	}
 }
 
-FText AStrategyPlayerController::GetSelectionTargetLabel() const
+FStrategyTargetInfo AStrategyPlayerController::GetSelectionTargetInfo() const
 {
-	AActor* Target = LastSelectionTarget.Get();
+	return BuildTargetInfo(LastSelectionTarget.Get(), ControlledUnits);
+}
+
+FStrategyTargetInfo AStrategyPlayerController::BuildTargetInfo(const AActor* Target, const TArray<AStrategyUnit*>& SelectionUnits)
+{
+	FStrategyTargetInfo Info;
 
 	if (!IsValid(Target))
 	{
-		return FText::GetEmpty();
+		// bHasTarget stays false, which is how the panel knows to hide itself entirely
+		return Info;
 	}
 
-	if (AStrategyContainer* Container = Cast<AStrategyContainer>(Target))
+	// distance is measured from the nearest selected unit, because that is the unit that would
+	// actually carry out whatever the player asks for. With nothing selected there is nothing to
+	// measure from, and the panel says so by leaving the figure negative rather than printing 0m.
+	float NearestDistanceSquared = -1.0f;
+
+	for (const AStrategyUnit* CurrentUnit : SelectionUnits)
 	{
-		return FText::FromString(FString::Printf(TEXT("Container: %s"), *Container->GetHolderDisplayName().ToString()));
+		if (!IsValid(CurrentUnit))
+		{
+			continue;
+		}
+
+		const float DistanceSquared = FVector::DistSquared(CurrentUnit->GetActorLocation(), Target->GetActorLocation());
+
+		if (NearestDistanceSquared < 0.0f || DistanceSquared < NearestDistanceSquared)
+		{
+			NearestDistanceSquared = DistanceSquared;
+		}
 	}
 
-	// AStrategyPlayerUnit derives from AStrategyUnit, so it must be checked first
-	if (AStrategyPlayerUnit* TargetPawn = Cast<AStrategyPlayerUnit>(Target))
+	if (NearestDistanceSquared >= 0.0f)
 	{
-		return FText::FromString(FString::Printf(TEXT("Pawn: %s"), *TargetPawn->GetHolderDisplayName().ToString()));
+		// Unreal units are centimetres; the wireframe reads in metres
+		Info.DistanceMeters = FMath::Sqrt(NearestDistanceSquared) / 100.0f;
 	}
 
-	if (AStrategyUnit* NPC = Cast<AStrategyUnit>(Target))
+	// real reach, not click precision - the holder's own interaction sphere, which is the same
+	// gate every transfer in the game already uses
+	const bool bInRange = IsHolderInRangeOfUnits(Target, SelectionUnits);
+	const ESmoresRefusalReason RangeRefusal = bInRange ? ESmoresRefusalReason::None : ESmoresRefusalReason::TooFar;
+
+	if (const AStrategyContainer* Container = Cast<AStrategyContainer>(Target))
 	{
-		return FText::FromString(FString::Printf(TEXT("NPC: %s"), *NPC->GetHolderDisplayName().ToString()));
+		Info.bHasTarget = true;
+		Info.DisplayName = Container->GetHolderDisplayName();
+		Info.Classification = LOCTEXT("TargetClassContainer", "CONTAINER");
+
+		FTargetAction OpenAction;
+		OpenAction.Id = StrategyTargetAction::Open();
+		OpenAction.Label = LOCTEXT("TargetActionOpen", "Open");
+		OpenAction.KeyHint = LOCTEXT("TargetKeyOpen", "O");
+		OpenAction.bEnabled = bInRange;
+		OpenAction.DisabledReason = RangeRefusal;
+
+		Info.Actions.Add(OpenAction);
+
+		return Info;
 	}
 
-	return FText::GetEmpty();
+	const AStrategyUnit* Unit = Cast<AStrategyUnit>(Target);
+
+	if (!Unit)
+	{
+		// something targetable that is neither a container nor a unit doesn't exist today; if one
+		// ever does, it gets a name and no actions rather than a wrong action row
+		return Info;
+	}
+
+	Info.bHasTarget = true;
+	Info.DisplayName = Unit->GetHolderDisplayName();
+
+	if (const UHealthComponent* Health = Unit->GetHealth())
+	{
+		Info.bHasHealth = true;
+		Info.HealthFraction = Health->MaxHealth > 0.0f
+			? FMath::Clamp(Health->GetHealth() / Health->MaxHealth, 0.0f, 1.0f)
+			: 0.0f;
+	}
+
+	// AStrategyPlayerUnit derives from AStrategyUnit, so it has to be checked first
+	if (Cast<AStrategyPlayerUnit>(Unit))
+	{
+		Info.Classification = Unit->IsIncapacitated()
+			? LOCTEXT("TargetClassSquadDown", "SQUAD - DOWN")
+			: LOCTEXT("TargetClassSquad", "SQUAD");
+
+		// Deliberately no actions. Everything the player does with their own pawn - the pack, the
+		// paperdoll, a move order - already has a route that doesn't involve this panel, and a row
+		// of disabled buttons on a squad member would teach a rule that doesn't exist.
+		return Info;
+	}
+
+	if (AStrategyPlayerController::IsLootableNPC(Unit))
+	{
+		// Downed and Dead are the same thing here, exactly as they are to the `O` key
+		Info.Classification = LOCTEXT("TargetClassBody", "BODY");
+
+		FTargetAction LootAction;
+		LootAction.Id = StrategyTargetAction::Loot();
+		LootAction.Label = LOCTEXT("TargetActionLoot", "Loot");
+		LootAction.KeyHint = LOCTEXT("TargetKeyLoot", "O");
+		LootAction.bEnabled = bInRange;
+		LootAction.DisabledReason = RangeRefusal;
+
+		Info.Actions.Add(LootAction);
+
+		return Info;
+	}
+
+	const bool bHostile = Unit->IsAggressive();
+
+	Info.Classification = bHostile
+		? LOCTEXT("TargetClassPersonHostile", "PERSON - HOSTILE")
+		: LOCTEXT("TargetClassPersonNeutral", "PERSON - NEUTRAL");
+
+	// Talk is offered on anyone on their feet, enabled or not. Greyed out because they are
+	// currently trying to kill you is the rule made visible; leaving the button off the row
+	// would teach nothing.
+	const bool bInteractable = AStrategyPlayerController::IsInteractableNPC(Unit);
+
+	FTargetAction TalkAction;
+	TalkAction.Id = StrategyTargetAction::Talk();
+	TalkAction.Label = LOCTEXT("TargetActionTalk", "Talk");
+	TalkAction.KeyHint = LOCTEXT("TargetKeyTalk", "T");
+	TalkAction.bEnabled = bInteractable && bInRange;
+	TalkAction.DisabledReason = !bInteractable ? ESmoresRefusalReason::NotInteractable : RangeRefusal;
+
+	Info.Actions.Add(TalkAction);
+
+	// Attack has no range gate, and correctly so - DoAttackCommand sends the squad to close the
+	// distance. What it can't do is start a fight that is already running, which is why someone
+	// already hostile gets the button disabled with no reason given: "you are already doing this"
+	// is not a refusal.
+	FTargetAction AttackAction;
+	AttackAction.Id = StrategyTargetAction::Attack();
+	AttackAction.Label = LOCTEXT("TargetActionAttack", "Attack");
+	AttackAction.KeyHint = LOCTEXT("TargetKeyAttack", "H");
+	AttackAction.bEnabled = !bHostile;
+	AttackAction.DisabledReason = ESmoresRefusalReason::None;
+
+	Info.Actions.Add(AttackAction);
+
+	return Info;
 }
 
 FVector2D AStrategyPlayerController::GetMouseLocationForPlayer()

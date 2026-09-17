@@ -32,6 +32,7 @@ class UEquipmentComponent;
 class AStrategyPlayerState;
 class UWalletComponent;
 class UTraderComponent;
+class UTimePaceComponent;
 class IInventoryHolder;
 
 /**
@@ -402,10 +403,26 @@ public:
 	/** Passes the list of selected units */
 	virtual const TArray<AStrategyUnit*>& GetSelectedUnits() override;
 
-	/** Returns the label text for whichever pawn, NPC, or container was most recently selected, or empty if none */
-	virtual FText GetSelectionTargetLabel() const override;
+	/** Everything the target panel draws about whichever pawn, NPC, or container was most recently
+	 *  selected, or a struct with an empty name if none */
+	virtual FStrategyTargetInfo GetSelectionTargetInfo() const override;
 
 	//~ End IStrategySelectionHost interface
+
+	/**
+	 *  Everything the target panel draws about Target, measured and gated against SelectionUnits.
+	 *
+	 *  Static, and takes the selection explicitly, for two reasons. It is the one piece of this
+	 *  controller that is worth a test - an action row that quietly offers something the rules
+	 *  forbid is exactly the silent kind of wrong - and a static taking a unit array can be
+	 *  called from a test world with no controller in it at all. It also makes the dependency
+	 *  honest: the row depends on the target and the selection, and on nothing else. Public for
+	 *  that test's sake - the gating predicates it calls stay protected.
+	 *
+	 *  Every action it offers reuses the existing gating predicates (IsLootableNPC,
+	 *  IsInteractableNPC, IsHolderInRangeOfUnits) rather than restating their rules.
+	 */
+	static FStrategyTargetInfo BuildTargetInfo(const AActor* Target, const TArray<AStrategyUnit*>& SelectionUnits);
 
 	//~ Begin IStrategyCameraCommands interface
 
@@ -423,17 +440,25 @@ public:
 	/** True while the named panel's window is on screen */
 	virtual bool IsPanelOpen(EHUDPanel Panel) const override;
 
+	/** Asks the server to run the simulation at the given tier. The pace strip's buttons and the
+	 *  Space / - / = keys all arrive here. */
+	virtual void RequestPace(EGamePace Pace) override;
+
 	/** Selects the given unit, optionally cutting the camera to it. Stub until the squad portrait
 	 *  bar exists - Docs/roadmaps/hud-roadmap.md, Slice 3. */
 	virtual void RequestSelectUnit(AStrategyUnit* Unit, bool bFocusCamera) override;
 
-	/** Runs a target-panel action by id. Stub until the target panel exists - Slice 2. */
+	/** Runs a target-panel action by id, re-checking the same gate that offered it */
 	virtual void RequestTargetAction(FName ActionId) override;
 
 	//~ End IStrategyHUDCommands interface
 
 	/** This controller's player state, or null if it hasn't replicated in yet */
 	AStrategyPlayerState* GetStrategyPlayerState() const;
+
+	/** The session's simulation-pace component, or null if the GameState hasn't replicated in yet.
+	 *  Shared world state living on the GameState - there is one of it per session, not per player. */
+	UTimePaceComponent* GetTimePace() const;
 
 	/** This controller's player's wallet, or null if the player state hasn't replicated in yet.
 	 *  Keyed off this controller's own player state - there is no global balance. */
@@ -489,15 +514,17 @@ protected:
 	/** Opens or closes the keybind/help panel */
 	void HelpPanelKeyPressed(const FInputActionValue& Value);
 
-	/** Toggles pause. Bound so the key mapping can be verified now; the pace ladder it will drive
-	 *  arrives in Slice 2 of Docs/roadmaps/hud-roadmap.md. */
+	/** Freezes the simulation, or returns it to whatever speed it was running at */
 	void TogglePauseKeyPressed(const FInputActionValue& Value);
 
-	/** Steps the pace ladder one tier slower (Slice 2) */
+	/** Steps the pace ladder one tier slower */
 	void PaceSlowerKeyPressed(const FInputActionValue& Value);
 
-	/** Steps the pace ladder one tier faster (Slice 2) */
+	/** Steps the pace ladder one tier faster */
 	void PaceFasterKeyPressed(const FInputActionValue& Value);
+
+	/** Asks for the tier Steps rungs from the current one. The shared body of the two keys above. */
+	void RequestPaceStep(int32 Steps);
 
 	/** Expands or collapses the activity feed (Slice 3) */
 	void ToggleActivityFeedKeyPressed(const FInputActionValue& Value);
@@ -664,6 +691,17 @@ private:
 	/** Server-side implementation of DoAttackCommand - see Server_MoveUnits for why Units travels explicitly */
 	UFUNCTION(Server, Reliable)
 	void Server_AttackCommand(const TArray<AStrategyUnit*>& Units, AStrategyUnit* Target);
+
+	/**
+	 *  Server-side implementation of RequestPace.
+	 *
+	 *  The pace lives on the GameState, which a client cannot RPC because it doesn't own it - but
+	 *  it does own this controller, so the ask travels here and the server hands it to
+	 *  UTimePaceComponent::SetPace. Nothing is gated per player today: any player may change the
+	 *  pace, which is a provisional call recorded in hud-roadmap.md's Open Questions.
+	 */
+	UFUNCTION(Server, Reliable)
+	void Server_RequestPace(EGamePace Pace);
 
 public:
 
@@ -912,6 +950,12 @@ protected:
 	 *  than the bare IInventoryHolder so callers can hand over whatever they already have; an
 	 *  actor that doesn't implement the interface is simply never in range. */
 	bool IsHolderInRangeOfSelection(const AActor* HolderActor) const;
+
+	/** The body of IsHolderInRangeOfSelection with the selection passed in rather than read off
+	 *  this controller, so BuildTargetInfo can apply the identical reach rule without an instance.
+	 *  One rule, one place - a second copy would eventually disagree about what "in range" means. */
+	static bool IsHolderInRangeOfUnits(const AActor* HolderActor, const TArray<AStrategyUnit*>& Units);
+
 
 	/** Returns true if Unit is an NPC that can be looted - i.e. not one of the player's own pawns,
 	 *  and Downed or Dead. The one place that rule is written down. */

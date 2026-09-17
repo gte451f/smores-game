@@ -288,6 +288,27 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   failure. `UMGToolSet.CompileWidgetBlueprint` returns a real bool and surfaces
   `BindWidget`/type errors — prefer it for widget Blueprints, and confirm in the log
   (`LogBlueprint: Compiling Blueprint ...`).
+- **A failed existence probe poisons the asset name for the rest of the session.** Calling
+  `UMGToolSet.GetWidgets` (or anything else that resolves a soft path) on a WBP that doesn't exist
+  yet leaves an empty in-memory `UPackage` behind — the log says
+  `LogUObjectGlobals: Failed to find object ...` — and every later `CreateWidgetBlueprint` at that
+  exact path then fails with **"The path already exists"**, while `AssetTools.exists` returns
+  `false` and `ListWidgetBlueprints` doesn't list it. It reads as a phantom asset, and the obvious
+  next move (check whether it exists) actively confirms the wrong answer. **Probe with
+  `AssetTools.exists`, never with `GetWidgets` or a soft-path resolve**, which matters precisely
+  because an idempotent batch script (see the `execute_tool_script` bullet) *wants* to check first.
+  Recovery without restarting the editor: create the asset under a throwaway name and
+  `AssetTools.move` it onto the wanted path — that works and leaves no redirector, but verify no
+  file remains at the throwaway path afterwards.
+- **When C++ removes a `BlueprintPure` a widget consumed, check the WBP's EventGraph, not just its
+  widget tree.** Deleting the widgets that displayed the value is not enough if the value was
+  pushed by an `Event Tick` → `SetText` → `<the removed function>` chain rather than by a property
+  binding — `CompileWidgetBlueprint` then fails with *"Could not find a function named X"* and
+  names the function but not where it is used. `BlueprintTools.read_graph_dsl` on the EventGraph is
+  the way to find it; `delete_node` on each node in the chain is the fix. Hit while removing
+  `UStrategyUI::GetSelectionTargetLabel`, where the readout looked like a property binding and
+  wasn't. **The cheap advance check is a binary grep of `Content/` for the function name** before
+  touching the C++ — it finds the asset regardless of how the value was wired.
 - **`UMGToolSet.ReplaceWidgetWithTemplate` is the right tool for a panel-class swap.** It
   preserves the widget's name, its existing parent slot object *and* that slot's settings, and
   the C++ `BindWidget` binding — and it reports which properties had no counterpart on the new

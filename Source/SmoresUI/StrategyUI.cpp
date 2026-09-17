@@ -4,6 +4,9 @@
 #include "StrategyUI.h"
 #include "NavRailWidget.h"
 #include "ResourceStripWidget.h"
+#include "TimePaceWidget.h"
+#include "TargetPanelWidget.h"
+#include "StrategyTargetInfo.h"
 
 void UStrategyUI::SetSelectedUnitsCount(int32 Count)
 {
@@ -20,9 +23,21 @@ void UStrategyUI::SetSelectedUnitsCount(int32 Count)
 	}
 }
 
-void UStrategyUI::SetSelectionTargetLabel(const FText& Label)
+void UStrategyUI::SetTargetInfo(const FStrategyTargetInfo& TargetInfo)
 {
-	SelectionTargetLabel = Label;
+	// the panel owns the display, and decides for itself whether anything visible actually moved
+	if (TargetPanelRegion)
+	{
+		TargetPanelRegion->SetTargetInfo(TargetInfo);
+	}
+}
+
+void UStrategyUI::SetPace(EGamePace Pace)
+{
+	if (TimePaceRegion)
+	{
+		TimePaceRegion->SetPace(Pace);
+	}
 }
 
 void UStrategyUI::SetGold(int32 NewGold)

@@ -6,11 +6,13 @@
 #include "StrategyPlayerUnit.h"
 #include "StrategySelectionHost.h"
 #include "WalletComponent.h"
+#include "TimePaceComponent.h"
 #include "StrategyUI.h"
 #include "RefusalWidget.h"
 #include "SmoresUI.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
+#include "GameFramework/GameStateBase.h"
 
 void AStrategyHUD::BeginPlay()
 {
@@ -107,7 +109,18 @@ void AStrategyHUD::DrawHUD()
 		if (UIWidget)
 		{
 			UIWidget->SetSelectedUnitsCount(SelectedUnits.Num());
-			UIWidget->SetSelectionTargetLabel(SelectionHost->GetSelectionTargetLabel());
+
+			// everything the target panel draws - name, kind, distance, health and the action row -
+			// rebuilt from whatever the controller last targeted. One push, not a label and a
+			// separate action list that could describe different things.
+			UIWidget->SetTargetInfo(SelectionHost->GetSelectionTargetInfo());
+
+			// the simulation's speed, read off the GameState the same way the wallet is read off
+			// the player state
+			if (const UTimePaceComponent* TimePace = GetTimePace())
+			{
+				UIWidget->SetPace(TimePace->GetPace());
+			}
 
 			// the quick-access resource readout, read straight off this player's own wallet -
 			// APlayerState is an engine type, so no narrow interface into `smores` is needed for it
@@ -166,4 +179,27 @@ UWalletComponent* AStrategyHUD::GetWallet()
 	CachedWallet = Wallet;
 
 	return Wallet;
+}
+
+UTimePaceComponent* AStrategyHUD::GetTimePace()
+{
+	if (UTimePaceComponent* TimePace = CachedTimePace.Get())
+	{
+		return TimePace;
+	}
+
+	// the GameState is one of the last things to arrive on a joining client, so a miss here is
+	// normal for the first few frames and retries rather than being remembered as a negative
+	const AGameStateBase* GameState = GetWorld() ? GetWorld()->GetGameState() : nullptr;
+
+	if (!GameState)
+	{
+		return nullptr;
+	}
+
+	UTimePaceComponent* TimePace = GameState->FindComponentByClass<UTimePaceComponent>();
+
+	CachedTimePace = TimePace;
+
+	return TimePace;
 }
