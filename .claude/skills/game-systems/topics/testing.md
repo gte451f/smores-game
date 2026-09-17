@@ -222,7 +222,7 @@ bool FSmoresInventoryStackCapTest::RunTest(const FString& Parameters)
 
 Nearly every mutator worth testing here is authority-gated — `UInventoryComponent`,
 `UEquipmentComponent`, `UWalletComponent` and `UHealthComponent` all no-op silently
-off-authority, by design and per CLAUDE.md's multiplayer discipline.
+off-authority, by design and per `multiplayer-discipline.md`.
 
 So a component under test must hang off an `AActor` spawned into a real (if throwaway) world. An
 actor spawned into a world with no net driver holds `ROLE_Authority`, so `HasOwnerAuthority()` is

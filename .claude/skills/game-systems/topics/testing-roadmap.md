@@ -87,7 +87,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 This is the one genuinely load-bearing technical decision, because nearly every mutator worth
 testing in this codebase is authority-gated — `UInventoryComponent`, `UEquipmentComponent`,
 `UWalletComponent` and `UHealthComponent` all no-op silently off-authority, by design and per
-CLAUDE.md's multiplayer discipline.
+`multiplayer-discipline.md`.
 
 **A test creates a throwaway world with `FTestWorldWrapper` (`Tests/AutomationCommon.h`) and
 spawns a plain `AActor` into it to own the component under test.** An actor spawned into a world

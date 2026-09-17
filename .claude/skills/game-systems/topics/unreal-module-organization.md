@@ -142,7 +142,7 @@ it actually earns its cost.
 - **Module boundaries aren't the same thing as multiplayer authority boundaries.** Unreal
   compiles the same module for client and server; server-only logic is normally expressed
   with `WITH_SERVER_CODE`/authority checks inside a module, not a separate module per side
-  (see CLAUDE.md's "Multiplayer discipline"). Don't invent a client/server module split
+  (see `multiplayer-discipline.md`). Don't invent a client/server module split
   that Unreal's own build model doesn't actually need.
 - **Structure DLC/mod-facing systems so they *could* become Plugins later without a
   rewrite**, since `multiplayer-and-content.md` commits to DLC as self-contained,
@@ -400,8 +400,8 @@ the real problem is one file inside it.
 ### Dead template classes
 
 `smoresCharacter`, `smoresGameMode`, and `smoresPlayerController` have **zero references**
-— no C++ subclass, nothing in `Content/` (verified 2026-09-12 by grep over both). CLAUDE.md
-describes them as kept "for potential reuse," but the template's `Lvl_TopDown` map and its
+— no C++ subclass, nothing in `Content/` (verified 2026-09-12 by grep over both). They
+were originally kept "for potential reuse," but the template's `Lvl_TopDown` map and its
 Blueprints were already deleted, so nothing remains that could reuse them. Deleting them is
 pure subtraction from the primary module whenever someone wants a free win; re-check the
 grep first in case a later variant picked them up.
@@ -587,7 +587,7 @@ first:
   roster/division-switcher complexity, or stays one module — deferred until real UI work
   on those features starts.
 - Whether `SmoresOnlineSession` is worth standing up before session/connect flow work
-  begins at all (per CLAUDE.md, that flow "isn't built yet") — listed here as a placeholder
+  begins at all (that flow isn't built yet — see `multiplayer-discipline.md`) — listed here as a placeholder
   seam in the dependency graph, not a commitment to start it now.
 - The exact boundary between `SmoresFactions` and `SmoresEconomy` will need revisiting once
   both are real code — `economy.md`'s market simulation and `factions-and-world-state.md`'s

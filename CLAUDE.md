@@ -2,11 +2,33 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**This file is deliberately short — it holds only what applies to every session.** Anything
+with real detail lives in a skill, and this file points at it rather than restating it. Don't
+assume this file is the whole picture:
+
+| Skill | Use it for |
+|---|---|
+| `game-design` | Design intent only: vision, pillars, and the desired end state of every major system. No implementation detail. |
+| `game-systems` | What's actually implemented and where it lives in C++: camera/selection, unit commands, inventory, combat, refusal messaging, keybinds, testing, module organization, multiplayer discipline. |
+| `mcp-workflow` | Driving the editor through `unreal-mcp`: discovery workflow, token-discipline habits, known tool bugs. |
+
 ## Project Overview
 
-**smores** is an Unreal Engine 5.8 game project. C++ is split across a primary module (`smores`) plus a growing set of `Smores*`-prefixed feature modules (currently `SmoresCore`, `SmoresCombat`, `SmoresItems`, `SmoresCharacters`, `SmoresUI`, `SmoresEconomy`) per the `game-systems` skill's `unreal-module-organization` topic. The intended game is a **squad-based survival RPG in the vein of Kenshi** — the player commands a squad of individuals, not a single hero, but this is an RPG borrowing squad-command concepts, not an RTS or 4X. See the `game-design` skill for the full design intent (vision, pillars, and every major system) and the `game-systems` skill for the current player-facing behavior and implementation.
+**smores** is an Unreal Engine 5.8 game project. The intended game is a **squad-based
+survival RPG in the vein of Kenshi** — the player commands a squad of individuals, not a
+single hero. The setting is an open-world sandbox with a living world: as if a 4X game is
+playing out at the world level while the player steers their squad. See the `game-design`
+skill for the full intent.
 
-The current prototype's control scheme is built on the **Strategy** variant of Epic's Top Down template and is currently RTS-style (floating camera, click/drag-box selection, move commands) — that's an implementation detail of the current input/camera layer, not the intended genre. The template's TwinStick variant has been removed; abstract top-down base classes (`smoresCharacter` / `smoresGameMode` / `smoresPlayerController`) remain in `Source/smores/` for potential reuse, but the template's default `Lvl_TopDown` map and its Content/TopDown/ Blueprints have been removed — `LVL_Strategy` and `Lvl_MainMenu` are the only two maps in the project now.
+The current prototype is built on the **Strategy** variant of Epic's Top Down template, so
+its controls are RTS-style (floating camera, click/drag-box selection, move commands) —
+that's an implementation detail of today's input/camera layer, not the intended genre.
+`LVL_Strategy` and `Lvl_MainMenu` are the only two maps in the project; the abstract
+top-down base classes (`smoresCharacter` / `smoresGameMode` / `smoresPlayerController`)
+remain in `Source/smores/` but nothing references them.
+
+For the current behavior of any gameplay system — selection rules, command flow, inventory,
+combat — read the matching `game-systems` topic before changing it.
 
 ## Starting the editor
 
@@ -25,16 +47,18 @@ UE5.8 projects are built through the Unreal Editor or via UnrealBuildTool. There
 - `smores.slnx` — game module only
 - `Automation_smores.slnx` — includes automation/testing targets
 
-To rebuild C++ from the editor: **Tools → Compile**. Live Coding hot-reloads *existing* functions/properties but is unreliable — for new `UCLASS`/`USTRUCT`/`UENUM` types or any structural change, close the editor and do a cold build from Visual Studio.
+To rebuild C++ from the editor: **Tools → Compile**. Live Coding hot-reloads *existing*
+functions/properties but is unreliable — for new `UCLASS`/`USTRUCT`/`UENUM` types or any
+structural change, close the editor and do a cold build from Visual Studio.
 
 When executing an already-approved plan, it's safe to close the Unreal Editor gracefully (no need to ask first) as part of a cold-build step — just wait for confirmation it closed before building, and reopen it afterward per **Starting the editor** above.
 
 ## Development approach: C++ first
 
-**Prefer writing C++ directly over driving the editor through `unreal-mcp`.** Even with Epic's
-newer MCP toolsets, round-tripping gameplay logic through MCP tools is slower and less reliable
-than editing `Source/smores/` and doing a build. Put behavior, state, systems, and anything
-non-trivial in C++.
+**Prefer writing C++ directly over driving the editor through `unreal-mcp`.** Even with
+Epic's newer MCP toolsets, round-tripping gameplay logic through MCP tools is slower and
+less reliable than editing the C++ and doing a build. Put behavior, state, systems, and
+anything non-trivial in C++.
 
 Use Blueprints (via `unreal-mcp` or the editor) for what they are actually good at:
 
@@ -50,94 +74,47 @@ When a task needs both, write the C++ first, then use MCP/Blueprints only to bin
 
 ## Multiplayer discipline
 
-Co-op is designed in from day one (self-hosted listen-server or dedicated server, up to 8
-players, server-authoritative simulation — see the `game-design` skill's
-`multiplayer-and-content.md`), even though multiplayer itself isn't wired up or testable
-yet. Unreal's built-in networking (replication, RPCs, server authority) is meant to supply
-the large majority of what multiplayer needs; the responsibility on the code side is
-discipline now, since retrofitting these habits later is far more expensive than following
-them from the start.
+Co-op is designed in from day one (up to 8 players, server-authoritative simulation), even
+though multiplayer itself isn't wired up or testable yet — these habits are far cheaper to
+follow now than to retrofit later. **Read `game-systems`' `multiplayer-discipline.md`
+before writing or changing gameplay state.** The short version:
 
-When writing gameplay code:
-
-- **No singleton-player assumptions.** Never assume there is exactly one
-  `PlayerController`, camera, squad, or HUD in the world. Key state and lookups off the
-  owning `PlayerController`/`PlayerState`, not a global/singleton reference — the single
-  most expensive habit to retrofit later.
-- **Gate shared-state mutation on authority.** Anything that changes world state other than
-  the local player's own cosmetic/UI state — health, inventory, faction standing, squad
-  membership, item ownership — must check `HasAuthority()` (or run through a
-  `Server`-flagged RPC) before mutating it. Never assume client == server.
-- **Replicate through the engine's mechanisms, not ad hoc sync.** Shared state goes through
-  `UPROPERTY(Replicated)` + `GetLifetimeReplicatedProps` (with `RepNotify` where clients
-  react to a change); actions go through RPCs (`Server`/`Client`/`NetMulticast`). Don't
-  invent a custom sync path when replication already covers the case.
-- **Decide data ownership before writing a system.** Before adding new gameplay state,
-  decide who authoritatively owns it (usually the server) and who merely holds a
-  replicated copy — this determines whether it needs to be `Replicated` at all.
-- **Don't add prediction machinery speculatively.** The point-and-click command scheme
-  (`Variant_Strategy`) is latency-tolerant by design — no client-side
-  prediction/reconciliation unless a specific system proves it's needed.
-- **Dedicated server hosting targets Linux**, cross-compiled from the same C++ source as
-  the Windows client. Avoid Windows-only APIs/dependencies in gameplay code, and watch
-  asset-reference case sensitivity (Linux is case-sensitive, Windows isn't) once a Linux
-  cook is attempted.
-
-Session/connect flow, dedicated server packaging, and the Linux cross-compile toolchain
-itself aren't built yet — see `multiplayer-and-content.md` for what's scheduled vs.
-deferred.
+- **No singleton-player assumptions** — key state and lookups off the owning
+  `PlayerController`/`PlayerState`, never a global or singleton.
+- **Gate every shared-state mutation** (health, inventory, ownership, standing, squad
+  membership) on `HasAuthority()` or a `Server`-flagged RPC.
+- **Replicate through the engine's mechanisms** — `UPROPERTY(Replicated)` +
+  `GetLifetimeReplicatedProps` and RPCs, not ad hoc sync.
+- **Decide who owns new state before writing it**, and don't add prediction machinery
+  speculatively.
 
 ## Architecture
 
 ### Module layout
 
-Seven runtime modules today: the primary `smores` module, plus `SmoresCore` (empty
-proving module), `SmoresCombat` (health/damage, attack-swing resolution, floating damage
-numbers, the attack-hit anim notify), `SmoresItems` (item definitions, inventory,
-equipment/worn slots, container/chest actors, world pickups), `SmoresCharacters` (the unit
-character classes), `SmoresUI` (HUD, strategy UI, the window/inventory widget stack), and
-`SmoresEconomy` (the player's wallet, the pricing interface, traders and their stock) — each a
-sibling folder directly under `Source/`, per the `game-systems` skill's
-`unreal-module-organization` topic, which tracks the target module map and migration order.
-What's left in `smores` is the game framework for the Strategy variant (game mode, player
-state, player controller, camera pawn) plus the main menu and the template base classes.
+Seven runtime modules, each a sibling folder directly under `Source/`: the primary `smores`
+module plus `SmoresCore`, `SmoresCombat`, `SmoresItems`, `SmoresCharacters`, `SmoresUI`, and
+`SmoresEconomy`. `smores` holds only the Strategy game framework (game mode, player
+controller, player state, camera pawn), the main menu, and the unused template base classes
+— every gameplay domain lives in a feature module.
 
 Dependency direction runs `smores` → `SmoresUI` → {`SmoresCharacters`, `SmoresEconomy`} →
-{`SmoresItems`, `SmoresCombat`} → `SmoresCore`, and never back — higher modules may also
-depend several levels down directly (`SmoresUI` names `SmoresItems` itself, for instance),
-just never upward. Where a lower module needs something from
-`AStrategyPlayerController`, it declares a narrow interface and the controller implements
-it (`IStrategySelectionHost`, `IStrategyCameraCommands`, `IInventoryMoveHost` — all in
-`SmoresUI`) rather than depending on `smores`. **Prefer a component in a feature module over a
-fourth such interface when what the UI wants is per-player *state* rather than behavior** — a
-`IStrategyResourceHost` existed only to read the gold balance out of `smores` and was deleted
-once gold became a `UWalletComponent` that `SmoresUI` can already see.
+{`SmoresItems`, `SmoresCombat`} → `SmoresCore`, and never back. Two consequences worth
+knowing before you write anything:
 
-```
-Source/
-  smores/
-    smoresCharacter.*          – Abstract base: top-down character with SpringArm + Camera
-    smoresGameMode.*           – Abstract base game mode
-    smoresPlayerController.*   – Abstract base: point-and-click nav movement via PathFollowingComponent
+- **Nothing depends on `smores`.** When a lower module needs behavior from
+  `AStrategyPlayerController`, it declares a narrow interface in its own module and the
+  controller implements it (`IStrategySelectionHost`, `IStrategyCameraCommands`,
+  `IInventoryMoveHost` — all in `SmoresUI`).
+- **New per-player or per-pawn state goes in a component in a feature module, never inline
+  on a framework class** — and prefer such a component over a fourth interface when what
+  the UI wants is per-player *state* rather than *behavior*.
 
-    MainMenu/                  – Title screen game mode/HUD and its own UI widgets
-
-    Variant_Strategy/          – Strategy game framework: StrategyGameMode, StrategyPlayerController,
-                                 StrategyPlayerState (hosts SmoresEconomy's WalletComponent and
-                                 owns no state of its own), StrategyPawn, EnvQueryContext_MoveGoal
-  SmoresCore/                  – Empty proving module; no classes yet
-  SmoresCombat/                – HealthComponent, CombatComponent, DamageNumberActor/Widget, AnimNotify_AttackHit, IAttackDamageDealer
-  SmoresItems/                 – ItemDefinition (shared item-type data asset), InventoryComponent (FInventoryItem/FInventoryEntry), EquipmentComponent (worn slots), StrategyContainer, StrategyChest, WorldItem, IInventoryHolder
-  SmoresCharacters/            – StrategyUnit (owns the Inventory/Equipment/Health/Combat subobjects), StrategyPlayerUnit
-  SmoresUI/                    – StrategyHUD, StrategyUI, StrategyTouchControls, WindowWidget,
-                                 InventoryWidget/CellWidget/ItemWidget, InventoryDragDropOperation,
-                                 EquipmentWidget/EquipmentSlotWidget (the paperdoll window),
-                                 and the IStrategySelectionHost / IStrategyCameraCommands /
-                                 IInventoryMoveHost interfaces
-  SmoresEconomy/               – WalletComponent (per-player gold, hosted on the player state),
-                                 IPricingProvider, TraderComponent (a UInventoryComponent
-                                 subclass holding one NPC's wares)
-```
+**Before adding, moving, or splitting a module, read `game-systems`'
+`unreal-module-organization.md`.** It holds the per-module class inventory, the target module
+map, the five-step registration checklist, and the per-move gotchas (`CoreRedirects`,
+`<MODULE>_API` export macros, stale placed-instance overrides) — each of which has already
+cost a debugging session at least once.
 
 ### Class hierarchy pattern
 
@@ -145,28 +122,17 @@ All C++ gameplay classes are `UCLASS(abstract)`. Blueprint subclasses (under `Co
 
 Blueprint hooks follow the convention `BP_*` (`BP_Damaged`, `BP_UnitSelected`, etc.) and are declared as `BlueprintImplementableEvent`.
 
-### Variant_Strategy
-
-The active gameplay variant. Squad-based by design intent (see the `game-design` skill);
-its current control scheme — camera pan/zoom, click/drag-box selection, move commands —
-is RTS-style, inherited from Epic's Strategy template. Key classes, which no longer all live
-in `Variant_Strategy/` — several have moved to feature modules: `AStrategyPlayerController`
-(selection, camera pan/zoom, mouse + touch input), `AStrategyPawn` (camera-only pawn),
-`AStrategyPlayerState` (host for the per-player wallet) and `EnvQueryContext_MoveGoal` in `smores`;
-`AStrategyUnit` (abstract AI-driven character, EQS-refined movement via `AAIController`) and
-`AStrategyPlayerUnit` in `SmoresCharacters`; `AStrategyHUD` (drag-select box) in `SmoresUI`.
-See the `game-systems` skill for full behavior detail (selection rules, movement/command
-flow, EQS queries).
-
 ### Input system
 
-All input uses **Enhanced Input** (`UInputAction` / `UInputMappingContext`). Input actions are `EditAnywhere` properties on the C++ classes — actual `UInputAction` assets are assigned in the Blueprint subclass. Strategy uses separate `MouseMappingContext` and `TouchMappingContext` (the RTS control scheme supports touch).
+All input uses **Enhanced Input** (`UInputAction` / `UInputMappingContext`). Input actions are
+`EditAnywhere` properties on the C++ classes — the actual assets are assigned in the
+Blueprint subclass.
 
 **Keybinds are player-configurable by design**, which constrains how every binding is built:
 a control wired outside Enhanced Input can never be surfaced in a settings screen. **Before
-adding any player-facing key or button, read the `game-systems` skill's
-`input-and-keybinds.md`** — it holds the current bindings, the keys reserved for systems not
-built yet, the wiring rule, and the add-a-binding checklist.
+adding any player-facing key or button, read `game-systems`' `input-and-keybinds.md`** — it
+holds the current bindings, the keys reserved for systems not built yet, the wiring rule, and
+the add-a-binding checklist.
 
 ### AI
 
@@ -191,12 +157,25 @@ Content/
   LevelPrototyping/   – Scratch levels
 ```
 
+`Content/` deliberately does **not** mirror the C++ module layout — a Blueprint can stay at
+its current path after its parent class moves modules.
+
+## Testing
+
+There's an automated test suite (in-module automation tests, runnable in-editor or headless).
+**Read `game-systems`' `testing.md` when finishing work** — it holds the run commands, the
+conventions for writing a test, and the standing rule for when finished work should add one
+(counted returns, all-or-nothing operations, state machines, money/weight arithmetic, and
+bugs just fixed).
+
 ## MCP servers
 
-One MCP server is configured (`.mcp.json`): **unreal-mcp**, an HTTP server hosted by the editor at `http://127.0.0.1:8000/mcp` (Epic's `ModelContextProtocol` plugin). Requires the Unreal Editor running.
-
-Reach for these tools for wiring, configuration, and content-only work — not for gameplay logic. See **Development approach: C++ first** above. For the discovery workflow, token-discipline habits, and known tool bugs/caveats, use the `mcp-workflow` skill.
+`unreal-mcp` is the only configured server (`.mcp.json`) — an HTTP server hosted by the editor
+at `http://127.0.0.1:8000/mcp`, so it requires the editor running. Reach for it for wiring,
+configuration, and content-only work, not gameplay logic (see **Development approach: C++
+first**). Use the `mcp-workflow` skill before driving it — it has the discovery workflow,
+token-discipline habits, and the known tool bugs/caveats.
 
 ## Your Human Partner
 
-His name is Jim and he's new to Unreal and C++ programming but came from a PHP background.  Avoid Jargon heavy reponses until he learns the terms and concepts.  
+His name is Jim and he's new to Unreal and C++ programming but came from a PHP background.  Avoid Jargon heavy reponses until he learns the terms and concepts.
