@@ -66,13 +66,18 @@ Source/
       UI/  MainMenuWidget.* OptionsWidget.*
     Variant_Strategy/             # shrinks as pieces below are peeled out
       StrategyGameMode.* StrategyPawn.* StrategyPlayerController.*
+      StrategyPlayerState.*         # thin host for UWalletComponent
+      StrategyGameState.*           # thin host for UTimePaceComponent - session-wide state
       EnvQueryContext_MoveGoal.*
                                    # StrategyPlayerController implements SmoresUI's
                                    # IStrategySelectionHost/IStrategyCameraCommands/
-                                   # IInventoryMoveHost interfaces - see below
+                                   # IStrategyHUDCommands/IInventoryMoveHost - see below
   SmoresCore/
     SmoresCore.Build.cs
     SmoresCore.cpp / SmoresCore.h
+    SmoresRefusalReason.h         # ESmoresRefusalReason - the shared "why not" vocabulary
+    GamePace.h TimePaceComponent.*  # simulation speed; here because it has no dependencies
+                                   # and every module may want to read it
   SmoresItems/
     SmoresItems.Build.cs
     SmoresItems.cpp / SmoresItems.h
@@ -109,9 +114,12 @@ Source/
     StrategyHUD.* StrategyUI.* StrategyTouchControls.* WindowWidget.*
     InventoryWidget.* InventoryCellWidget.* InventoryItemWidget.*
     InventoryDragDropOperation.*   # moved from smores/Variant_Strategy/UI/
-    StrategySelectionHost.* StrategyCameraCommands.*
+    NavRailWidget.* ResourceStripWidget.* HUDRegionWidget.* HUDPanelWidget.*
+    TimePaceWidget.* TargetPanelWidget.* TargetActionWidget.*   # the HUD's regions
+    StrategyTargetInfo.*           # FStrategyTargetInfo/FTargetAction - UI-shaped data
+    StrategySelectionHost.* StrategyCameraCommands.* StrategyHUDCommands.*
     InventoryMoveHost.*            # narrow interfaces, resolve the smores<->SmoresUI coupling
-                                   # (AStrategyPlayerController implements all three).
+                                   # (AStrategyPlayerController implements all four).
                                    # StrategyResourceHost used to be a fourth; it was deleted
                                    # when gold became a component - see "Framework Classes
                                    # vs. Feature Modules"
@@ -165,12 +173,12 @@ missing a component.
 
 ### Why `smores` legitimately holds the framework classes
 
-`AGameModeBase` / `APlayerController` / `APlayerState` / `APawn` / `AHUD` are Unreal's
-composition root: the layer that decides who owns what and wires the pieces together. It
-*has* to sit at the top of the dependency graph and see everything below it, and a project
-has exactly one such layer. `AStrategyGameMode`/`AStrategyPlayerController`/
-`AStrategyPlayerState`/`AStrategyPawn` living in `smores/Variant_Strategy/` is therefore
-correct, not a failure to find them a home. Don't invent a module to "rescue" a framework
+`AGameModeBase` / `AGameStateBase` / `APlayerController` / `APlayerState` / `APawn` / `AHUD`
+are Unreal's composition root: the layer that decides who owns what and wires the pieces
+together. It *has* to sit at the top of the dependency graph and see everything below it, and a
+project has exactly one such layer. `AStrategyGameMode`/`AStrategyGameState`/
+`AStrategyPlayerController`/`AStrategyPlayerState`/`AStrategyPawn` living in
+`smores/Variant_Strategy/` is therefore correct, not a failure to find them a home. Don't invent a module to "rescue" a framework
 class from the primary module — that's inverting the graph for no gain.
 
 Note the consequence, since it's the cost side of that placement: **nothing depends on
@@ -205,6 +213,25 @@ The player state now owns no state of its own at all:
 AStrategyPlayerState               <- thin host; ~40 lines, and meant to stay that way
   +-- UWalletComponent     (SmoresEconomy)
 ```
+
+`AStrategyGameState` is the third, and the first one **born** in this shape rather than
+corrected into it — the HUD roadmap's Slice 2 added it and the pace component together, and the
+`EGamePace`-inline-on-the-game-state version was never written:
+
+```
+AStrategyGameState                 <- thin host; ~10 lines
+  +-- UTimePaceComponent   (SmoresCore)
+```
+
+That is the point of writing the rule down: the cheap moment to apply it is the first piece of
+state, not the fourth. World clock, weather and season are queued behind the pace and each wants
+its own component in the module that owns it.
+
+**Scope decides which host, and it is a separate question from which module.** Per-pawn →
+component on the pawn; per-player → component on the `APlayerState`; **one per session, same for
+everyone → component on the `AGameStateBase`**. `multiplayer-discipline.md` has the table and the
+replication consequences; the module question ("which module does the component live in?") is
+answered independently, by what the state *is* about.
 
 ### What is queued to land on the player state
 

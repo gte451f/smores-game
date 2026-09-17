@@ -29,6 +29,29 @@ Players control a floating orthographic camera rather than a character. They can
 - Touch primary hold pans the camera once held past `TouchDragScrollHoldTime` (0.15s), via `DoCameraDragScrollCommand()`.
 - `CyclePawn()` rebuilds `PlayerPawns` (sorted by stable object name, since actor-iteration order isn't stable across runs), resumes from the currently-selected pawn's index if one is selected, then advances with wraparound and re-selects the next pawn.
 
+## Targeting is not selection
+
+A distinct piece of state that shares the word "select" and behaves nothing like it. Worth
+knowing before touching either, because the two are easy to conflate from the outside.
+
+- **Selection** is `ControlledUnits` — the player's own pawns, who receive orders. Only
+  `AStrategyPlayerUnit`s owned by this controller ever enter it.
+- **Targeting** is `SelectedNPC` and `SelectedContainer` — the NPC or container the player last
+  clicked. They are highlight-and-act-on state and are **never added to `ControlledUnits`**; an
+  NPC is something you do things *to*, not something you command.
+- **`LastSelectionTarget`** is a `TWeakObjectPtr<AActor>` holding whichever of the three kinds
+  was touched most recently — one of your pawns, an NPC, or a container. `SetSelectedNPC` and
+  `SetSelectedContainer` maintain it, including clearing it when the thing they were pointing at
+  is deselected, and re-claiming it when the same NPC is clicked again.
+
+**`LastSelectionTarget` is now load-bearing, not cosmetic.** It used to decide one line of text.
+It now decides everything the target panel draws *and* which actor a target-panel action runs on
+(`AStrategyPlayerController::RequestTargetAction` resolves off it) — so a change to when it is set
+or cleared changes what the player can do, not just what they read. See `hud-and-panels.md`.
+
+The keyboard actions follow the same rule: `H` and `T` act on `SelectedNPC`, never on whatever
+happens to be nearest, so a key press acts on whoever the player actually targeted.
+
 ## C++ Implementation
 
 - `AStrategyPawn`
@@ -36,7 +59,8 @@ Players control a floating orthographic camera rather than a character. They can
   - `SetZoomModifier()` updates orthographic width.
 - `AStrategyPlayerController`
   - Chooses mouse or touch input mapping context from `InputMode`.
-  - Owns selected units in `ControlledUnits`.
+  - Owns selected units in `ControlledUnits`, and the targeted NPC/container in `SelectedNPC` /
+    `SelectedContainer` / `LastSelectionTarget` — see "Targeting is not selection" above.
   - Handles camera movement with `MoveCamera()`, `ZoomCamera()`, and `ResetCamera()`.
   - Handles mouse selection with `SelectHold*()`, `SelectClick()`, and `SelectionModifier()`.
   - Handles touch selection with `TouchPrimaryHold*()` and `TouchSecondary*()`.

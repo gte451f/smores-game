@@ -237,6 +237,22 @@ completely different things of the player.
 - **A second presentation** — a reason shown as a greyed-out button, a tooltip, or a coloured
   cell rather than a line of text — reads the same enum and calls `GetRefusalText` for its
   wording. That is the whole reason the code and the words are separate.
+  - **The first one shipped is the target panel's action row** (`FTargetAction::DisabledReason`,
+    rendered by `UTargetActionWidget` — see `hud-and-panels.md`). It is worth knowing because it
+    is a different *kind* of use than the line at the cursor: a **standing** reason, displayed
+    continuously next to a disabled button for as long as the rule applies, rather than a
+    transient answer to something the player just did. Both read the same enum and both get their
+    words from `GetRefusalText`, so "Too far away" reads identically whether the player walked
+    into the rule or is looking at it in advance — which is the payoff the split was for.
+  - **Preventing a refusal still beats explaining one, and a standing reason is the strongest
+    form of that.** A greyed button with its reason beside it means the gesture never completes
+    *and* the rule is legible before the player tries. The transient line stays the fallback for
+    rules that can only be discovered by acting.
+  - **`ESmoresRefusalReason::None` is meaningful in this form.** An action can be disabled for a
+    reason that isn't a refusal at all — Attack on someone already fighting you — and it carries
+    `None`, which renders as no reason text and which `NotifyRefusal` already ignores. Don't add
+    an enum value for "you're already doing that"; it isn't a refusal, and a reason nothing raises
+    is an empty hook (see the header comment on `ESmoresRefusalReason`).
 - **A second top-most layer** (a confirmation prompt, a tooltip that must escape its panel)
   follows `URefusalWidget`'s shape: its own `UUserWidget`, owned and added by `AStrategyHUD` at
   its own Z-order, `SelfHitTestInvisible` unless it genuinely needs the clicks. `RefusalZOrder`

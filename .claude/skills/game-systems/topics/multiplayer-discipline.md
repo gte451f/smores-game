@@ -31,6 +31,37 @@ writing or changing gameplay state.**
 - **Decide data ownership before writing a system.** Before adding new gameplay state,
   decide who authoritatively owns it (usually the server) and who merely holds a
   replicated copy — this determines whether it needs to be `Replicated` at all.
+- **Decide *whose* state it is, and put it on the matching actor.** Three homes, and picking
+  the wrong one is the expensive kind of mistake:
+
+  | Scope | Home | Example |
+  |---|---|---|
+  | One per pawn | a component on the pawn | `UHealthComponent`, `UInventoryComponent` |
+  | One per player | a component on their `APlayerState` | `UWalletComponent` |
+  | One per **session**, same for everybody | a component on the **`AGameStateBase`** | `UTimePaceComponent` |
+  | One per player, cosmetic/UI only | the local `APlayerController` or a widget — **not replicated at all** | which HUD panels are open |
+
+  The GameState is the one most likely to be reached for wrongly, in both directions: it is
+  not a convenient global for things that are really per-player, and a genuinely session-wide
+  value put on a player state means eight players holding eight disagreeing copies.
+- **A client can only RPC an actor it owns**, which in practice means its own
+  `APlayerController` and its own pawn. It does **not** own the GameState, the GameMode, or
+  another player's anything. So a client-initiated change to session-wide state routes
+  *through its own controller*: widget → `Server_` RPC on the `APlayerController` → the
+  authoritative component. `AStrategyPlayerController::Server_RequestPace` →
+  `UTimePaceComponent::SetPace` is the worked example. A `Server_` RPC declared on the
+  GameState itself compiles, runs on a listen server, and silently does nothing from a client
+  — which is the worst possible failure shape, because it works for whoever is hosting.
+- **Prefer a property the engine already replicates over one of your own.** The pace sets
+  `UGameplayStatics::SetGlobalTimeDilation` on the server and stops there, because
+  `AWorldSettings::TimeDilation` is itself replicated — so there is no multicast, and there
+  shouldn't be one. Look for the engine-side property before adding a broadcast.
+- **A "request" is not a setter, and the naming should say so.** `RequestPace` may be refused,
+  arrives a round trip later, and must not be assumed to have taken effect: the pace buttons
+  don't repaint themselves on click, they ask and let the next frame's replicated value move
+  the readout. A widget that updates optimistically shows a state the world isn't in exactly
+  when the player most needs the truth — and that is prediction, which this project has
+  decided not to do speculatively (see the rule above).
 - **Don't add prediction machinery speculatively.** The point-and-click command scheme
   (`Variant_Strategy`) is latency-tolerant by design — no client-side
   prediction/reconciliation unless a specific system proves it's needed.
@@ -47,7 +78,25 @@ writing or changing gameplay state.**
   `unreal-module-organization.md`'s guiding principles.
 - **Per-player state belongs in a replicated component**, not inline on the player
   state — also `unreal-module-organization.md` ("Framework Classes vs. Feature Modules").
-  Components on an `APlayerState` replicate exactly as they do on a pawn.
+  Components on an `APlayerState` replicate exactly as they do on a pawn, and so do
+  components on an `AGameStateBase`.
+- **The HUD is the standing example of per-local-player state that is deliberately *not*
+  replicated** — which panels a player has open is nobody else's business. `hud-and-panels.md`
+  draws the contrast with the pace, which sits on the same screen and is shared by everyone.
+  Being on the HUD says nothing about scope; decide it per piece of state.
+
+## Worked Examples In The Codebase
+
+Read these rather than re-deriving the pattern:
+
+| Pattern | Where |
+|---|---|
+| Per-pawn replicated state, authority-gated mutators | `UHealthComponent` (`SmoresCombat`) |
+| Per-player state on the player state | `UWalletComponent` on `AStrategyPlayerState` |
+| Session-wide state on the game state | `UTimePaceComponent` on `AStrategyGameState` |
+| Client → own controller → authoritative component | `Server_RequestPace`, `Server_MoveUnits`, `Server_MoveInventoryItem` |
+| Server → owning client, for a decision only the server could make | `Client_NotifyRefusal` |
+| Deliberately unreplicated local UI state | `AStrategyPlayerController::PanelWidgets` |
 
 ## Known Gaps
 

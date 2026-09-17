@@ -264,13 +264,15 @@ the reason high-speed play is safe, and this is the first half of it.
 Per `testing.md`'s standing rule, three things here are numbers-and-state-machines and get tests
 in the same slice that builds them; everything else is a PIE judgement and stays there.
 
-- **Pace ladder** — stepping clamps at both ends, every `EGamePace` maps to the dilation it
-  claims, and `RequestPace` on a non-authority does not mutate local state.
+- **Pace ladder** — **DONE (Slice 2, 6 tests).** `Smores.Core.TimePace.*`: stepping clamps at both
+  ends, every `EGamePace` maps to the dilation it claims, the ladder holds every tier the enum
+  declares, and `SetPace` on a non-authority does not mutate local state.
 - **Activity log** — the ring buffer evicts oldest-first at capacity, category filtering returns
-  the counts it should, and `OnEntryAdded` fires exactly once per post.
-- **Target action assembly** — a target with no valid actions yields an empty list rather than a
-  list of disabled everything, and each gating helper's refusal produces the disabled-with-reason
-  form.
+  the counts it should, and `OnEntryAdded` fires exactly once per post. *(Slice 3.)*
+- **Target action assembly** — **DONE (Slice 2, 7 tests).** `Smores.Strategy.TargetInfo.*`: a
+  target with no valid actions yields an empty list rather than a list of disabled everything, and
+  each gating helper's refusal produces the disabled-with-reason form. Made possible by
+  `BuildTargetInfo` being a static taking the selection as a parameter — see Slice 2's notes.
 
 What stays in PIE, permanently: layout at every resolution, whether the feed's 8-second fade is
 right, portrait size, whether the pace strip is reachable without looking, and whether any of it
@@ -509,8 +511,16 @@ Settled with Jim before this document was written — don't reopen them per-slic
   Worth revisiting if camera height ever leaves `Q`/`E`.
 - **Who may change the pace in co-op?** Built as "any player may". The alternatives (host only;
   slowest request wins) are one `if` away and want a real co-op session to judge.
-- **Does the target panel survive deselection?** Today's label clears with the target. A panel
+- **Does the target panel survive deselection?** The panel now collapses with the target. A panel
   that lingers on the last thing looked at may read better than one that blinks out — a PIE call.
+  One line in `UTargetPanelWidget::RefreshTargetDisplay` either way.
+- **Should the pace be part of a save?** `UTimePaceComponent::BeginPlay` applies whatever tier the
+  component holds, so a restored pace would take effect with no extra code — but whether a save
+  should restore "paused" at all is `save-system.md`'s call, not this roadmap's.
+- **Is hostility worth replicating now or with the first co-op session?** The target panel reads
+  `IsAggressive()` client-side and `Disposition` isn't replicated, so the classification and the
+  Talk/Attack enable states would be wrong on a remote client. Display-only, invisible until co-op,
+  and a one-line fix — catalogued in `game-systems`' `combat.md`.
 - **Feed capacity and fade timing.** 8 seconds and a fixed ring buffer are the mock's numbers;
   whether either is right is a thing to feel, not to reason about.
 - **Portrait bar at eight-plus squad members.** The mock shows nine and stops. Scroll, shrink, or

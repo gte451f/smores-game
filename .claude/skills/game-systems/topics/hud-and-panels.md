@@ -410,6 +410,13 @@ An empty box still has to consume clicks; see Core Rules for the bug that proved
 - **The pace strip has no tooltip explaining the tiers it has no button for.** A player who only
   ever clicks will never discover 1/3× or 8×; the help panel names `-` and `=` but not the ladder
   they walk. Worth revisiting with the styling pass.
+- **The target panel's hostility reading is server-only.** `BuildTargetInfo` calls
+  `AStrategyUnit::IsAggressive()`, and `Disposition` is not a replicated property — so on a remote
+  client the classification line and the Talk/Attack enable states would be wrong (everyone reads
+  as neutral). Health, distance and everything else on the panel are fine. It is invisible today
+  because a single-player PIE session is its own authority, and it is a display defect rather than
+  an exploit, since the server re-checks every rule. `combat.md`'s Known Gaps holds the detail and
+  the one-line fix.
 - **The target panel's portrait is missing** — the wireframe shows per-target art, and no target
   has any. `player-interface.md`'s world-space contextual prompts are the other half of this and
   are explicitly out of scope for the HUD round.
