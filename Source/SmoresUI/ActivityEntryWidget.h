@@ -59,12 +59,6 @@ public:
 	/** Fills this line in from an entry. Called every time the feed refreshes its list. */
 	void SetEntry(const FActivityEntry& InEntry);
 
-	/**
-	 *  Sets how faded this line is, 0 (gone) to 1 (fresh). Applied as render opacity rather than
-	 *  as a text colour so the source, the message and any future icon fade together.
-	 */
-	void SetFadeAlpha(float Alpha);
-
 	/** The entry currently drawn - the feed compares ids rather than re-pushing identical lines */
 	const FActivityEntry& GetEntry() const { return Entry; }
 

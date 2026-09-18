@@ -244,8 +244,8 @@ own component; two properties now is the cheap version that doesn't block that.
 `USmoresActivityLog` (`ULocalPlayerSubsystem`) holds a fixed-capacity ring buffer of
 `FActivityEntry { EActivityCategory Category; FText Text; FText Source; double Timestamp;
 EActivitySeverity Severity; }` and broadcasts `OnEntryAdded`. The widget renders the last N,
-filtered by the selected tab, fades idle entries after 8 seconds, and expands to a scrollable
-history on `L`.
+filtered by the selected tab, and expands to a longer history on `L`. (Shipped with the fade the
+mock called for, which was then removed — see the shipped-differently notes below.)
 
 Tabs map to categories: **LOG** shows everything, **SQUAD** shows squad-sourced entries (damage
 taken, downs, loot, refusals), **COMMS** shows NPC dialogue and trade, **QUESTS** is an empty
@@ -284,9 +284,9 @@ in the same slice that builds them; everything else is a PIE judgement and stays
   each gating helper's refusal produces the disabled-with-reason form. Made possible by
   `BuildTargetInfo` being a static taking the selection as a parameter — see Slice 2's notes.
 
-What stays in PIE, permanently: layout at every resolution, whether the feed's 8-second fade is
-right, portrait size, whether the pace strip is reachable without looking, and whether any of it
-reads at a glance during a fight.
+What stays in PIE, permanently: layout at every resolution, portrait size, whether the pace strip
+is reachable without looking, and whether any of it reads at a glance during a fight. (The feed's
+fade was one of these; PIE answered it — it went.)
 
 **What PIE actually caught, across the three slices**, which is the argument for that list being
 real rather than a hedge: two regions shipped as bare `UBorder`s and leaked right-clicks to the
@@ -547,6 +547,12 @@ open questions, which are the only reasons to open this file again.
     package raised a handled ensure — which fires **once per call site per session**, so exactly
     one of the six new tests failed and the other five passed on the identical mistake. Recorded in
     `testing.md`: a green run is not evidence the outer is right.
+13. **The fade shipped, then came straight back out.** The mock's "fades after 8s" was built as
+    specified and removed after Jim's first PIE pass, on his call. The reasoning belongs in
+    `hud-and-panels.md` rather than here, but the short version is worth reading before anyone
+    re-adds it from the wireframe: floating damage numbers fade because they are events, and the
+    feed is a record. A record that has emptied itself by the time the player looks up from the
+    fight is not a record. `FActivityEntry::Timestamp` survives the removal unread, deliberately.
 
 ## Explicitly Out of Scope for This Round
 
@@ -601,8 +607,12 @@ Settled with Jim before this document was written — don't reopen them per-slic
   `IsAggressive()` client-side and `Disposition` isn't replicated, so the classification and the
   Talk/Attack enable states would be wrong on a remote client. Display-only, invisible until co-op,
   and a one-line fix — catalogued in `game-systems`' `combat.md`.
-- **Feed capacity and fade timing.** 8 seconds and a 64-entry ring buffer are the mock's numbers;
-  whether either is right is a thing to feel, not to reason about. Both are `EditAnywhere`.
+- ~~**Feed fade timing.**~~ Answered in PIE: the fade is gone entirely. Lines now leave only when
+  newer ones push them off. Reasoning is in `game-systems`' `hud-and-panels.md` so it survives this
+  roadmap — the short version is that a record which empties itself is not a record, and a quieter
+  corner should dim old lines rather than remove them.
+- **Feed capacity.** The 64-entry ring buffer is the mock's number; whether it is right is a thing
+  to feel, not to reason about. `EditAnywhere`.
 - **Portrait bar at eight-plus squad members.** The mock shows nine and stops; roughly seven tiles
   fit the authored 560x120 slot. Scroll, shrink, or wrap is a layout decision nobody has to make
   until a squad gets that big.

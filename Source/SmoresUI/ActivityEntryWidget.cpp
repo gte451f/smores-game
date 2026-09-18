@@ -18,15 +18,6 @@ void UActivityEntryWidget::SetEntry(const FActivityEntry& InEntry)
 	RefreshEntryDisplay();
 }
 
-void UActivityEntryWidget::SetFadeAlpha(float Alpha)
-{
-	const float Clamped = FMath::Clamp(Alpha, 0.0f, 1.0f);
-
-	// SetRenderOpacity already early-outs on an unchanged value, so the feed can push this every
-	// frame without a per-line invalidation
-	SetRenderOpacity(Clamped);
-}
-
 FLinearColor UActivityEntryWidget::GetSeverityColor() const
 {
 	switch (Entry.Severity)

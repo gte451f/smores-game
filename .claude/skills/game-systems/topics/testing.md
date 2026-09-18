@@ -105,7 +105,7 @@ Notes on the pieces that matter:
 | `Automation List` | Prints every registered test name — use it to confirm a new test registered at all |
 | `Automation RunTests Smores.Items` | Runs one module's subtree |
 | `Automation RunTests Smores.Combat.Health` | Runs one subject |
-| `Automation RunTests Blueprint` | Everything with "Blueprint" in its path (442 tests, mostly engine and toolset) — **run this after any C++ rename or removed `UFUNCTION`/`UPROPERTY`**, it is the cheapest way to catch a Blueprint broken by it. Note: `Project.Blueprints` is named in a lot of UE documentation but matches **no registered test in this 5.8 build** — it produces no report at all, which reads as a pass if you only check the exit code. Verified 2026-09-16 |
+| `Automation RunTests Blueprint` | Everything with "Blueprint" in its path — **run this after any C++ rename or removed `UFUNCTION`/`UPROPERTY`**. 417 tests headless, verified twice with identical test sets 2026-09-17; it was 442 on 2026-09-16, so **treat this count as a moving number, not a constant** (see below). Note: `Project.Blueprints` is named in a lot of UE documentation but matches **no registered test in this 5.8 build** — it produces no report at all, which reads as a pass if you only check the exit code |
 
 ### Reading the result — the one rule that matters
 
@@ -113,6 +113,17 @@ Notes on the pieces that matter:
 fail — it silently does not appear, and the run comes back green having executed nothing. After
 adding tests, confirm the reported count went up by the number you added. `Automation List` is
 the direct check when it doesn't.
+
+**That rule applies to `Smores`, and only loosely to `Blueprint`.** The `Smores` count is ours and
+should only ever move when we move it. The `Blueprint` suite is **entirely engine and toolset
+self-tests** — `AI.Toolsets.*`, `AI.ModelContextProtocol.*`, `Blueprints.Compiler.*` — and its size
+tracks which toolsets registered at startup rather than anything in this project, so it drifts on
+its own (442 → 417 between 2026-09-16 and 2026-09-17, with no project change that could explain
+it). A changed count there is worth one look, not an investigation; diff the two reports'
+`fullTestPath` sets if you want certainty. **It also means the suite is not actually the check its
+name suggests**: nothing in it opens a project Blueprint. The real check that a removed
+`UPROPERTY` didn't break a WBP is to start the editor and read `Saved/Logs/smores.log` — a
+Blueprint that lost a property it referenced says so there, and nowhere else.
 
 ### After adding or changing a test file
 

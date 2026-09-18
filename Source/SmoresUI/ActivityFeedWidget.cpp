@@ -21,49 +21,13 @@ USmoresActivityLog* UActivityFeedWidget::GetActivityLog() const
 
 void UActivityFeedWidget::RefreshFeed()
 {
+	// Still pushed every frame even though nothing here is time-based any more, and that is
+	// deliberate: HandleEntryAdded only marks the list dirty, so several posts landing in the same
+	// frame - a fight resolving, a trade - cost one rebuild between them rather than one each.
+	// This is where that single rebuild happens. On a quiet frame it is one bool.
 	if (bEntriesDirty)
 	{
 		RebuildEntries();
-	}
-
-	// The fade is a function of wall-clock time, and nothing broadcasts when a second passes - so
-	// unlike the lines themselves it genuinely has to be recomputed every frame. It's a clamp and
-	// a divide per visible line, against a handful of lines.
-	if (bExpanded)
-	{
-		// expanded is the history: nothing fades, or the record the player opened the feed to read
-		// would dim while they were reading it
-		for (UActivityEntryWidget* EntryWidget : EntryWidgets)
-		{
-			if (EntryWidget)
-			{
-				EntryWidget->SetFadeAlpha(1.0f);
-			}
-		}
-
-		return;
-	}
-
-	const double Now = FPlatformTime::Seconds();
-
-	for (UActivityEntryWidget* EntryWidget : EntryWidgets)
-	{
-		if (!EntryWidget)
-		{
-			continue;
-		}
-
-		const double Age = Now - EntryWidget->GetEntry().Timestamp;
-
-		if (Age <= FadeAfterSeconds)
-		{
-			EntryWidget->SetFadeAlpha(1.0f);
-			continue;
-		}
-
-		const float Alpha = 1.0f - static_cast<float>((Age - FadeAfterSeconds) / FadeDurationSeconds);
-
-		EntryWidget->SetFadeAlpha(Alpha);
 	}
 }
 
@@ -72,7 +36,7 @@ void UActivityFeedWidget::ToggleExpanded()
 	bExpanded = !bExpanded;
 
 	// the number of lines shown changes with the state, so the list has to be rebuilt rather than
-	// merely re-faded
+	// merely resized
 	bEntriesDirty = true;
 
 	ApplyExpandedHeight();

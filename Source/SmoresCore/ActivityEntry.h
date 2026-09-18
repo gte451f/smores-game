@@ -58,9 +58,11 @@ enum class EActivitySeverity : uint8
  *  by URefusalWidget::GetRefusalText before it is posted here, so the line in the feed and the
  *  line at the cursor read identically.
  *
- *  Timestamp is FPlatformTime::Seconds(), not world time, and that matters: the feed fades on
- *  wall-clock seconds, so an entry posted just before the player pauses doesn't sit there
- *  forever, and one posted at 8x doesn't vanish eight times too fast.
+ *  Timestamp is FPlatformTime::Seconds(), not world time. **Nothing reads it today** - the feed
+ *  used to fade a line out once it got old and no longer does - but it is kept because it is part
+ *  of what an entry *is*, and the first thing anyone will want from a record is when it happened.
+ *  Wall clock rather than world time so that a pause doesn't freeze it and 8x speed doesn't run it
+ *  eight times fast; anything that displays it later should stay on the same footing.
  */
 USTRUCT(BlueprintType)
 struct SMORESCORE_API FActivityEntry

@@ -31,22 +31,22 @@ enum class EActivityFeedTab : uint8
 };
 
 /**
- *  The bottom-right activity feed: what just happened, colour-coded, fading after a few seconds,
- *  and expandable with `L` into a scrollable history.
+ *  The bottom-right activity feed: what just happened, colour-coded, and expandable with `L` into
+ *  a longer history.
  *
  *  **The feed is the record; URefusalWidget is the answer.** A refused action does both - the line
  *  at the cursor says why *now*, and the feed remembers it for the player who was looking
  *  somewhere else. Neither replaces the other, and refusals-and-feedback.md owns that split.
  *
  *  It reads USmoresActivityLog, a per-local-player subsystem, and subscribes to OnEntryAdded so it
- *  knows when to rebuild rather than diffing a list every frame. The per-frame push
- *  (AStrategyHUD::DrawHUD -> UStrategyUI::RefreshActivityFeed) is still what drives the *fade*,
- *  because fading is a function of wall-clock time and nothing broadcasts when a second passes.
+ *  knows when to rebuild rather than diffing a list every frame.
  *
- *  **Collapsed it shows the last few lines and lets them fade; expanded it shows the history and
- *  fades nothing.** That is the whole difference between the two states, and it is why expanding
- *  is worth a key: the fade is what makes the feed ignorable during a fight, and the history is
- *  what makes it useful after one.
+ *  **Nothing here is on a timer.** A line stays exactly as bright as the day it was posted and
+ *  leaves only when newer news pushes it off the bottom - so the difference between collapsed and
+ *  expanded is purely how many lines fit, which is what `L` buys. An earlier version faded a line
+ *  out after eight seconds; that was dropped because the feed is a *record*, and a record that has
+ *  emptied itself by the time the player looks up from the fight is no record at all. If the corner
+ *  ever needs to be quieter, dim old lines rather than removing them.
  */
 UCLASS(abstract)
 class SMORESUI_API UActivityFeedWidget : public UHUDRegionWidget
@@ -90,14 +90,6 @@ protected:
 	/** How many lines are shown while expanded */
 	UPROPERTY(EditAnywhere, Category = "Activity Feed", meta = (ClampMin = 1))
 	int32 ExpandedEntryCount = 20;
-
-	/** How long a line stays fully opaque before it starts fading. The mock's number. */
-	UPROPERTY(EditAnywhere, Category = "Activity Feed", meta = (ClampMin = 0, Units = "s"))
-	float FadeAfterSeconds = 8.0f;
-
-	/** How long the fade itself takes, once it starts */
-	UPROPERTY(EditAnywhere, Category = "Activity Feed", meta = (ClampMin = 0.01, Units = "s"))
-	float FadeDurationSeconds = 1.0f;
 
 	/** Tint applied to the active tab's button */
 	UPROPERTY(EditAnywhere, Category = "Activity Feed")
@@ -144,8 +136,9 @@ protected:
 public:
 
 	/**
-	 *  Recomputes the fade and, if anything was posted since last time, the lines themselves.
-	 *  Pushed every frame by AStrategyHUD::DrawHUD, the same way every other region is driven.
+	 *  Rebuilds the lines if anything was posted since last time. Pushed every frame by
+	 *  AStrategyHUD::DrawHUD, the same way every other region is driven - see the .cpp for why a
+	 *  per-frame call still earns its keep now that nothing fades.
 	 */
 	void RefreshFeed();
 

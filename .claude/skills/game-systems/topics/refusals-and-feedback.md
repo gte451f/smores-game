@@ -277,10 +277,11 @@ completely different things of the player.
 
 ## Known Gaps
 
-- **The refusal line has no scrollback.** A refusal that fades is gone — there's no log to check
-  what just happened, which matters if two things are refused in quick succession and only the
-  second is still on screen. A message history is a bigger feature than this one and nobody has
-  needed it.
+- ~~**The refusal line has no scrollback.**~~ Closed by the activity feed (see
+  `hud-and-panels.md`): a refusal is posted to `USmoresActivityLog` as well as shown at the
+  cursor, and the feed keeps it. Two refusals in quick succession are both in the record even
+  though only the second is still at the cursor. The line at the cursor answers *now*; the feed
+  remembers. Neither replaces the other.
 - **`RefusalSound` is unset, so refusals are silent by default.** The hook is wired and the
   suppression window exists to stop it machine-gunning, but there is no audio asset in the
   project to point it at yet. This is the single highest-value thing left to do here: a sound

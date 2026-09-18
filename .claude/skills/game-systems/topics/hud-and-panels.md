@@ -112,10 +112,10 @@ The bottom-right record of what just happened. Four tabs:
 | QUESTS | Nothing, and says so: *"Objectives will appear here once quests exist."* |
 
 Lines are coloured by how they went — red for squad damage, green for a hit landed or a squad
-member back on their feet, amber for a refusal — and fade out after 8 seconds so the feed is
-ignorable during a fight. `L` expands it: the box grows upward, the history shows instead of the
-last few lines, and nothing fades while it is open. That is the whole point of the key — the fade
-is what makes the feed ignorable mid-fight, and the history is what makes it useful afterwards.
+member back on their feet, amber for a refusal. **Nothing fades or times out.** A line stays put
+at full brightness until newer news pushes it off the bottom, so the feed always answers "what
+just happened" no matter how long the player took to look. `L` expands it: the box grows upward
+and shows more lines instead of the last few. That is all the key does, and all it needs to do.
 
 Severity colours the feed only. **The floating damage numbers in the world are a separate system
 and are all red**, whoever took the hit (`UDamageNumberWidget`, `SmoresCombat`), so the feed is the
@@ -295,16 +295,25 @@ coincidence (see Core Rules).
   item, a quantity, a person and a price, so there is no finite vocabulary to centralise. What
   *does* arrive as an `ESmoresRefusalReason` is still worded by `URefusalWidget::GetRefusalText`
   before it is posted, so the line in the feed and the line at the cursor cannot disagree.
-- **Nothing is evicted on a timer — only pushed out by newer news.** The 8-second fade is a
-  *display* rule; the entry is still in the ring buffer, and expanding the feed shows it. That is
-  what makes `player-experience.md`'s "notifications persist until dismissed" affordable at high
-  speed. The one thing that can genuinely lose information is a flood, which is why a repeated
+- **Nothing leaves on a timer — only pushed out by newer news.** No fade, no timeout, no
+  auto-dismiss: a line is displaced by the next line or it stays. That is what makes
+  `player-experience.md`'s "notifications persist until dismissed" true rather than
+  approximately true, and it is why the feed can be trusted after a fight instead of only during
+  one. The one thing that can genuinely lose information is a flood, which is why a repeated
   refusal counts once per `FeedRefusalRepeatSeconds` (2s, matching how long the refusal line
   stays on screen: while the same refusal is still showing, it is still the same refusal).
-- **Timestamps and fades are wall-clock, not world time.** `FActivityEntry::Timestamp` is
-  `FPlatformTime::Seconds()`. A line posted just before a pause must not sit there forever, and
-  one posted at 8× must not vanish eight times too fast — the feed fades on seconds the *player*
-  experiences.
+- **The feed used to fade lines out after 8 seconds, and that was removed on purpose.** It is
+  worth knowing because it will look like an obvious feature to add back. The floating damage
+  numbers in the world fade because they are *events* — they say "-12" and nothing is lost when
+  they go. The feed is a *record*, and a record that has emptied itself by the time the player
+  looks up from the fight is not a record. If the corner ever needs to be quieter when nothing is
+  happening, **dim old lines rather than removing them** — keep them readable.
+- **`FActivityEntry::Timestamp` is wall-clock, and nothing reads it today.** It is
+  `FPlatformTime::Seconds()` rather than world time, and it is kept even though the fade that
+  used to consume it is gone, because when it happened is part of what an entry *is* and is the
+  first thing any future display of the record will want. Whatever reads it next should stay on
+  wall-clock for the original reason: a pause must not freeze it and 8× speed must not run it
+  eight times fast.
 - **A non-squad unit's down or death only reaches the feed once your squad has hurt it.**
   `OnDowned` and `OnDied` are parameterless, so they cannot say who was responsible. Without a
   gate the only honest options would be reporting every NPC that falls over anywhere in the world
@@ -327,13 +336,12 @@ coincidence (see Core Rules).
   in two — it checks the roster (which changes only when a unit joins, dies or streams out) and
   leaves per-unit state to each portrait, because a portrait is the only widget that knows what it
   is currently drawing.
-  - **The feed's two halves are driven differently, and that split is the interesting part.** The
-    *lines* change only when something is posted, so the widget subscribes to
-    `USmoresActivityLog::OnEntryAdded` and merely marks itself dirty — several things can post
-    inside one frame (a fight resolving, a trade), and the frame's push is where the one rebuild
-    belongs. The *fade* is a function of wall-clock time and nothing broadcasts when a second
-    passes, so it genuinely is recomputed every frame. Anything else on this HUD that animates
-    rather than reacting wants the same shape.
+  - **The feed reacts to a delegate but still rebuilds on the frame push, and that is not
+    redundant.** The lines change only when something is posted, so the widget subscribes to
+    `USmoresActivityLog::OnEntryAdded` — but the handler merely marks itself dirty and returns.
+    Several things can post inside one frame (a fight resolving, a trade), and deferring to the
+    frame's push is what turns those into one rebuild instead of one each. Anything else on this
+    HUD that is told about changes one at a time but draws them together wants the same shape.
   - **A line is compared by id, never by its words.** `FActivityEntry::Id` is monotonic and never
     reused, including past an eviction or a clear. Two lines with identical text are still
     different events, and the same event is never worth redrawing — comparing `FText` would get
@@ -412,9 +420,9 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
   as "P1" — which is what the wireframe's placeholder discs show). `SelectionRing` is set `Hidden`
   rather than `Collapsed`, so its absence can't change the tile's size and slide the whole bar
   sideways on every selection.
-- **`UActivityFeedWidget`** — the tabs, the visible lines and the fade. Reads
-  `USmoresActivityLog`, subscribes to `OnEntryAdded` for the *lines* and is driven by the HUD's
-  per-frame push for the *fade* (see Core Rules for why those differ). `NativeDestruct` unbinds:
+- **`UActivityFeedWidget`** — the tabs and the visible lines. Reads `USmoresActivityLog`,
+  subscribes to `OnEntryAdded` to mark itself dirty, and does the rebuild on the HUD's per-frame
+  push (see Core Rules for why it is worth the round trip). `NativeDestruct` unbinds:
   the subsystem outlives every widget bound to it, so an unbound delegate here is a dangling
   handler on the next map load rather than a leak that gets collected. `ApplyExpandedHeight`
   resizes its own `UCanvasPanelSlot` on expand, reading the slot's alignment rather than assuming
@@ -426,8 +434,7 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
   `UHUDRegionWidget` and not clickable — a feed line is a record, not a control — so it needs
   neither a shield nor a button. Severity colour is the one piece of the wireframe's styling that
   is *not* deferred, because a feed whose lines all read the same is a feed nobody scans after a
-  fight, which is the only time it is worth having. `SetFadeAlpha` uses render opacity rather than
-  a text colour so the message, the source and any future icon fade together.
+  fight, which is the only time it is worth having.
 - **`UResourceStripWidget`** — the gold readout. The balance still arrives the way it always did:
   `AStrategyHUD` resolves `UWalletComponent` off its own player state (with a late-arrival retry)
   and pushes it through `UStrategyUI::SetGold`. Only the display moved.
