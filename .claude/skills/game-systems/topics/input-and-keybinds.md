@@ -121,6 +121,12 @@ because a window now swallows the *press* of every button that lands on it — s
   - a Slate input pre-processor — it *works*, but is invisible both to rebinding and to
     anyone reading the input assets. The inventory rotate key shipped this way and was
     moved; see `inventory.md`.
+- **A mockup's key labels lose to a key that is already bound.** The HUD wireframe labels its
+  buttons `Q` / `R` / `Tab` / `1` / `2` / `3`, and every one of those collides with something live
+  or reserved here. The whole set was rebound to free keys and the on-screen labels follow the
+  code, not the image — so a HUD label that disagrees with the wireframe is correct and should be
+  left alone. Worth knowing because the wireframe (`Docs/reference/`) is still the reference for
+  the styling pass, and it will keep suggesting those keys.
 - **Enhanced Input sits at the end of the keyboard focus path.** Keys reach it only because
   the game viewport holds focus: UMG game widgets are non-focusable, so on a click Slate
   walks up from the widget to the viewport, which does take focus. That is why an inventory
@@ -280,7 +286,7 @@ working as intended, and `Space` now actually pauses rather than logging that it
 party-slot selection is ever wanted"; `F1` is now the help panel, which is the near-universal PC
 convention and worth more than a fourth route to a roster. The other three keys are released
 because the thing they were reserved for has two better answers already: `P` opens the roster, and
-the squad portrait bar (`hud-roadmap.md` Slice 3) selects a member with one click. Shrinking to
+the squad portrait bar selects a member with one click. Shrinking to
 `F2`–`F5` was the other option and is wrong — `F5` is quicksave.
 
 Broadly free today: `F`, `G`, `N`, `V`, `X`, `Y`, `Z`, and `F2`–`F4`. `P`, `U` and `L` have left
@@ -301,6 +307,11 @@ players build muscle memory:
   unavailable because `E` raises the camera.
 - **`Q`/`E` on camera height** spends two premium keys — in most RPGs they're ability or
   quick-slot keys. Camera height is a rarely-touched control holding valuable real estate.
+- **`U` for Research is the weakest of the HUD round's eight keys.** No PC-RPG convention backs
+  it; it was free, and that was the whole argument. `R` is the natural key and is only unavailable
+  because `R` rotates a dragged item — a *different* context, so taking it would be legal, just
+  against this topic's own "prefer not to reuse a key across contexts" rule. The cheapest moment to
+  fix it is whenever `Q`/`E` above get revisited, since that is the same conversation.
 
 ## Known Gaps
 

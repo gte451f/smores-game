@@ -223,9 +223,10 @@ void AStrategyPlayerController::SetupInputComponent()
 				EnhancedInputComponent->BindAction(HelpPanelAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::HelpPanelKeyPressed);
 			}
 
-			// Time pace and the activity feed. Bound here so the eight key mappings can all be
-			// authored and verified in one editor pass; the behaviour behind them lands in Slices
-			// 2 and 3 of Docs/roadmaps/hud-roadmap.md. Until then each one only logs.
+			// Time pace and the activity feed. Bound here so the eight HUD key mappings could all
+			// be authored and verified in one editor pass, ahead of the features behind them -
+			// see game-systems/input-and-keybinds.md for the discipline that goes with mapping a
+			// key early. All eight do something now.
 			if (TogglePauseAction)
 			{
 				EnhancedInputComponent->BindAction(TogglePauseAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::TogglePauseKeyPressed);

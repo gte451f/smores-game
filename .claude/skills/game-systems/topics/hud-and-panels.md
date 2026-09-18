@@ -6,9 +6,11 @@ The always-on heads-up display and the floating panels the player opens from it:
 region of the screen is, who owns it in C++, and the rules that keep a click on the HUD from
 also ordering the squad somewhere.
 
-This is the permanent record, and for the HUD it is now the whole record: the three-slice plan
-that built it has shipped, so `Docs/roadmaps/hud-roadmap.md` keeps only its status and its
-resolved decisions. Read that only for *why* something was decided, never for how it works.
+This is the permanent record, and for the HUD it is now the **whole** record: the three-slice plan
+that built it shipped in full and the roadmap has been retired, so nothing about the HUD lives
+outside this topic and `input-and-keybinds.md`. Every deferred decision the roadmap tracked is in
+this topic's Known Gaps with its reasoning; the wireframe it was built against is kept at
+`Docs/reference/Squad HUD Wireframes v3-selection.png`.
 
 > **Status: the HUD roadmap has shipped in full.** All six regions are real — the nav rail, the
 > resource strip, the time-pace strip, the target panel, the squad portrait bar and the activity
@@ -20,7 +22,9 @@ resolved decisions. Read that only for *why* something was decided, never for ho
 
 ### The frame
 
-Six regions, positioned to the wireframe at `tmp/Squad HUD Wireframes v3-selection.png`:
+Six regions, positioned to the wireframe at
+`Docs/reference/Squad HUD Wireframes v3-selection.png` (committed there because the styling pass
+still owes it a visit, and this topic is the only thing that cites it now):
 
 | Region | Where | Today |
 |---|---|---|
@@ -206,9 +210,8 @@ coincidence (see Core Rules).
     would drop the player from top speed to frozen, which is the kind of bug nobody reproduces on
     purpose.
   - **Any player may change it.** That is what the code does with no extra work, and it is
-    deliberately provisional — see `Docs/roadmaps/hud-roadmap.md`'s Open Questions. Host-only and
-    slowest-request-wins are each one `if` in `SetPace` away, and want a real co-op session to
-    judge.
+    deliberately provisional. Host-only and slowest-request-wins are each one `if` in `SetPace`
+    away, and want a real co-op session to judge.
   - **The tier to resume to lives on the component, not the controller that paused.** In co-op one
     player can pause and another unpause; they have to arrive at the same speed, and they would
     not if each controller remembered its own.
@@ -682,18 +685,32 @@ deliberately short.
   a component of its own; two properties is the cheap version that doesn't block that.
 - **The portrait bar has no answer for a large squad.** The wireframe shows nine and stops, and
   roughly seven tiles fit the authored slot. Scroll, shrink or wrap is a layout decision nobody
-  has to make until a squad gets that big — see `Docs/roadmaps/hud-roadmap.md`'s Open Questions.
+  has to make until a squad gets that big.
 - **Nothing decides what *demands* acknowledgement.** The feed remembers; dismissal semantics
   belong to `notifications-and-alerts.md`, still a placeholder topic.
 - **`PortraitWidgetClass` and `EntryWidgetClass` are silent single points of failure**, the same
   shape as `WBP_TargetPanel`'s `ActionWidgetClass` and `BP_StrategyGameMode`'s `GameStateClass`:
   clear one and that region draws its chrome and nothing else. Each logs one warning naming
   itself, which is the only reason it isn't invisible.
-- **`L` is mapped and bound but does nothing yet**, and logs a line saying the activity feed
-  arrives in Slice 3. It was mapped early so all eight of the HUD round's key mappings could be
-  authored and verified in one editor pass — the one manual editor step in Slice 1. A key that
-  logs is deliberately not a key that silently does nothing: it is how a mistyped mapping is told
-  apart from an unimplemented one. `Space`, `-` and `=` left this list in Slice 2.
+- **A portrait click always replaces the selection; `Shift` does nothing to it.** In the world
+  `Shift` means "add to / remove from", and the portrait bar ignores it — consistent with the
+  `Tab` cycle, which also replaces, but `Shift`-clicking three portraits to build a fire team is
+  the obvious thing a player will try. One `IsShiftDown()` in `USquadPortraitWidget`'s click
+  handler, routed through the same `IStrategySelectionHost` call the world uses so the two can't
+  drift. Wants a squad bigger than the prototype's to judge.
+- **`ExpandedHeight` (460px) is a guess.** A record opened to read *after* a fight may want most
+  of the screen rather than a slightly taller corner, and the number was picked to fit 20 lines
+  rather than because anyone judged it. One property, no code.
+- **The feed's 64-entry capacity is the wireframe's number**, and nothing has tested it against a
+  long session. `USmoresActivityLog::SetCapacity` shrinks safely at runtime (there is a test for
+  it), so this is a tuning question, not a structural one.
+- **The target panel collapses the moment its target is deselected.** A panel that lingered on the
+  last thing looked at may read better than one that blinks out — it is one line in
+  `UTargetPanelWidget::RefreshTargetDisplay` either way, and a PIE call rather than an argument.
+- **Nothing restores the time pace across a save.** `UTimePaceComponent::BeginPlay` applies
+  whatever tier the component holds, so a restored pace would take effect with no extra code —
+  but whether a save should ever restore "paused" belongs to `save-system.md`, which does not
+  exist yet.
 - **Nothing reacts to a pace change beyond the dilation.** Animation, timers and AI all slow down
   because global time dilation slows everything; no system has an opinion about *being* at 8×.
   Whether high-speed play is readable is a PIE judgement, and the activity feed (Slice 3) is the

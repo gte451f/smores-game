@@ -158,8 +158,8 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* HelpPanelAction;
 
-	/** Input Action for toggling pause. Mapped and bound now, implemented with the time-pace
-	 *  component - see Docs/roadmaps/hud-roadmap.md, Slice 2. */
+	/** Input Action for toggling pause. Implemented by UTimePaceComponent - pause is the bottom
+	 *  rung of the same dilation ladder as the speed keys, not a separate mechanism. */
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* TogglePauseAction;
 
@@ -765,7 +765,7 @@ private:
 	 *  The pace lives on the GameState, which a client cannot RPC because it doesn't own it - but
 	 *  it does own this controller, so the ask travels here and the server hands it to
 	 *  UTimePaceComponent::SetPace. Nothing is gated per player today: any player may change the
-	 *  pace, which is a provisional call recorded in hud-roadmap.md's Open Questions.
+	 *  pace, which is a provisional call recorded in game-systems/hud-and-panels.md.
 	 */
 	UFUNCTION(Server, Reliable)
 	void Server_RequestPace(EGamePace Pace);

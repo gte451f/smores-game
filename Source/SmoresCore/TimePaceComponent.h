@@ -22,7 +22,7 @@
  *  doing anything on their end.
  *
  *  **Any player may change the pace.** That is what the code does with no extra work, and it is
- *  a deliberately provisional call - see Docs/roadmaps/hud-roadmap.md's Open Questions. The
+ *  a deliberately provisional call - see game-systems/hud-and-panels.md. The
  *  alternatives (host only, slowest request wins) are one `if` in SetPace away and want a real
  *  co-op session to judge.
  *

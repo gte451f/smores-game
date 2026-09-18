@@ -139,7 +139,7 @@ void UTargetPanelWidget::RefreshTargetDisplay()
 
 	// With nothing targeted the panel goes away entirely rather than sitting there empty. Whether
 	// that's right is a PIE call - a panel that lingered on the last thing looked at may read
-	// better - see hud-roadmap.md's Open Questions.
+	// better - and is listed in game-systems/hud-and-panels.md's Known Gaps.
 	SetVisibility(bHasTarget ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 
 	if (NameText)

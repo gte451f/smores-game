@@ -244,7 +244,8 @@ This roadmap is the storage layer. Each of the following is a natural next thoug
 - **Buildings, landmarks and resource deposits.** Same definition/record pattern, blocked on
   `base-building.md`. Own roadmap.
 - **NPC dialog and barks.** Needs roles (Slice 4 stores a role id and nothing more) and the
-  activity feed, which `hud-roadmap.md` owns. A HUD-roadmap slice, not this one.
+  activity feed, which is built and documented in `game-systems`' `hud-and-panels.md` — its
+  "Adding a producer to the activity feed" extension point is the hook. Not this roadmap's slice.
 - **The save backend** — file format, atomic writes, migration, slots. `save-system.md` is
   clear that serialization format is an implementation decision. What this roadmap owes the save
   system is that records are plain `UPROPERTY`-reflected structs referencing definitions by id,

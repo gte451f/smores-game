@@ -40,10 +40,9 @@ them test smores.
 | Attack range / out-of-range branch | `SmoresCombat` | — | unclaimed |
 | Trade transaction ordering | `smores` | — | 3 |
 
-**92 tests.** The last three rows were added by `Docs/roadmaps/hud-roadmap.md`, not by the
-testing roadmap — a slice that ships numbers-and-state-machine code writes its own tests, whichever
-roadmap it came from. Update this table as slices ship; it is the quick answer to "is this already
-covered?"
+**92 tests.** The last three rows came from the HUD round, not from the testing roadmap — a slice
+that ships numbers-and-state-machine code writes its own tests, whichever roadmap it came from.
+Update this table as slices ship; it is the quick answer to "is this already covered?"
 
 ## What Is Deliberately Not Covered
 
@@ -89,7 +88,7 @@ Notes on the pieces that matter:
   truncated command, then sits there having run nothing.
 - **`-testexit="Automation Test Queue Empty"`** is what makes the process quit when the run
   finishes. Without it the editor stays open forever and the command never returns.
-- **`-nullrhi`** skips rendering. Safe for everything in the roadmap; drop it if a future test
+- **`-nullrhi`** skips rendering. Safe for every test in the suite today; drop it if a future test
   ever needs a real render target.
 - **`-ReportExportPath`** writes a JSON report. Optional, but it is the only durable record of a
   run.
@@ -113,6 +112,15 @@ Notes on the pieces that matter:
 fail — it silently does not appear, and the run comes back green having executed nothing. After
 adding tests, confirm the reported count went up by the number you added. `Automation List` is
 the direct check when it doesn't.
+
+**A green headless run is not evidence the editor will start.** The suite runs against whatever
+DLLs are on disk and does not care whether they are the same vintage as each other. An incremental
+build that relinks six of the seven modules and leaves the seventh stale passes the whole suite and
+then crashes the editor on startup during `MAP LOAD`, with an access violation naming no project
+asset — which reads exactly like the new C++ having broken serialization, and isn't. `Rebuild.bat`
+fixes it with no source change. So **after adding or moving source files, build everything and then
+actually open the editor**; the suite is not the check for that class of problem. (The startup
+crash is also in this session's memory notes, from the first time it cost an afternoon.)
 
 **That rule applies to `Smores`, and only loosely to `Blueprint`.** The `Smores` count is ours and
 should only ever move when we move it. The `Blueprint` suite is **entirely engine and toolset

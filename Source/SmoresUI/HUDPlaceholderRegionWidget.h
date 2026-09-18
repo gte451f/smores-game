@@ -21,8 +21,9 @@ class UTextBlock;
  *  The general rule this is an instance of: **anything drawn on the HUD that the player can see
  *  as a panel must be a `UHUDRegionWidget`,** placeholder or not. See `hud-and-panels.md`.
  *
- *  Slices 2 and 3 of Docs/roadmaps/hud-roadmap.md each replace their own placeholders with the
- *  real region widget - which inherits the same base, so the shield survives the swap.
+ *  All six regions of the HUD are now real, so nothing in UI_Strategy uses this class today. It
+ *  is kept for the next region that gets laid out before it is built: swapping a placeholder for
+ *  the real widget keeps the same base class, so the click shield survives the swap.
  */
 UCLASS(abstract)
 class SMORESUI_API UHUDPlaceholderRegionWidget : public UHUDRegionWidget

@@ -27,8 +27,8 @@ struct FStrategyTargetInfo;
  *  that AStrategyHUD::DrawHUD pushes into every frame, forwarded on to whichever region wants it.
  *
  *  Every region is optional. A WBP that doesn't provide one simply doesn't show it, which is what
- *  lets the regions arrive one slice at a time (see Docs/roadmaps/hud-roadmap.md) without the
- *  HUD breaking in between.
+ *  let the six regions arrive a few at a time without the HUD breaking in between - and is still
+ *  what lets a seventh be added without touching the six.
  */
 UCLASS(abstract)
 class SMORESUI_API UStrategyUI : public UUserWidget

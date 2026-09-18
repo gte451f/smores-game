@@ -84,8 +84,8 @@ protected:
 
 	/**
 	 *  How many lines are kept. The mock shows a handful and an expandable history; this is the
-	 *  history. Whether the number is right is a thing to feel rather than reason about - see
-	 *  hud-roadmap.md's Open Questions.
+	 *  history. Whether the number is right is a thing to feel rather than reason about - listed
+	 *  as an open tuning question in game-systems/hud-and-panels.md.
 	 */
 	int32 Capacity = 64;
 

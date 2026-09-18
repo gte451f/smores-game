@@ -59,7 +59,9 @@ public:
 	 *  Selects the given unit, optionally cutting the camera to it. The squad portrait bar's
 	 *  click and double-click.
 	 *
-	 *  Stubbed until the portrait bar exists - see Docs/roadmaps/hud-roadmap.md, Slice 3.
+	 *  The gesture is timed by USquadPortraitWidget rather than being a Slate double-click, for
+	 *  reasons worth reading before changing it - see game-systems/hud-and-panels.md. The
+	 *  consequence here: by the time bFocusCamera is true, the plain click has already selected.
 	 */
 	virtual void RequestSelectUnit(AStrategyUnit* Unit, bool bFocusCamera) = 0;
 
