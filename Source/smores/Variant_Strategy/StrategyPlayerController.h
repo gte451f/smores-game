@@ -9,6 +9,7 @@
 #include "StrategyCameraCommands.h"
 #include "StrategyHUDCommands.h"
 #include "InventoryMoveHost.h"
+#include "ActivityEntry.h"
 #include "StrategyPlayerController.generated.h"
 
 class AStrategyPawn;
@@ -33,6 +34,8 @@ class AStrategyPlayerState;
 class UWalletComponent;
 class UTraderComponent;
 class UTimePaceComponent;
+class USmoresActivityLog;
+class USquadActivityWatcher;
 class IInventoryHolder;
 
 /**
@@ -374,6 +377,53 @@ protected:
 	/** Index into PlayerPawns of the pawn most recently cycled to. INDEX_NONE until the first cycle */
 	int32 CurrentPlayerPawnIndex = INDEX_NONE;
 
+	/**
+	 *  How often the squad bar's roster is rebuilt from the world.
+	 *
+	 *  The HUD asks for the roster every frame, and answering honestly means
+	 *  GetAllActorsOfClass over the whole level plus a sort - which is fine a few times a second
+	 *  and wasteful sixty times a second. A squad gains or loses a member rarely enough that half
+	 *  a second of staleness is invisible.
+	 */
+	UPROPERTY(EditAnywhere, Category = "UI", meta = (ClampMin = 0, Units = "s"))
+	float RosterRefreshIntervalSeconds = 0.5f;
+
+	/** Real time the roster was last rebuilt for the squad bar. Real, not world, so a paused game
+	 *  still keeps its roster current. */
+	double LastRosterRefreshTime = -1.0;
+
+	/**
+	 *  One watcher per unit whose health this player's feed reports on, keyed by that unit.
+	 *
+	 *  A map rather than an array because the set is rebuilt against the world periodically and
+	 *  the interesting question each time is "is this one already watched" - see
+	 *  RefreshActivityWatchers. USquadActivityWatcher's own comment explains why there is one per
+	 *  unit rather than four handlers here.
+	 */
+	UPROPERTY()
+	TMap<TObjectPtr<AStrategyUnit>, TObjectPtr<USquadActivityWatcher>> ActivityWatchers;
+
+	/**
+	 *  How long the same refusal is treated as one event by the activity feed.
+	 *
+	 *  URefusalWidget does its own repeat suppression so that leaning on a key doesn't
+	 *  machine-gun the refusal sound; the feed needs the same rule for a different reason. A
+	 *  player holding `O` out of range would otherwise push every other line out of a
+	 *  fixed-capacity record with sixty copies of "Too far away", which is the one way this feed
+	 *  can actively lose information rather than merely repeat itself.
+	 *
+	 *  Two seconds, matching URefusalWidget::RefusalDisplaySeconds: while the same refusal is
+	 *  still on screen, it is still the same refusal.
+	 */
+	UPROPERTY(EditAnywhere, Category = "UI", meta = (ClampMin = 0, Units = "s"))
+	float FeedRefusalRepeatSeconds = 2.0f;
+
+	/** The refusal last written to the feed, for the suppression above */
+	ESmoresRefusalReason LastFeedRefusal = ESmoresRefusalReason::None;
+
+	/** FPlatformTime::Seconds() when it was written. Negative until the first refusal. */
+	double LastFeedRefusalTime = -1.0;
+
 public:
 
 	/** Constructor */
@@ -406,6 +456,9 @@ public:
 	/** Everything the target panel draws about whichever pawn, NPC, or container was most recently
 	 *  selected, or a struct with an empty name if none */
 	virtual FStrategyTargetInfo GetSelectionTargetInfo() const override;
+
+	/** This player's own squad, in the Tab cycle's deterministic order. Drives the squad portrait bar. */
+	virtual TArray<AStrategyUnit*> GetControlledPlayerUnits() override;
 
 	//~ End IStrategySelectionHost interface
 
@@ -444,8 +497,8 @@ public:
 	 *  Space / - / = keys all arrive here. */
 	virtual void RequestPace(EGamePace Pace) override;
 
-	/** Selects the given unit, optionally cutting the camera to it. Stub until the squad portrait
-	 *  bar exists - Docs/roadmaps/hud-roadmap.md, Slice 3. */
+	/** Selects the given unit alone, optionally cutting the camera to it. The squad portrait bar's
+	 *  click and its focus gesture. */
 	virtual void RequestSelectUnit(AStrategyUnit* Unit, bool bFocusCamera) override;
 
 	/** Runs a target-panel action by id, re-checking the same gate that offered it */
@@ -488,6 +541,20 @@ protected:
 	/** Rebuilds PlayerPawns from the world with deterministic ordering */
 	void RefreshPlayerPawns();
 
+	/**
+	 *  Rebuilds the set of units whose health events reach this player's activity feed - the whole
+	 *  squad, plus every other unit in the level so a fight has two sides in the record.
+	 *
+	 *  Called from BeginPlay and from the roster's periodic refresh rather than on a subscription,
+	 *  because a unit spawned mid-session announces itself to nobody. The cost is a map lookup per
+	 *  unit on the frames the roster refreshes.
+	 */
+	void RefreshActivityWatchers();
+
+	/** Moves the camera pawn over the given unit without changing its height or rotation. The
+	 *  portrait bar's focus gesture; a hard cut, which is what player-interface.md asks for. */
+	void FocusCameraOnUnit(const AStrategyUnit* Unit);
+
 	/** Replaces the current selection with the next player-controlled pawn */
 	void CyclePawn(const FInputActionValue& Value);
 
@@ -526,7 +593,7 @@ protected:
 	/** Asks for the tier Steps rungs from the current one. The shared body of the two keys above. */
 	void RequestPaceStep(int32 Steps);
 
-	/** Expands or collapses the activity feed (Slice 3) */
+	/** Expands or collapses the activity feed */
 	void ToggleActivityFeedKeyPressed(const FInputActionValue& Value);
 
 	/** Closes the inventory screen if one is open */
@@ -758,6 +825,26 @@ public:
 	 */
 	UFUNCTION(Client, Reliable)
 	void Client_NotifyRefusal(ESmoresRefusalReason Reason);
+
+	/**
+	 *  Records a line in this player's activity feed.
+	 *
+	 *  Local and client-side, exactly like NotifyRefusal, and safe to call from anywhere: it does
+	 *  nothing on a controller with no local player, which is the correct behaviour on a
+	 *  dedicated server and for any other player's controller.
+	 */
+	void PostActivity(EActivityCategory Category, EActivitySeverity Severity, const FText& Text, const FText& Source = FText::GetEmpty());
+
+	/**
+	 *  Server -> owning client: a line for the feed that only the server knew about.
+	 *
+	 *  The counterpart to Client_NotifyRefusal, and needed for the same reason: a purchase and a
+	 *  pickup are both resolved on the server, so the client has no way of knowing what actually
+	 *  moved or what it cost. The text is worded server-side because that is where the numbers
+	 *  are; FText replicates.
+	 */
+	UFUNCTION(Client, Reliable)
+	void Client_NotifyActivity(EActivityCategory Category, EActivitySeverity Severity, const FText& Text, const FText& Source);
 
 	/**
 	 *  Server-side entry point for collecting a loose world item into a pawn's grid. Re-checks

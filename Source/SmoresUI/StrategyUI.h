@@ -11,6 +11,9 @@ class UNavRailWidget;
 class UResourceStripWidget;
 class UTimePaceWidget;
 class UTargetPanelWidget;
+class USquadBarWidget;
+class UActivityFeedWidget;
+class AStrategyUnit;
 struct FStrategyTargetInfo;
 
 /**
@@ -53,10 +56,21 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTargetPanelWidget> TargetPanelRegion;
 
+	/** The bottom-left squad portraits and selection count. Name it "SquadBarRegion" to auto-bind. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<USquadBarWidget> SquadBarRegion;
+
+	/** The bottom-right record of what just happened. Name it "ActivityFeedRegion" to auto-bind. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UActivityFeedWidget> ActivityFeedRegion;
+
 public:
 
 	/** Sets the number of units selected */
 	void SetSelectedUnitsCount(int32 Count);
+
+	/** Sets the player's squad and which of them are selected. Forwarded to the squad bar. */
+	void SetSquad(const TArray<AStrategyUnit*>& Roster, const TArray<AStrategyUnit*>& SelectedUnits);
 
 	/** Sets everything the target panel draws. Forwarded to that region, which owns the display. */
 	void SetTargetInfo(const FStrategyTargetInfo& TargetInfo);
@@ -69,6 +83,12 @@ public:
 
 	/** Repaints the nav rail's "this panel is open" state. Pushed every frame by the HUD. */
 	void RefreshNavRail();
+
+	/** Re-fades the activity feed and rebuilds it if anything was posted. Pushed every frame by the HUD. */
+	void RefreshActivityFeed();
+
+	/** Expands or collapses the activity feed. The `L` key's route in, via AStrategyHUD. */
+	void ToggleActivityFeed();
 
 	/** Blueprint handler to update unit count sub-widgets */
 	UFUNCTION(BlueprintImplementableEvent, Category="UI", meta = (DisplayName="Update Units Count"))

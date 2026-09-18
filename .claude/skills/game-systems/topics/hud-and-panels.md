@@ -6,14 +6,15 @@ The always-on heads-up display and the floating panels the player opens from it:
 region of the screen is, who owns it in C++, and the rules that keep a click on the HUD from
 also ordering the squad somewhere.
 
-This is the permanent record. The multi-slice plan that builds the rest of it — the time-pace
-strip, the target panel, the squad portrait bar, the activity feed — lives in
-`Docs/roadmaps/hud-roadmap.md` and is a temporary working document.
+This is the permanent record, and for the HUD it is now the whole record: the three-slice plan
+that built it has shipped, so `Docs/roadmaps/hud-roadmap.md` keeps only its status and its
+resolved decisions. Read that only for *why* something was decided, never for how it works.
 
-> **Status: Slices 1 and 2 of the HUD roadmap have shipped.** Four of the six regions are real:
-> the nav rail, the resource strip, the time-pace strip and the target panel. The squad portrait
-> bar and the activity feed are still labelled placeholder boxes in `UI_Strategy` — they are there
-> so the layout can be judged whole, and Slice 3 replaces each with its real widget.
+> **Status: the HUD roadmap has shipped in full.** All six regions are real — the nav rail, the
+> resource strip, the time-pace strip, the target panel, the squad portrait bar and the activity
+> feed. `UI_Strategy` holds no placeholder boxes any more, and
+> `UHUDPlaceholderRegionWidget`/`WBP_HUDPlaceholderRegion` survive only as the tool for the next
+> region that arrives before its contents do.
 
 ## Player Surface
 
@@ -27,8 +28,8 @@ Six regions, positioned to the wireframe at `tmp/Squad HUD Wireframes v3-selecti
 | Time pace | Top centre | **Live.** Pause / 1× / 2× / 4× buttons and a readout of the tier actually running |
 | Resource strip | Top right | **Live.** Gold balance |
 | Target panel | Top right, below the strip | **Live.** Name, what it is, how far away, health, and what you may do to it |
-| Squad portraits | Bottom left | Placeholder box (Slice 3) |
-| Activity feed | Bottom right | Placeholder box (Slice 3) |
+| Squad portraits | Bottom left | **Live.** One portrait per squad member, with health, a selection ring, and the "N selected" count |
+| Activity feed | Bottom right | **Live.** Tabbed record of what just happened, fading after 8 seconds, expandable |
 
 ### Panels
 
@@ -84,6 +85,46 @@ teaches nothing. Attack is the one action with no range gate, correctly — the 
 
 Your own squad gets an empty row rather than a row of disabled buttons, because every verb that
 applies to your own pawn already has a route that isn't this panel.
+
+### Squad portrait bar
+
+One portrait per member of your own squad, along the bottom left, in the same order `Tab` cycles
+through them. Each shows the unit's name, a health bar, and a ring when it is selected. Under them
+sits the "3 selected" count, which is blank rather than "0 selected" when nothing is.
+
+**Click a portrait to select that unit alone; click it twice quickly to also cut the camera to it.**
+The first click selects immediately either way — a portrait never waits to see what you do next —
+so the camera cut is purely additive to a selection that has already happened. The cut keeps your
+camera height and rotation: it moves you over the unit, it doesn't reset your framing.
+
+No unit has a portrait picture today, so every tile draws the unit's initials on a plain disc.
+That is the designed fallback, and it is what the wireframe itself shows.
+
+### Activity feed
+
+The bottom-right record of what just happened. Four tabs:
+
+| Tab | Shows |
+|---|---|
+| LOG | Everything, in the order it happened |
+| SQUAD | Your squad's own news — damage taken and dealt, downs, deaths, pickups, refusals |
+| COMMS | Talking and trading |
+| QUESTS | Nothing, and says so: *"Objectives will appear here once quests exist."* |
+
+Lines are coloured by how they went — red for squad damage, green for a hit landed or a squad
+member back on their feet, amber for a refusal — and fade out after 8 seconds so the feed is
+ignorable during a fight. `L` expands it: the box grows upward, the history shows instead of the
+last few lines, and nothing fades while it is open. That is the whole point of the key — the fade
+is what makes the feed ignorable mid-fight, and the history is what makes it useful afterwards.
+
+**A refused action does two things now.** The line at the cursor answers it immediately, and the
+feed remembers it for the player who was looking somewhere else. Repeats of the same refusal
+inside two seconds count as one event, so leaning on a key can't push everything else out of the
+record.
+
+What is deliberately *not* in it: an NPC fight you had no part in. Going down and dying carry no
+"who did it", so the feed only reports a non-squad unit's down or death once your own squad has
+hurt that unit — see Core Rules.
 
 ### What the rail is not
 
@@ -181,12 +222,107 @@ coincidence (see Core Rules).
 - **The target label and the action row are one thing, not two.** `GetSelectionTargetInfo()`
   *replaced* `GetSelectionTargetLabel()` rather than joining it. Two paths would eventually let
   the name on screen and the actions offered describe different things.
+- **A portrait's second click is not a Slate double-click, and must not be.** Slate's `SButton`
+  turns the second click of a rapid pair into another ordinary press
+  (`OnMouseButtonDoubleClick` routes into `OnMouseButtonDown`), so what a `UButton`'s `OnClicked`
+  handler sees is two clicks and the gap between them. `USquadPortraitWidget` therefore measures
+  that gap itself (`DoubleClickSeconds`, 0.5s to match `IA_Strategy_SelectAllDoubleClick` and
+  Windows' own double-click speed) rather than overriding
+  `NativeOnMouseButtonDoubleClick`. **Keeping the real `UButton` is the point**: it consumes its
+  own press, so a portrait click can never fall through to the world, and the alternative — a
+  non-button root with two overrides — would be re-solving the clickable-HUD trap for a third
+  time. Three fast clicks read as select, focus, select: the timer resets on a focus rather than
+  counting on, so a camera cut can't fire on every click after the first.
+- **Focusing the camera on a unit means solving for the root, not moving it to the unit's X and Y.**
+  `AStrategyPawn` keeps its camera exactly `DollyDistance` behind its *root* along the camera's own
+  look direction, so **the root is the point at the centre of the screen** — and zoom only slides
+  the camera along that same ray, so nothing here depends on the zoom level. The root also has to
+  stay up at camera height, because of the movement plane constraint in `AStrategyPawn::SetHeight`.
+  Put the root at the unit's X and Y and screen centre therefore lands on a point in mid-air
+  *above* the unit, with the ground beneath it well below and behind that. **That is how this
+  first shipped, and Jim caught it in PIE**: the camera arrives in the right place while looking
+  out over the pawn, which reads as the focus having missed rather than as a framing error.
+  `FocusCameraOnUnit` instead asks how far along the look direction the unit's height lies and
+  puts the root that far back from the unit. Height and rotation are deliberately left alone — the
+  player set those, and a focus that reset the framing would cost them it on every portrait click.
+- **The squad bar owns the selection count, and that is a bug fix, not tidying.** The "N selected"
+  readout used to be a bare `UBorder` loose on `HUDCanvas`, which is exactly the shape the
+  everything-must-be-a-`UHUDRegionWidget` rule above exists to stop — a right-click on it issued a
+  move order to whatever was behind it. Folding it into the bar fixes that by construction, and
+  the count belongs beside the portraits anyway, being a fact about the same thing they draw.
+- **The roster is rebuilt on a real-time interval, not per frame.** `GetControlledPlayerUnits()`
+  is asked every frame and answering honestly means `GetAllActorsOfClass` over the level plus a
+  sort, so it runs at most every `RosterRefreshIntervalSeconds` (0.5s). **Real time, not world
+  time**: at the paused tier world time runs at 1/10,000 speed, and a roster keyed to world
+  seconds would be frozen for as long as the game was. A squad gains or loses a member rarely
+  enough that half a second of staleness is invisible; a *destroyed* unit drops out immediately
+  regardless, because the list is validity-filtered on every call.
+- **Portrait order is the Tab cycle's order, and must stay that way.** Both come from
+  `RefreshPlayerPawns`' deterministic sort. A bar that re-sorted itself as units moved or died
+  would slide a portrait out from under the player's finger mid-click.
+- **The activity feed is per-local-player client-side state, and a `ULocalPlayerSubsystem` is how
+  that is enforced rather than merely intended.** Which lines a player has seen is nobody else's
+  business, and in co-op two players' feeds legitimately differ. A local player subsystem is keyed
+  to a local player *by construction*, so there is no way to write the singleton-player bug into
+  it — see `multiplayer-discipline.md`. Nothing in `USmoresActivityLog` is replicated or
+  authority-gated, because nothing in it is shared state.
+  - **Server-side news reaches it through a client RPC, never by reading server state.**
+    `AStrategyPlayerController::Client_NotifyActivity` is the counterpart to
+    `Client_NotifyRefusal` and exists for the same reason: a purchase and a pickup are both
+    resolved on the server, so the client has no way of knowing what actually moved or what it
+    cost. The text is worded server-side because that is where the numbers are; `FText`
+    replicates.
+  - **`PostActivity` does nothing without a local player**, which is the correct behaviour on a
+    dedicated server and for any other player's controller — so callers don't check, exactly as
+    they don't for `NotifyRefusal`.
+- **The feed stores already-worded text, which is the opposite of a refusal, deliberately.** A
+  refusal is one of six fixed sentences and so wants one place to word them; a feed line names an
+  item, a quantity, a person and a price, so there is no finite vocabulary to centralise. What
+  *does* arrive as an `ESmoresRefusalReason` is still worded by `URefusalWidget::GetRefusalText`
+  before it is posted, so the line in the feed and the line at the cursor cannot disagree.
+- **Nothing is evicted on a timer — only pushed out by newer news.** The 8-second fade is a
+  *display* rule; the entry is still in the ring buffer, and expanding the feed shows it. That is
+  what makes `player-experience.md`'s "notifications persist until dismissed" affordable at high
+  speed. The one thing that can genuinely lose information is a flood, which is why a repeated
+  refusal counts once per `FeedRefusalRepeatSeconds` (2s, matching how long the refusal line
+  stays on screen: while the same refusal is still showing, it is still the same refusal).
+- **Timestamps and fades are wall-clock, not world time.** `FActivityEntry::Timestamp` is
+  `FPlatformTime::Seconds()`. A line posted just before a pause must not sit there forever, and
+  one posted at 8× must not vanish eight times too fast — the feed fades on seconds the *player*
+  experiences.
+- **A non-squad unit's down or death only reaches the feed once your squad has hurt it.**
+  `OnDowned` and `OnDied` are parameterless, so they cannot say who was responsible. Without a
+  gate the only honest options would be reporting every NPC that falls over anywhere in the world
+  or reporting none of them. `OnDamaged` *does* carry an instigator, and nothing dies without
+  being damaged first, so `USquadActivityWatcher::bHurtByPlayerSquad` remembers that one bit and
+  answers the other two events with it.
+- **One watcher object per unit, which looks like overkill and is the only thing that works.**
+  `UHealthComponent`'s delegates are dynamic, so a handler must be a `UFUNCTION` on a `UObject` —
+  no lambdas, no payload binding — and three of the four carry no parameters at all. A single
+  handler on the player controller would be told that *somebody* went down with no way to find
+  out who. `USquadActivityWatcher` supplies the missing parameter by being the only thing it is
+  for.
 - **Every per-frame push is guarded at the region that receives it.** `DrawHUD` pushes gold, the
-  pace, the selection count and the whole target struct every frame, and each region compares
-  what it was handed against what it is already showing before touching Slate. The target panel
-  compares what would be *drawn* — distance to the nearest metre, health to the nearest percent —
-  rather than the raw floats, because otherwise a stationary squad invalidates layout sixty times
-  a second over sub-millimetre jitter.
+  pace, the selection count, the whole target struct and the squad roster every frame, and calls
+  the nav rail's and the feed's refresh — and each region compares what it was handed against what
+  it is already showing before touching Slate. **They compare what would be *drawn*, not the raw
+  values**, because otherwise a stationary squad invalidates layout sixty times a second over
+  sub-millimetre jitter: the target panel rounds distance to the nearest metre and health to the
+  nearest percent, and a portrait does the same with health. The squad bar splits the comparison
+  in two — it checks the roster (which changes only when a unit joins, dies or streams out) and
+  leaves per-unit state to each portrait, because a portrait is the only widget that knows what it
+  is currently drawing.
+  - **The feed's two halves are driven differently, and that split is the interesting part.** The
+    *lines* change only when something is posted, so the widget subscribes to
+    `USmoresActivityLog::OnEntryAdded` and merely marks itself dirty — several things can post
+    inside one frame (a fight resolving, a trade), and the frame's push is where the one rebuild
+    belongs. The *fade* is a function of wall-clock time and nothing broadcasts when a second
+    passes, so it genuinely is recomputed every frame. Anything else on this HUD that animates
+    rather than reacting wants the same shape.
+  - **A line is compared by id, never by its words.** `FActivityEntry::Id` is monotonic and never
+    reused, including past an eviction or a clear. Two lines with identical text are still
+    different events, and the same event is never worth redrawing — comparing `FText` would get
+    both of those backwards.
 - **Layout now, styling later — but legible is not styling.** Plain UMG defaults and correct
   positions, deliberately, so the layout can be judged in PIE before anything is worth restyling,
   and so a layout change doesn't cost restyling twice. The wireframe's cream palette, fonts and
@@ -250,6 +386,32 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
   to the panel's own shield rather than reaching the world — either way nothing falls through. Its
   disabled reason is worded by `URefusalWidget::GetRefusalText`, so the same reason reads
   identically here and on the refusal line.
+- **`USquadBarWidget`** — the portraits and the selection count. Holds them in `PortraitWidgets`
+  and resizes that row rather than rebuilding it (same pattern as the target panel's action row and
+  `UInventoryWidget`'s cells: a `TSubclassOf` property plus `CreateWidget`/`AddChild`). It compares
+  the *roster* and leaves per-unit state to each portrait — see Core Rules.
+- **`USquadPortraitWidget`** — one tile, spawned from `PortraitWidgetClass`. Deliberately **not** a
+  `UHUDRegionWidget`: it lives inside one, exactly like `UTargetActionWidget`, and its real
+  `UButton` consumes its own press. It owns the click/focus timing rule and the initials fallback
+  (`GetInitials` takes the first letter of up to two whitespace-separated words, so "Pawn 1" reads
+  as "P1" — which is what the wireframe's placeholder discs show). `SelectionRing` is set `Hidden`
+  rather than `Collapsed`, so its absence can't change the tile's size and slide the whole bar
+  sideways on every selection.
+- **`UActivityFeedWidget`** — the tabs, the visible lines and the fade. Reads
+  `USmoresActivityLog`, subscribes to `OnEntryAdded` for the *lines* and is driven by the HUD's
+  per-frame push for the *fade* (see Core Rules for why those differ). `NativeDestruct` unbinds:
+  the subsystem outlives every widget bound to it, so an unbound delegate here is a dangling
+  handler on the next map load rather than a leak that gets collected. `ApplyExpandedHeight`
+  resizes its own `UCanvasPanelSlot` on expand, reading the slot's alignment rather than assuming
+  it so the box grows *upward* — the feed is bottom-anchored, and a taller box that kept its top
+  edge would push its newest lines off the bottom of the viewport. `CollapsedHeight` is captured
+  on construct so collapsing restores the authored layout rather than a number guessed in C++.
+- **`UActivityEntryWidget`** — one line, spawned from `EntryWidgetClass`. Not a
+  `UHUDRegionWidget` and not clickable — a feed line is a record, not a control — so it needs
+  neither a shield nor a button. Severity colour is the one piece of the wireframe's styling that
+  is *not* deferred, because a feed whose lines all read the same is a feed nobody scans after a
+  fight, which is the only time it is worth having. `SetFadeAlpha` uses render opacity rather than
+  a text colour so the message, the source and any future icon fade together.
 - **`UResourceStripWidget`** — the gold readout. The balance still arrives the way it always did:
   `AStrategyHUD` resolves `UWalletComponent` off its own player state (with a late-arrival retry)
   and pushes it through `UStrategyUI::SetGold`. Only the display moved.
@@ -269,6 +431,29 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
   composition root for state shared by everyone in a session, which is exactly what pace is.
   **`BP_StrategyGameState` must be set as `GameStateClass` on `BP_StrategyGameMode`** or nothing
   spawns it and the pace controls silently do nothing.
+- **`USmoresActivityLog`** (`SmoresCore`) — a `ULocalPlayerSubsystem` holding the ring buffer,
+  `Post`, `GetEntries()` / `GetEntries(Category)`, `SetCapacity` and `OnEntryAdded`. In
+  `SmoresCore` because *everything* has to be able to post to it — combat, items, economy and the
+  controller all have something to say, and it is the one module all of them can see. `Get(const
+  APlayerController*)` is the front door: it takes a controller rather than a world, so there is no
+  "the" player to get wrong, and a remote controller correctly gets nothing back. `OnEntryAdded` is
+  a **plain (non-dynamic) multicast delegate**, so a widget binds with `AddUObject` and a test with
+  `AddLambda` — giving it an `int32` payload merely to reuse `USmoresTestDelegateListener` would
+  have been the tail wagging the dog. Eviction is `RemoveAt(0, N)` rather than circular-index
+  bookkeeping: at a capacity in the tens that is one memmove on the frame something is posted,
+  against extra arithmetic everywhere the buffer is *read*.
+- **`FActivityEntry` / `EActivityCategory` / `EActivitySeverity`** (`ActivityEntry.h`,
+  `SmoresCore`) — one feed line. There is deliberately **no `All` category**: the LOG tab shows
+  everything by *not filtering*, and a value only the reader ever used would be one more thing
+  every producer has to get right. Severity is separate from category because "you took damage"
+  and "you dealt damage" are the same category and read completely differently.
+- **`USquadActivityWatcher`** (`smores`, `Variant_Strategy/`) — one per watched unit, owned by the
+  player controller, turning that unit's health delegates into feed lines. Variant glue wiring
+  existing delegates into the local player's feed, which is what the controller's module is for;
+  it holds no state anyone else needs, so it is not a component in a feature module.
+  `RefreshActivityWatchers` rebuilds the set from the world on the roster's interval, because a
+  unit spawned mid-session announces itself to nobody. Whether a unit gets squad wording or
+  enemy wording is decided once, at `Watch()` time.
 - **`FStrategyTargetInfo` / `FTargetAction`** (`StrategyTargetInfo.h`, `SmoresUI`) — the target
   panel's whole contents, rebuilt every frame. `bHasTarget` is a flag of its own rather than "is
   the name empty", because a target's name is authored data and an actor nobody got round to
@@ -330,6 +515,24 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
   idea of the pace ahead of the server's.
 - **`GetTimePace()`** — `GetWorld()->GetGameState<AStrategyGameState>()->GetTimePace()`. Unlike
   the HUD's version this may cast, because the controller is in `smores`.
+- **`GetControlledPlayerUnits()`** — the squad bar's roster, on the real-time interval described
+  in Core Rules. It also drives `RefreshActivityWatchers()`, because that is the only cadence that
+  notices a unit having joined or left the level.
+- **`RequestSelectUnit`** — replaces the selection through the same `DoDeselectAllUnitsCommand` /
+  `UnitSelected` path the `Tab` cycle uses, sets `LastSelectionTarget` so the target panel follows,
+  and updates `CurrentPlayerPawnIndex` so `Tab` resumes from where the click left off rather than
+  from wherever it had got to before the player reached for the mouse. It re-checks that the unit
+  is this player's own rather than trusting the widget: the bar is built from
+  `GetControlledPlayerUnits()` and so can only offer legal units, but "the UI only ever asks for
+  legal things" is not a rule this method should depend on.
+- **`FocusCameraOnUnit`** — the camera solve. See Core Rules; the geometry is the whole of it.
+- **`PostActivity` / `Client_NotifyActivity`** — the local and server-to-client routes into the
+  feed, shaped exactly like `NotifyRefusal` / `Client_NotifyRefusal` and for the same reasons.
+  `NotifyRefusal` now posts as well as raising the line, with its own repeat suppression.
+- **`ToggleActivityFeedKeyPressed`** — goes controller → `AStrategyHUD::ToggleActivityFeed` →
+  `UStrategyUI` → the region, **not** through `IStrategyHUDCommands`. `smores` already depends on
+  `SmoresUI`, so this direction needs no interface; the interface exists for requests travelling
+  the other way, from a widget that cannot see the controller's type.
 
 ## Blueprint / Asset Dependencies
 
@@ -337,13 +540,17 @@ All under `Content/Variant_Strategy/UI/`:
 
 | Asset | Parent | Bound names |
 |---|---|---|
-| `UI_Strategy` | `UStrategyUI` | `NavRail`, `ResourceStrip`, `TimePaceRegion`, `TargetPanelRegion`; plus the units-count display. Two placeholder boxes — `SquadBarRegion`, `ActivityFeedRegion` — hold Slice 3's space |
+| `UI_Strategy` | `UStrategyUI` | All six regions: `NavRail`, `ResourceStrip`, `TimePaceRegion`, `TargetPanelRegion`, `SquadBarRegion`, `ActivityFeedRegion`. **Its EventGraph is now empty** — see below |
 | `WBP_NavRail` | `UNavRailWidget` | `SquadButton`, `InventoryButton`, `MapButton`, `ResearchButton`, `HelpButton` |
 | `WBP_ResourceStrip` | `UResourceStripWidget` | `GoldText` |
 | `WBP_TimePace` | `UTimePaceWidget` | `PauseButton`, `NormalButton`, `DoubleButton`, `QuadrupleButton`, `PaceText` |
 | `WBP_TargetPanel` | `UTargetPanelWidget` | `NameText`, `ClassificationText`, `HealthBar`, `ActionBox`; plus the `ActionWidgetClass` property, which must point at `WBP_TargetAction` or the row silently shows nothing |
 | `WBP_TargetAction` | `UTargetActionWidget` | `ActionButton`, `LabelText`, `ReasonText` |
-| `WBP_HUDPlaceholderRegion` | `UHUDPlaceholderRegionWidget` | `LabelText`; two instances left in `UI_Strategy`, one per unbuilt region |
+| `WBP_SquadBar` | `USquadBarWidget` | `PortraitBox`, `SelectionCountText`; plus the `PortraitWidgetClass` property, which must point at `WBP_SquadPortrait` or the bar silently shows no portraits |
+| `WBP_SquadPortrait` | `USquadPortraitWidget` | `PortraitButton`, `PortraitImage`, `InitialsText`, `NameText`, `HealthBar`, `SelectionRing` |
+| `WBP_ActivityFeed` | `UActivityFeedWidget` | `LogTabButton`, `SquadTabButton`, `QuestsTabButton`, `CommsTabButton`, `EntryBox`, `EmptyText`; plus the `EntryWidgetClass` property, which must point at `WBP_ActivityEntry` or the feed silently shows no lines |
+| `WBP_ActivityEntry` | `UActivityEntryWidget` | `MessageText`, `SourceText` |
+| `WBP_HUDPlaceholderRegion` | `UHUDPlaceholderRegionWidget` | `LabelText`; no instances left in `UI_Strategy` — kept for the next region that arrives before its contents |
 | `WBP_SquadPanel` | `USquadPanelWidget` | `TitleText`, `CloseButton`, `TitleBarDragHandle`, `ResizeHandle`, `BodyText` |
 | `WBP_MapPanel` | `UMapPanelWidget` | as above |
 | `WBP_ResearchPanel` | `UResearchPanelWidget` | as above |
@@ -363,6 +570,21 @@ missing GameState component is a legitimate early-frame state on a client.
 **The `GoldText` widget moved out of `UI_Strategy` into `WBP_ResourceStrip`** in Slice 1, and
 **`SelectionTargetBorder` / `SelectionTargetText` were deleted from it** in Slice 2 — the target
 panel subsumes them, and the `GetSelectionTargetLabel` binding they used no longer exists.
+
+**`UI_Strategy`'s EventGraph is empty as of Slice 3, and that is the correct end state.** It held
+two chains, both pushing text into the old loose `SelectionCount` widget: `Event Construct →
+SetText("0")` and `Event Update Units Count → SetText(ToText(GetSelectedUnitsCount()))`. Both
+existed solely to drive a readout `USquadBarWidget::SelectionCountText` now owns, so all eight
+nodes were deleted along with the widget. `UStrategyUI::GetSelectedUnitsCount` and
+`BP_UpdateUnitsCount` are untouched and still valid C++ — a future WBP may use them again.
+**Deleting the widget without the chain would have failed the compile** with "Could not find a
+function named X", naming the function but not where it was used; `BlueprintTools.read_graph_dsl`
+on the EventGraph is how you find it, and a binary grep of `Content/` for the widget's name is the
+cheaper advance check. This is the second slice running in which that trap was live — see the
+`mcp-workflow` skill.
+
+`Border_0` (the old count readout) and `Border_361` (a collapsed empty leftover) are both gone from
+`UI_Strategy`.
 
 ## Extension Points
 
@@ -391,13 +613,59 @@ needs from `AStrategyHUD::DrawHUD`. Replace that region's placeholder box in `UI
 slot's anchors/offsets — delete-and-re-add loses the `BindWidgetOptional` name binding.
 
 **If the region isn't ready yet, use `WBP_HUDPlaceholderRegion` rather than a bare `UBorder`.**
-An empty box still has to consume clicks; see Core Rules for the bug that proved it.
+An empty box still has to consume clicks; see Core Rules for the bug that proved it. No instances
+are left in `UI_Strategy`, so the next region to arrive early is the asset's next use.
+
+### Adding a producer to the activity feed
+
+The feed is the one part of this HUD other systems are expected to write to, so the route in is
+deliberately short.
+
+1. **Decide the category and severity.** Category is which tab it belongs under; severity is only
+   colour. Both are in `ActivityEntry.h` (`SmoresCore`), so any module can name them.
+2. **Word the line where the facts are.** `Post` takes finished `FText`, not a code — see Core
+   Rules for why this is the opposite of a refusal. Anything arriving as an
+   `ESmoresRefusalReason` goes through `URefusalWidget::GetRefusalText` first.
+3. **Pick the route by where the code runs.**
+   - Client-side, and you have the player controller → `AStrategyPlayerController::PostActivity`.
+   - Server-side → `Client_NotifyActivity`, the same shape as `Client_NotifyRefusal`. Calling
+     `PostActivity` on the server means a dedicated server posting into a feed nobody can see.
+   - Neither, and you only have a `UObject` → `USmoresActivityLog::Get(SomePlayerController)`.
+     There is no world-context overload on purpose; a producer that can't name a player is a
+     producer about to assume there is only one.
+4. **If the event is a parameterless delegate, you need something that knows the subject.**
+   `USquadActivityWatcher` is the worked example — one instance per unit, because the delegate
+   can't tell you which unit fired it.
+5. **Don't add a category for a system that doesn't exist.** `Quests` is the exception that
+   proves the rule: it exists because the tab is in the wireframe, and it says so on screen
+   rather than pretending to be empty-for-now.
 
 ## Known Gaps
 
-- **Two of the six regions are placeholder boxes** (`WBP_HUDPlaceholderRegion` instances, so they
-  shield clicks like any other region). The squad portrait bar and the activity feed are Slice 3.
-  See `Docs/roadmaps/hud-roadmap.md`.
+- **Health events reach the feed only on the machine that ran the damage**, which today is the
+  server. So the fight record is correct in a standalone session and on a listen server's own
+  screen, and a remote client would see nothing until health events are routed to owning clients.
+  A real gap rather than a hidden one: the alternative — replicating a feed nobody can see yet —
+  is the speculative machinery `multiplayer-discipline.md` says not to build.
+- **The expanded feed does not scroll.** It grows its slot and shows `ExpandedEntryCount` (20)
+  lines; the ring buffer holds 64. Reaching the rest means a `UScrollBox` around `EntryBox`, which
+  is a WBP change and no C++ change — `EntryBox` is typed as a `UPanelWidget` precisely so that
+  swap costs nothing.
+- **No unit has a portrait texture**, so every tile draws initials. That is the designed
+  fallback, not a fault; `PortraitTexture` on `AStrategyUnit` is authored per Blueprint or per
+  placed instance whenever there is art.
+- **`AStrategyUnit` carries identity data directly** — `UnitDisplayName` and `PortraitTexture`
+  are properties on the actor. A later characters pass may well move name, face and biography onto
+  a component of its own; two properties is the cheap version that doesn't block that.
+- **The portrait bar has no answer for a large squad.** The wireframe shows nine and stops, and
+  roughly seven tiles fit the authored slot. Scroll, shrink or wrap is a layout decision nobody
+  has to make until a squad gets that big — see `Docs/roadmaps/hud-roadmap.md`'s Open Questions.
+- **Nothing decides what *demands* acknowledgement.** The feed remembers; dismissal semantics
+  belong to `notifications-and-alerts.md`, still a placeholder topic.
+- **`PortraitWidgetClass` and `EntryWidgetClass` are silent single points of failure**, the same
+  shape as `WBP_TargetPanel`'s `ActionWidgetClass` and `BP_StrategyGameMode`'s `GameStateClass`:
+  clear one and that region draws its chrome and nothing else. Each logs one warning naming
+  itself, which is the only reason it isn't invisible.
 - **`L` is mapped and bound but does nothing yet**, and logs a line saying the activity feed
   arrives in Slice 3. It was mapped early so all eight of the HUD round's key mappings could be
   authored and verified in one editor pass — the one manual editor step in Slice 1. A key that

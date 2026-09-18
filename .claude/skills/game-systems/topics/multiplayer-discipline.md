@@ -40,6 +40,7 @@ writing or changing gameplay state.**
   | One per player | a component on their `APlayerState` | `UWalletComponent` |
   | One per **session**, same for everybody | a component on the **`AGameStateBase`** | `UTimePaceComponent` |
   | One per player, cosmetic/UI only | the local `APlayerController` or a widget — **not replicated at all** | which HUD panels are open |
+  | One per **local** player, client-side only | a **`ULocalPlayerSubsystem`** | `USmoresActivityLog` (the activity feed's record) |
 
   The GameState is the one most likely to be reached for wrongly, in both directions: it is
   not a convenient global for things that are really per-player, and a genuinely session-wide
@@ -80,6 +81,13 @@ writing or changing gameplay state.**
   state — also `unreal-module-organization.md` ("Framework Classes vs. Feature Modules").
   Components on an `APlayerState` replicate exactly as they do on a pawn, and so do
   components on an `AGameStateBase`.
+- **A `ULocalPlayerSubsystem` makes the no-singleton rule structural rather than intended.** When
+  client-side state is genuinely per-local-player, this is the best home available: it is keyed to
+  a local player *by construction*, so there is no global to reach for and no way to write the
+  singleton-player bug into it. `USmoresActivityLog` is the example, and its accessor is the other
+  half of the pattern — `Get(const APlayerController*)` takes a controller rather than a world, so
+  a remote controller correctly gets nothing back. **A producer that can't name a player is a
+  producer about to assume there is only one**, which is why no world-context overload exists.
 - **The HUD is the standing example of per-local-player state that is deliberately *not*
   replicated** — which panels a player has open is nobody else's business. `hud-and-panels.md`
   draws the contrast with the pace, which sits on the same screen and is shared by everyone.
@@ -95,8 +103,9 @@ Read these rather than re-deriving the pattern:
 | Per-player state on the player state | `UWalletComponent` on `AStrategyPlayerState` |
 | Session-wide state on the game state | `UTimePaceComponent` on `AStrategyGameState` |
 | Client → own controller → authoritative component | `Server_RequestPace`, `Server_MoveUnits`, `Server_MoveInventoryItem` |
-| Server → owning client, for a decision only the server could make | `Client_NotifyRefusal` |
+| Server → owning client, for a decision only the server could make | `Client_NotifyRefusal`, `Client_NotifyActivity` |
 | Deliberately unreplicated local UI state | `AStrategyPlayerController::PanelWidgets` |
+| Per-local-player client-side state, enforced by construction | `USmoresActivityLog` (`SmoresCore`) |
 
 ## Known Gaps
 

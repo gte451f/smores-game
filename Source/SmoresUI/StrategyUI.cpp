@@ -6,6 +6,8 @@
 #include "ResourceStripWidget.h"
 #include "TimePaceWidget.h"
 #include "TargetPanelWidget.h"
+#include "SquadBarWidget.h"
+#include "ActivityFeedWidget.h"
 #include "StrategyTargetInfo.h"
 
 void UStrategyUI::SetSelectedUnitsCount(int32 Count)
@@ -20,6 +22,16 @@ void UStrategyUI::SetSelectedUnitsCount(int32 Count)
 	if (bChanged)
 	{
 		BP_UpdateUnitsCount();
+	}
+}
+
+void UStrategyUI::SetSquad(const TArray<AStrategyUnit*>& Roster, const TArray<AStrategyUnit*>& SelectedUnits)
+{
+	// the bar owns the portraits and the "N selected" readout alike - the readout used to sit
+	// loose on this canvas, where it leaked right-clicks to the world. See USquadBarWidget.
+	if (SquadBarRegion)
+	{
+		SquadBarRegion->SetSquad(Roster, SelectedUnits);
 	}
 }
 
@@ -55,5 +67,21 @@ void UStrategyUI::RefreshNavRail()
 	if (NavRail)
 	{
 		NavRail->RefreshPanelStates();
+	}
+}
+
+void UStrategyUI::RefreshActivityFeed()
+{
+	if (ActivityFeedRegion)
+	{
+		ActivityFeedRegion->RefreshFeed();
+	}
+}
+
+void UStrategyUI::ToggleActivityFeed()
+{
+	if (ActivityFeedRegion)
+	{
+		ActivityFeedRegion->ToggleExpanded();
 	}
 }

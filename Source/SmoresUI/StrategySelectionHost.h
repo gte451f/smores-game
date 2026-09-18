@@ -38,4 +38,17 @@ public:
 	 *  action row acted on.
 	 */
 	virtual FStrategyTargetInfo GetSelectionTargetInfo() const = 0;
+
+	/**
+	 *  The player's own squad, in the same deterministic order the Tab cycle already walks, so
+	 *  the portrait bar doesn't reshuffle itself between frames.
+	 *
+	 *  Returned by value rather than as a reference to the controller's own list: the controller
+	 *  stores AStrategyPlayerUnit and everything on this interface speaks AStrategyUnit, and a
+	 *  squad-sized array copied once a frame costs nothing next to keeping two lists in step.
+	 *
+	 *  Non-const for the same reason GetSelectedUnits() is - answering it may mean rebuilding the
+	 *  roster from the world.
+	 */
+	virtual TArray<AStrategyUnit*> GetControlledPlayerUnits() = 0;
 };

@@ -27,7 +27,33 @@ Players control a floating orthographic camera rather than a character. They can
 - Touch double-tap toggles all recently rendered units on screen unless box selection is active.
 - Touch secondary input acts as the selection modifier and drives box selection.
 - Touch primary hold pans the camera once held past `TouchDragScrollHoldTime` (0.15s), via `DoCameraDragScrollCommand()`.
+- **The camera pawn's *root* is the point at the centre of the screen**, and that is the fact any
+  "look at this thing" code has to start from. `AStrategyPawn::UpdateCameraDollyOffset` keeps the
+  camera exactly `DollyDistance` behind the root along the camera's own look direction, so the
+  root always lies on the view ray - and zoom only slides the camera along that same ray, so
+  nothing derived from this depends on the zoom level.
+  - **The root also has to stay at camera height**, because `AStrategyPawn::SetHeight` sets a
+    movement-plane constraint there. So centring on something at *ground* level is not "move the
+    root to its X and Y": that puts screen centre on a point in mid-air above the target, and with
+    the camera pitched down the ground beneath it sits well below and behind that. **This shipped
+    that way once** and the symptom is distinctive - the camera arrives in the right place while
+    looking out over the target, which reads as the move having missed rather than as a framing
+    error.
+  - The solve is to ask how far along the look direction the target's height lies, and put the
+    root that far back from the target. `AStrategyPlayerController::FocusCameraOnUnit` is the
+    worked example; the mini-map and any future "go here" jump want the same three lines rather
+    than their own attempt at them.
+- **A camera focus leaves height and rotation alone.** The player set those, and a jump that also
+  reset the framing would cost them it every time. `FocusCameraOnUnit` is a hard cut, which is what
+  `player-interface.md` asks for when switching between divisions.
 - `CyclePawn()` rebuilds `PlayerPawns` (sorted by stable object name, since actor-iteration order isn't stable across runs), resumes from the currently-selected pawn's index if one is selected, then advances with wraparound and re-selects the next pawn.
+
+**Selecting from the squad portrait bar** goes through
+`AStrategyPlayerController::RequestSelectUnit`, which replaces the selection through the same
+deselect/select path `CyclePawn` uses, and keeps `CurrentPlayerPawnIndex` in step so `Tab` resumes
+from wherever the click left off. Clicking a portrait twice quickly also focuses the camera. The
+bar's roster is the same deterministically-sorted `PlayerPawns` the cycle walks - see
+`hud-and-panels.md`.
 
 ## Targeting is not selection
 

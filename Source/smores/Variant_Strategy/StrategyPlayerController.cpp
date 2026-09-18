@@ -33,6 +33,8 @@
 #include "WorldItem.h"
 #include "InventoryHolder.h"
 #include "HealthComponent.h"
+#include "SmoresActivityLog.h"
+#include "SquadActivityWatcher.h"
 #include "WalletComponent.h"
 #include "TraderComponent.h"
 #include "ItemDefinition.h"
@@ -96,6 +98,9 @@ void AStrategyPlayerController::BeginPlay()
 
 	// warm the player pawn list (CyclePawn refreshes again on use, so this is best-effort)
 	RefreshPlayerPawns();
+
+	// and start listening for anything worth a line in the feed
+	RefreshActivityWatchers();
 
 }
 
@@ -434,6 +439,59 @@ void AStrategyPlayerController::RefreshPlayerPawns()
 	{
 		return A.GetName() < B.GetName();
 	});
+}
+
+void AStrategyPlayerController::RefreshActivityWatchers()
+{
+	USmoresActivityLog* ActivityLog = USmoresActivityLog::Get(this);
+
+	if (!ActivityLog)
+	{
+		// no local player means no feed to report into - a remote controller, or a dedicated
+		// server. Correct, and the reason this is checked here rather than in every handler.
+		return;
+	}
+
+	TArray<AActor*> FoundUnits;
+	UGameplayStatics::GetAllActorsOfClass(this, AStrategyUnit::StaticClass(), FoundUnits);
+
+	// drop watchers whose unit has gone, so the map doesn't grow across a long session
+	for (auto It = ActivityWatchers.CreateIterator(); It; ++It)
+	{
+		AStrategyUnit* WatchedUnit = It.Key().Get();
+
+		if (!IsValid(WatchedUnit) || !FoundUnits.Contains(WatchedUnit))
+		{
+			if (USquadActivityWatcher* Watcher = It.Value())
+			{
+				Watcher->Unwatch();
+			}
+
+			It.RemoveCurrent();
+		}
+	}
+
+	for (AActor* CurrentActor : FoundUnits)
+	{
+		AStrategyUnit* CurrentUnit = Cast<AStrategyUnit>(CurrentActor);
+
+		if (!IsValid(CurrentUnit) || ActivityWatchers.Contains(CurrentUnit))
+		{
+			continue;
+		}
+
+		// Both sides of a fight are watched, not just the squad: "Pawn 1 hit Bandit" and "Bandit
+		// is down" are the half of the record that says the fight was going the player's way.
+		// Which wording a unit gets is decided once, here, by whether it is one of ours.
+		const AStrategyPlayerUnit* PlayerUnit = Cast<AStrategyPlayerUnit>(CurrentUnit);
+		const bool bOwnSquad = PlayerUnit && PlayerUnit->GetOwningController() == this;
+
+		USquadActivityWatcher* Watcher = NewObject<USquadActivityWatcher>(this);
+
+		Watcher->Watch(CurrentUnit, ActivityLog, bOwnSquad);
+
+		ActivityWatchers.Add(CurrentUnit, Watcher);
+	}
 }
 
 void AStrategyPlayerController::CyclePawn(const FInputActionValue& Value)
@@ -817,8 +875,95 @@ void AStrategyPlayerController::OpenPanel(EHUDPanel Panel)
 
 void AStrategyPlayerController::RequestSelectUnit(AStrategyUnit* Unit, bool bFocusCamera)
 {
-	// The squad portrait bar's click and double-click. Nothing calls this yet - see
-	// Docs/roadmaps/hud-roadmap.md, Slice 3, which builds the bar and fills this in.
+	if (!IsValid(Unit))
+	{
+		return;
+	}
+
+	// Only this player's own squad, checked here rather than trusted from the widget: the bar is
+	// built from GetControlledPlayerUnits() and so can only offer this player's own pawns, but
+	// "the UI only ever asks for legal things" is not a rule this method should depend on.
+	const AStrategyPlayerUnit* PlayerUnit = Cast<AStrategyPlayerUnit>(Unit);
+
+	if (!PlayerUnit || PlayerUnit->GetOwningController() != this)
+	{
+		return;
+	}
+
+	// Replacing the selection rather than adding to it, and through the same deselect/select path
+	// the Tab cycle uses - a portrait click is the mouse's version of that gesture, so the two had
+	// better mean the same thing. Additive selection has a modifier in the world and does not need
+	// a second, different answer here.
+	DoDeselectAllUnitsCommand();
+
+	ControlledUnits.Add(Unit);
+	Unit->UnitSelected();
+
+	// the newly selected pawn is now the most recently targeted, for the target panel
+	LastSelectionTarget = Unit;
+
+	// keep the Tab cycle resuming from where the click left off, rather than from wherever it had
+	// got to before the player reached for the mouse
+	const int32 FoundIndex = PlayerPawns.IndexOfByKey(PlayerUnit);
+
+	if (FoundIndex != INDEX_NONE)
+	{
+		CurrentPlayerPawnIndex = FoundIndex;
+	}
+
+	if (bFocusCamera)
+	{
+		FocusCameraOnUnit(Unit);
+	}
+}
+
+void AStrategyPlayerController::FocusCameraOnUnit(const AStrategyUnit* Unit)
+{
+	if (!ControlledCameraPawn || !IsValid(Unit))
+	{
+		return;
+	}
+
+	// A hard cut, deliberately: player-interface.md specifies exactly that for switching between
+	// divisions, and this is the same gesture arriving early on a single roster. Height and
+	// rotation are left alone - the player set those, and a focus that also reset the camera
+	// would cost them their framing every time they clicked a portrait.
+	const FVector UnitLocation = Unit->GetActorLocation();
+	const float CameraZ = ControlledCameraPawn->GetHeight();
+
+	// AStrategyPawn::UpdateCameraDollyOffset keeps the camera exactly DollyDistance *behind the
+	// root* along its own look direction, so the root is always the point at the centre of the
+	// screen - and zoom only slides the camera along that same ray, so none of this depends on
+	// the zoom level.
+	//
+	// That is also why moving the root to the unit's own X and Y is wrong, which is how this first
+	// shipped: the root has to stay up at camera height, so screen centre landed on a point in
+	// mid-air *above* the unit, and with the camera pitched down the ground beneath it sits well
+	// below and behind that. The symptom is the camera arriving in the right place while looking
+	// out over the pawn, which reads as the focus having missed rather than as a framing error.
+	//
+	// So solve for it instead: find how far along the look direction the unit's height lies, and
+	// put the root that far back from the unit. Screen centre then lands on the unit itself.
+	const FVector Forward = ControlledCameraPawn->GetCamera()->GetComponentRotation().Vector();
+
+	FVector NewRootLocation(UnitLocation.X, UnitLocation.Y, CameraZ);
+
+	// A near-horizontal camera never crosses the unit's height, so there is no answer to solve
+	// for - fall back to the unit's own X and Y, which is at least the right place on the map.
+	// Unreachable with the current height/pitch limits; here so a later camera change degrades
+	// rather than divides by ~zero and throws the pawn to the far side of the level.
+	if (FMath::Abs(Forward.Z) > UE_KINDA_SMALL_NUMBER)
+	{
+		const float DistanceToUnitHeight = (UnitLocation.Z - CameraZ) / Forward.Z;
+
+		NewRootLocation = UnitLocation - Forward * DistanceToUnitHeight;
+
+		// the plane constraint in AStrategyPawn::SetHeight owns the height; the solve above should
+		// already land on it, and this makes that exact rather than nearly so
+		NewRootLocation.Z = CameraZ;
+	}
+
+	ControlledCameraPawn->SetActorLocation(NewRootLocation);
 }
 
 void AStrategyPlayerController::RequestTargetAction(FName ActionId)
@@ -947,7 +1092,13 @@ void AStrategyPlayerController::RequestPaceStep(int32 Steps)
 
 void AStrategyPlayerController::ToggleActivityFeedKeyPressed(const FInputActionValue& Value)
 {
-	UE_LOG(Logsmores, Log, TEXT("Activity-feed key pressed - the feed arrives in Slice 3 of the HUD roadmap."));
+	// The feed is a region inside the HUD's widget, and `smores` already depends on SmoresUI - so
+	// this goes controller -> HUD -> root -> region rather than through IStrategyHUDCommands,
+	// which exists for requests travelling the other way.
+	if (StrategyHUD)
+	{
+		StrategyHUD->ToggleActivityFeed();
+	}
 }
 
 void AStrategyPlayerController::ToggleContainer(const FInputActionValue& Value)
@@ -1787,11 +1938,46 @@ void AStrategyPlayerController::NotifyRefusal(ESmoresRefusalReason Reason)
 	// HUD, which is the correct behaviour on a dedicated server and exactly why server-side code
 	// has to come through Client_NotifyRefusal rather than calling this.
 	URefusalWidget::RaiseRefusal(this, Reason);
+
+	// A refused action does both: the line at the cursor answers it now, and the feed remembers it
+	// for the player who was looking somewhere else. The wording comes from the same resolver, so
+	// the two can never disagree about what was refused.
+	//
+	// Repeats of the same reason inside the window are one event, the same way URefusalWidget
+	// treats them as one line - see FeedRefusalRepeatSeconds for why the feed needs the rule more
+	// than the line does.
+	const double Now = FPlatformTime::Seconds();
+
+	if (LastFeedRefusal == Reason && LastFeedRefusalTime >= 0.0 && (Now - LastFeedRefusalTime) < FeedRefusalRepeatSeconds)
+	{
+		return;
+	}
+
+	LastFeedRefusal = Reason;
+	LastFeedRefusalTime = Now;
+
+	PostActivity(EActivityCategory::Squad, EActivitySeverity::Warning, URefusalWidget::GetRefusalText(Reason));
 }
 
 void AStrategyPlayerController::Client_NotifyRefusal_Implementation(ESmoresRefusalReason Reason)
 {
 	NotifyRefusal(Reason);
+}
+
+void AStrategyPlayerController::PostActivity(EActivityCategory Category, EActivitySeverity Severity, const FText& Text, const FText& Source)
+{
+	// null on a controller with no local player, which is every remote player's controller and
+	// every controller on a dedicated server - so this does nothing rather than making each
+	// caller check. Server-side code that wants a line reaches Client_NotifyActivity instead.
+	if (USmoresActivityLog* ActivityLog = USmoresActivityLog::Get(this))
+	{
+		ActivityLog->Post(Category, Severity, Text, Source);
+	}
+}
+
+void AStrategyPlayerController::Client_NotifyActivity_Implementation(EActivityCategory Category, EActivitySeverity Severity, const FText& Text, const FText& Source)
+{
+	PostActivity(Category, Severity, Text, Source);
 }
 
 void AStrategyPlayerController::Server_MoveInventoryItem_Implementation(UInventoryComponent* SourceInventory, int32 EntryId, UInventoryComponent* DestInventory, FIntPoint DestCell, bool bRotated, int32 Quantity)
@@ -1955,6 +2141,13 @@ bool AStrategyPlayerController::TryTradeItem(UInventoryComponent* SourceInventor
 		UE_LOG(Logsmores, Warning, TEXT("[Trade] Bought %d x %s for %d, balance %d."),
 			QuantityMoved, *SourceEntry.Item.GetDisplayName().ToString(), Price, Wallet->GetGold());
 
+		// COMMS rather than SQUAD: a trade is something that happened with somebody else, and the
+		// tab is what lets a player find the price they paid without reading past a fight
+		Client_NotifyActivity(EActivityCategory::Comms, EActivitySeverity::Normal,
+			FText::Format(NSLOCTEXT("StrategyPlayerController", "ActivityBought", "Bought {0} x {1} for {2} gold"),
+				FText::AsNumber(QuantityMoved), SourceEntry.Item.GetDisplayName(), FText::AsNumber(Price)),
+			TraderUnit ? TraderUnit->GetHolderDisplayName() : FText::GetEmpty());
+
 		return true;
 	}
 
@@ -1964,6 +2157,11 @@ bool AStrategyPlayerController::TryTradeItem(UInventoryComponent* SourceInventor
 
 	UE_LOG(Logsmores, Warning, TEXT("[Trade] Sold %d x %s for %d, balance %d."),
 		QuantityMoved, *SourceEntry.Item.GetDisplayName().ToString(), Payment, Wallet->GetGold());
+
+	Client_NotifyActivity(EActivityCategory::Comms, EActivitySeverity::Normal,
+		FText::Format(NSLOCTEXT("StrategyPlayerController", "ActivitySold", "Sold {0} x {1} for {2} gold"),
+			FText::AsNumber(QuantityMoved), SourceEntry.Item.GetDisplayName(), FText::AsNumber(Payment)),
+		TraderUnit ? TraderUnit->GetHolderDisplayName() : FText::GetEmpty());
 
 	return true;
 }
@@ -1996,7 +2194,9 @@ void AStrategyPlayerController::Server_PickUpWorldItem_Implementation(AWorldItem
 
 	// the destination has to be a player pawn's own pack - nothing else is a legal pickup target,
 	// and the client picked it
-	if (!Cast<AStrategyPlayerUnit>(DestInventory->GetOwner()))
+	const AStrategyPlayerUnit* DestPawn = Cast<AStrategyPlayerUnit>(DestInventory->GetOwner());
+
+	if (!DestPawn)
 	{
 		return;
 	}
@@ -2010,11 +2210,22 @@ void AStrategyPlayerController::Server_PickUpWorldItem_Implementation(AWorldItem
 		return;
 	}
 
+	// what was picked up has to be read before TryPickUp, which empties the world item on success
+	const FText ItemName = WorldItem->GetItem().GetDisplayName();
+
 	// range was the only thing the client checked, so a full pack is the server's news to break
 	if (!WorldItem->TryPickUp(DestInventory))
 	{
 		Client_NotifyRefusal(ESmoresRefusalReason::NoRoom);
+
+		return;
 	}
+
+	// worded here because this is where the item's name is known, and carried to the owning
+	// client, which is the only machine with a feed to put it in
+	Client_NotifyActivity(EActivityCategory::Squad, EActivitySeverity::Normal,
+		FText::Format(NSLOCTEXT("StrategyPlayerController", "ActivityPickedUp", "Picked up {0}"), ItemName),
+		DestPawn->GetHolderDisplayName());
 }
 
 void AStrategyPlayerController::Server_UnequipItem_Implementation(UEquipmentComponent* Equipment, EEquipSlot Slot, UInventoryComponent* DestInventory)
@@ -2984,6 +3195,39 @@ void AStrategyPlayerController::SetSelectedNPC(AStrategyUnit* NewNPC)
 
 		LastSelectionTarget = SelectedNPC;
 	}
+}
+
+TArray<AStrategyUnit*> AStrategyPlayerController::GetControlledPlayerUnits()
+{
+	// Answering honestly means a sweep of the level, and the HUD asks every frame - so the sweep
+	// runs on a real-time interval instead. Real time, not world time: at the paused tier world
+	// time is 1/10,000 speed, and a roster that only refreshed on world seconds would be frozen
+	// for as long as the game was.
+	const double Now = GetWorld() ? GetWorld()->GetRealTimeSeconds() : 0.0;
+
+	if (LastRosterRefreshTime < 0.0 || (Now - LastRosterRefreshTime) >= RosterRefreshIntervalSeconds)
+	{
+		LastRosterRefreshTime = Now;
+
+		RefreshPlayerPawns();
+
+		// a unit that joined or left the level since the last sweep needs watching or forgetting,
+		// and this is the only cadence that notices either
+		RefreshActivityWatchers();
+	}
+
+	TArray<AStrategyUnit*> Roster;
+	Roster.Reserve(PlayerPawns.Num());
+
+	for (const TObjectPtr<AStrategyPlayerUnit>& PlayerPawn : PlayerPawns)
+	{
+		if (IsValid(PlayerPawn))
+		{
+			Roster.Add(PlayerPawn);
+		}
+	}
+
+	return Roster;
 }
 
 FStrategyTargetInfo AStrategyPlayerController::GetSelectionTargetInfo() const

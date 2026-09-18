@@ -42,6 +42,9 @@ client have shown this before the player committed?" first.
   is optional and unset by default; the text works without it.
 - **Repeats collapse.** Clicking a chest you can't reach five times gives one line that stays
   up longer, not five lines and five sounds.
+- **Every refusal is also remembered.** The same wording appears in the activity feed's SQUAD
+  tab, in amber, so a player who was looking somewhere else can still find out why nothing
+  happened. The line answers it *now*; the feed is the record. See `hud-and-panels.md`.
 - **The gestures that now speak up**, all of which were previously silent:
   - Double-clicking a container, a body, or a loose world item that no pawn is near
   - Pressing the container key with nothing in reach
@@ -53,6 +56,17 @@ client have shown this before the player committed?" first.
 
 ## Core Rules
 
+- **A refusal is said once and recorded once.** `AStrategyPlayerController::NotifyRefusal` both
+  raises the line and posts to the activity feed, so there is one call site and the two cannot
+  disagree about what was refused. The feed's copy is worded by the same
+  `URefusalWidget::GetRefusalText`, not by a second phrasing.
+  - **The feed needs its own repeat suppression, for a sharper reason than the line does.**
+    `URefusalWidget` collapses repeats so leaning on a key doesn't machine-gun the sound; the feed
+    collapses them because it is a *fixed-capacity* record, and sixty copies of "Too far away"
+    would push everything else out of it. That is the one way the feed can actively lose
+    information rather than merely repeat itself.
+    `AStrategyPlayerController::FeedRefusalRepeatSeconds` is 2s, matching how long the line stays
+    on screen: while the same refusal is still showing, it is still the same refusal.
 - **A refusal travels as a code, never as a sentence.** `ESmoresRefusalReason` is what crosses
   the wire and what every rule raises; the words exist only in `URefusalWidget::GetRefusalText`.
   Nothing on the server ever builds one of these strings. That is what keeps one refusal from

@@ -7,11 +7,11 @@ the standing rule for when a piece of work should add to it. The forward-looking
 still needs building, in what order, and the decisions behind it — lives in
 `Docs/roadmaps/testing-roadmap.md`.
 
-> **Status: the harness is built and Slices 1 and 2 have shipped.** 86 tests run green, covering
+> **Status: the harness is built and Slices 1 and 2 have shipped.** 92 tests run green, covering
 > `SmoresItems`, `SmoresEconomy`, `UHealthComponent`, the content smoke tests, and (added by the
-> HUD roadmap's Slice 2) the time-pace ladder and the target panel's action assembly. Only Slice 3
-> of `Docs/roadmaps/testing-roadmap.md` remains. Everything below has been executed against this
-> project rather than written in advance.
+> HUD roadmap) the time-pace ladder, the target panel's action assembly and the activity log. Only
+> Slice 3 of `Docs/roadmaps/testing-roadmap.md` remains. Everything below has been executed
+> against this project rather than written in advance.
 
 `Automation_smores.slnx` is **not** a test setup. It is a solution file that pulls in Epic's own
 `UnrealBuildTool` and `EpicGames.*` C# projects, several of which are named `*.Tests`. None of
@@ -36,10 +36,11 @@ them test smores.
 | Both maps still load | `smores` | ✅ 1 test | 2 |
 | Time-pace ladder (tiers, dilation, stepping, clamping, authority) | `SmoresCore` | ✅ 6 tests | HUD 2 |
 | Target-panel action assembly (per target kind, reach, hostility) | `smores` | ✅ 7 tests | HUD 2 |
+| Activity log ring buffer (eviction, shrink, filtering, broadcast, ids) | `SmoresCore` | ✅ 6 tests | HUD 3 |
 | Attack range / out-of-range branch | `SmoresCombat` | — | unclaimed |
 | Trade transaction ordering | `smores` | — | 3 |
 
-**86 tests.** The last two rows were added by `Docs/roadmaps/hud-roadmap.md`'s Slice 2, not by the
+**92 tests.** The last three rows were added by `Docs/roadmaps/hud-roadmap.md`, not by the
 testing roadmap — a slice that ships numbers-and-state-machine code writes its own tests, whichever
 roadmap it came from. Update this table as slices ship; it is the quick answer to "is this already
 covered?"
@@ -375,6 +376,38 @@ Two `FSmoresTestWorld` calls are opt-in and cost time, so use them only when nee
 `TickFor(Seconds)` (for anything on a timer). When ticking for a timer, **lower the duration
 property in the test first** — ticking through `UHealthComponent`'s default 15-second recovery at
 100fps is 1500 iterations for no benefit.
+
+### A subsystem needs the outer its class demands, and getting it wrong fails green
+
+Found in the HUD roadmap's Slice 3, and the same shape as the authority trap above: the test
+constructs its subject wrongly, and most of the suite passes anyway.
+
+`USmoresActivityLog` is a `ULocalPlayerSubsystem`. Nothing its ring buffer does touches a local
+player, so a test builds one directly rather than standing up a viewport and a game instance — but
+the outer still has to satisfy the class's `ClassWithin`, and UE enforces that at construction.
+The chain is **two links long**: `ULocalPlayerSubsystem` demands a `ULocalPlayer`, and
+`ULocalPlayer` demands a `UEngine`. So:
+
+```cpp
+ULocalPlayer* OuterPlayer = NewObject<ULocalPlayer>(GEngine);
+USmoresActivityLog* Log = NewObject<USmoresActivityLog>(OuterPlayer);
+```
+
+Neither object is initialised and neither is ever asked anything; they exist to be the right shape.
+
+**The reason this is worth its own heading is how it reports.** A wrong outer raises a *handled
+ensure* ("Object None of class ... was created in invalid Outer"), and a handled ensure fires **once
+per call site per session**. Six tests shared one helper, so exactly one of them went red and the
+other five passed on the identical mistake. Two habits follow:
+
+- **A green run is not evidence the outer is right.** If one test in a group fails on an ensure
+  raised from shared setup, assume the whole group is affected rather than the one that reported.
+- **Check `ClassWithin` before hand-constructing any `UObject` a test doesn't spawn into a world.**
+  `FSmoresTestWorld::SpawnComponent<T>()` exists so components never hit this; a subsystem, a
+  `ULocalPlayer` or anything else with a declared `ClassWithin` is on its own.
+
+Both objects go through `KeepAlive` for the usual reason — neither has an owner, and a collect
+part-way through would pull them out from under the assertions.
 
 ### Timers need `BeginPlay()` before they will tick at all
 

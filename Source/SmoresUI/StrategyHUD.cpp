@@ -57,6 +57,14 @@ void AStrategyHUD::DragSelectUpdate(FVector2D Start, FVector2D WidthAndHeight, F
 
 }
 
+void AStrategyHUD::ToggleActivityFeed()
+{
+	if (UIWidget)
+	{
+		UIWidget->ToggleActivityFeed();
+	}
+}
+
 void AStrategyHUD::DrawHUD()
 {
 	// draw all debug information, etc.
@@ -129,10 +137,19 @@ void AStrategyHUD::DrawHUD()
 				UIWidget->SetGold(Wallet->GetGold());
 			}
 
+			// the squad bar's portraits and its selection readout. The roster comes from the
+			// controller because only it knows which pawns are this player's; the bar compares it
+			// against what it is already drawing before touching Slate.
+			UIWidget->SetSquad(SelectionHost->GetControlledPlayerUnits(), SelectedUnits);
+
 			// the nav rail's "this panel is open" state - the controller owns the windows, so the
 			// rail can only find out by being asked. Same per-frame push as everything above it;
 			// the rail early-outs unless the set of open panels actually changed.
 			UIWidget->RefreshNavRail();
+
+			// the feed's fade, which is a function of wall-clock time and so genuinely does have
+			// to be recomputed every frame - see UActivityFeedWidget::RefreshFeed
+			UIWidget->RefreshActivityFeed();
 		}
 
 		// process each selected unit

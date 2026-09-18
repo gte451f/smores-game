@@ -15,9 +15,14 @@ honest placeholder where it doesn't. Empty panels the player can open are better
 grows a new corner every time a system ships, because the layout is the thing that has to be
 lived with, and it can't be judged from a picture.
 
-Treat every section as "what to build next," not "what exists" — **except** where a heading is
-marked SHIPPED, which means that section has moved into the skill and only its summary line
-remains here.
+**This roadmap is complete: all three slices have shipped.** What it is still good for is the
+Resolved Design Decisions log and the Open Questions — the *why* behind calls that are now code.
+For what the HUD does and how, read `game-systems`' `hud-and-panels.md`, which is authoritative.
+
+Everything above the Implementation Order below is therefore a record of the plan as written, kept
+because the reasoning is still useful and the wireframe reading is still the clearest statement of
+intent. Where the plan and the shipped code differ, each slice's "What shipped differently" notes
+say so and the skill is right.
 
 ## What the wireframe shows, and what's behind it today
 
@@ -152,10 +157,11 @@ editor** (MCP cannot write them safely), so all eight mappings are created in **
 Slice 1**, including the ones Slices 2 and 3 use. That single editor hand-off is the main reason
 Slice 1 comes first.
 
-> **Status:** all eight `UInputAction` assets exist, are mapped in `IMC_Strategy_Mouse` and are
-> bound in `SetupInputComponent`. Seven of the eight now *do* something — only `L` still just logs,
-> pending Slice 3. The live bindings are recorded in `game-systems`' `input-and-keybinds.md`, which
-> is authoritative — this table is the plan.
+> **Status:** all eight `UInputAction` assets exist, are mapped in `IMC_Strategy_Mouse`, are bound
+> in `SetupInputComponent`, and **all eight now do something** — `L` was the last, in Slice 3. The
+> live bindings are recorded in `game-systems`' `input-and-keybinds.md`, which is authoritative —
+> this table is the plan. The mapped-ahead-of-the-feature pattern (log a line naming the slice,
+> treat the key as taken, keep it out of the help panel) is written up there too.
 
 ## Panels
 
@@ -267,8 +273,12 @@ in the same slice that builds them; everything else is a PIE judgement and stays
 - **Pace ladder** — **DONE (Slice 2, 6 tests).** `Smores.Core.TimePace.*`: stepping clamps at both
   ends, every `EGamePace` maps to the dilation it claims, the ladder holds every tier the enum
   declares, and `SetPace` on a non-authority does not mutate local state.
-- **Activity log** — the ring buffer evicts oldest-first at capacity, category filtering returns
-  the counts it should, and `OnEntryAdded` fires exactly once per post. *(Slice 3.)*
+- **Activity log** — **DONE (Slice 3, 6 tests).** `Smores.Core.ActivityLog.*`: the ring buffer
+  evicts oldest-first at capacity, shrinking the capacity evicts immediately rather than on the
+  next post, category filtering returns the right counts *and* keeps its order, `OnEntryAdded`
+  fires exactly once per post and after eviction has settled, and ids never restart. The
+  `ClassWithin` trap that made one of the six fail while the other five passed on the same mistake
+  is in `testing.md`.
 - **Target action assembly** — **DONE (Slice 2, 7 tests).** `Smores.Strategy.TargetInfo.*`: a
   target with no valid actions yields an empty list rather than a list of disabled everything, and
   each gating helper's refusal produces the disabled-with-reason form. Made possible by
@@ -277,6 +287,12 @@ in the same slice that builds them; everything else is a PIE judgement and stays
 What stays in PIE, permanently: layout at every resolution, whether the feed's 8-second fade is
 right, portrait size, whether the pace strip is reachable without looking, and whether any of it
 reads at a glance during a fight.
+
+**What PIE actually caught, across the three slices**, which is the argument for that list being
+real rather than a hedge: two regions shipped as bare `UBorder`s and leaked right-clicks to the
+world (Slice 1); every region shipped white-on-white (Slice 1); and the portrait camera focus
+arrived in the right place looking out over the pawn (Slice 3). None of the three is expressible as
+a number, and all three were obvious within seconds of looking.
 
 ## Implementation Order
 
@@ -447,26 +463,85 @@ with one it starts a real fight needing a skeletal mesh or a navmesh. `ATestStra
 MakeHostileForTest` sets the one piece of state the code under test reads, and says why in a
 comment. Recorded in `testing.md`.
 
-### Slice 3 — Squad portrait bar and the activity feed
+### Slice 3 — Squad portrait bar and the activity feed — SHIPPED
 
-> **Inherited from Slice 1:** `Border_0` / `SelectionCount` (the "N selected" readout) is a plain
-> `UBorder` loose on `HUDCanvas` and **leaks right-clicks to the world**; `USquadBarWidget`
-> subsumes it. `Border_361` is a collapsed empty leftover in the bottom-right corner — delete it
-> once the feed owns that corner. Add `L` to `UHelpPanelWidget::GetDefaultBodyText()` here, and
-> replace `SquadBarRegion` / `ActivityFeedRegion` with `UMGToolSet.ReplaceWidgetWithTemplate`.
+Built and documented in `game-systems`' `hud-and-panels.md`, `input-and-keybinds.md`, `testing.md`,
+`refusals-and-feedback.md`, `strategy-camera-and-selection.md`, `combat.md` and
+`multiplayer-discipline.md`; read those, not this, for how any of it works. `USmoresActivityLog` is
+a `ULocalPlayerSubsystem` in `SmoresCore`, the squad bar subsumed the old selection readout,
+`GetControlledPlayerUnits()` joined `IStrategySelectionHost`, `RequestSelectUnit` is live, and `L`
+expands the feed.
 
-- `DisplayName` + `PortraitTexture` on `AStrategyUnit`; `USquadBarWidget` +
-  `USquadPortraitWidget` with health ring, selection ring, click-to-select and
-  double-click-to-focus; `GetControlledPlayerUnits()` on `IStrategySelectionHost`;
-  `RequestSelectUnit` implemented.
-- `USmoresActivityLog` + `UActivityFeedWidget` / `UActivityEntryWidget`, tabs, 8-second fade, `L`
-  to expand, and the four producer wirings above.
-- Tests: the activity-log ring buffer group above.
+Tests: **92 green, up from 86** — six for the activity log's ring buffer
+(`Smores.Core.ActivityLog.*`). The `Blueprint` sweep was run too (442 green), since this slice
+deleted widgets and an entire EventGraph from `UI_Strategy`.
 
-**Done when:** the bar shows every squad member with a live health ring, clicking one selects it
-and double-clicking snaps the camera to it, and a fight produces a readable after-the-fact record
-in the feed — including at least one refusal, which should appear in both the refusal line and the
-feed.
+**With this, the HUD roadmap is complete.** All six regions of the wireframe are real and
+`UI_Strategy` holds no placeholder boxes. What remains below is the resolved-decisions log and the
+open questions, which are the only reasons to open this file again.
+
+#### What shipped differently from the plan above
+
+1. **`DisplayName` already existed.** The plan called for `DisplayName` *and* `PortraitTexture` on
+   `AStrategyUnit`; the name has been there since the target panel as `UnitDisplayName`, exposed
+   through `GetHolderDisplayName()`. Only the texture was added, and the bar reuses the existing
+   name — a second name property would eventually disagree with the one the target panel draws.
+2. **`USquadActivityWatcher` was added**, unplanned, and it is the slice's one real design
+   decision. The plan assumed the feed could subscribe to `UHealthComponent`'s delegates; it can't
+   usefully, because three of the four are parameterless, so a handler is told that *somebody* went
+   down with no way to find out who. One watcher object per unit supplies the missing parameter.
+   It lives in `smores` next to the controller: it is variant glue wiring existing delegates into
+   the local player's feed, and holds no state anyone else needs, so CLAUDE.md's
+   "component in a feature module" rule doesn't apply to it.
+3. **A non-squad unit's down or death is gated on the player's squad having hurt it first**
+   (`bHurtByPlayerSquad`). Consequence of note 2: with no instigator on those two delegates, the
+   only honest alternatives were reporting every NPC that falls over anywhere in the world, or
+   reporting none of them. `OnDamaged` does carry an instigator, and nothing dies without being
+   damaged, so remembering one bit answers both events.
+4. **`OnEntryAdded` is a plain multicast delegate, not a dynamic one.** An `FActivityEntry`
+   payload has no handler on `USmoresTestDelegateListener`, and giving the delegate an `int32`
+   payload merely to reuse that listener would have been the tail wagging the dog. A widget binds
+   with `AddUObject`, a test with `AddLambda`.
+5. **The feed's producers are not the four the plan listed.** `UInventoryComponent`'s
+   `OnInventoryChanged` carries no payload, so it cannot say *what* moved and would have produced
+   "something changed" lines. The real producers are the controller's own code paths, which know
+   the item, the quantity and the price: `Server_PickUpWorldItem`, `TryTradeItem` and
+   `NotifyRefusal`. Server-side ones route through a new `Client_NotifyActivity`, the counterpart
+   to `Client_NotifyRefusal`.
+6. **`NotifyRefusal` needed its own repeat suppression for the feed**, separate from
+   `URefusalWidget`'s. The widget collapses repeats so the sound doesn't machine-gun; the feed
+   collapses them because it is a fixed-capacity record and a held key would push everything else
+   out of it. That is the one way this feed can actively lose information.
+7. **The feed resizes its own canvas slot when expanded**, which the plan didn't anticipate. The
+   authored slot fits the collapsed six lines, so the history would have drawn outside its own
+   background — broken-looking rather than layout-wanting-tuning. It reads the slot's alignment
+   rather than assuming it, so the box grows *upward*: the feed is bottom-anchored, and a taller
+   box keeping its top edge would push its newest lines off the viewport. **It still does not
+   scroll** — see `hud-and-panels.md`'s Known Gaps.
+8. **The portrait's focus gesture is timed, not a Slate double-click.** `SButton` routes
+   `OnMouseButtonDoubleClick` into its press handler, so a real `UButton` reports two ordinary
+   clicks rather than a double-click. Keeping the button is what stops the gesture reaching the
+   world, so the widget measures the gap between two `OnClicked` calls itself. The consequence to
+   design around: the first click's action has already happened, so the second's must be additive.
+9. **`FocusCameraOnUnit` shipped wrong and Jim caught it in PIE**, and the geometry is worth
+   knowing. The camera pawn's *root* is what sits at screen centre, and it has to stay at camera
+   height because of the movement-plane constraint — so moving it to the unit's X and Y puts
+   screen centre on a point in mid-air above the unit, and the camera arrives in the right place
+   looking out over the pawn. The fix solves for how far along the look direction the unit's height
+   lies. Recorded in `strategy-camera-and-selection.md`, because the mini-map and any future "jump
+   there" will hit the identical trap.
+10. **The `UI_Strategy` EventGraph trap was live for a second slice running.** The old
+    `SelectionCount` readout was driven by two node chains (`Event Construct` and
+    `Event Update Units Count`), not a property binding; deleting the widget without them fails the
+    compile naming the function but not its use site. All eight nodes were deleted and the graph is
+    now empty, which is correct — `GetSelectedUnitsCount` and `BP_UpdateUnitsCount` remain valid
+    C++ for a future WBP.
+11. **A test failure that was an engine rule, and a lesson about green runs.**
+    `ULocalPlayerSubsystem` declares `ClassWithin = ULocalPlayer`, and `ULocalPlayer` declares
+    `ClassWithin = UEngine`; both are enforced at construction. Building the log over the transient
+    package raised a handled ensure — which fires **once per call site per session**, so exactly
+    one of the six new tests failed and the other five passed on the identical mistake. Recorded in
+    `testing.md`: a green run is not evidence the outer is right.
 
 ## Explicitly Out of Scope for This Round
 
@@ -521,7 +596,19 @@ Settled with Jim before this document was written — don't reopen them per-slic
   `IsAggressive()` client-side and `Disposition` isn't replicated, so the classification and the
   Talk/Attack enable states would be wrong on a remote client. Display-only, invisible until co-op,
   and a one-line fix — catalogued in `game-systems`' `combat.md`.
-- **Feed capacity and fade timing.** 8 seconds and a fixed ring buffer are the mock's numbers;
-  whether either is right is a thing to feel, not to reason about.
-- **Portrait bar at eight-plus squad members.** The mock shows nine and stops. Scroll, shrink, or
-  wrap is a layout decision nobody has to make until a squad gets that big.
+- **Feed capacity and fade timing.** 8 seconds and a 64-entry ring buffer are the mock's numbers;
+  whether either is right is a thing to feel, not to reason about. Both are `EditAnywhere`.
+- **Portrait bar at eight-plus squad members.** The mock shows nine and stops; roughly seven tiles
+  fit the authored 560x120 slot. Scroll, shrink, or wrap is a layout decision nobody has to make
+  until a squad gets that big.
+- **Should the expanded feed scroll?** It grows its slot and shows 20 of the 64 entries held.
+  Reaching the rest is a `UScrollBox` around `EntryBox` in the WBP and **no C++ change at all** —
+  `EntryBox` is typed as a `UPanelWidget` precisely so that swap costs nothing. Whether 20 lines is
+  already more history than anyone reads is the actual question.
+- **Should a portrait click be additive with `Shift`?** The world's selection modifier means
+  "add to / remove from"; a portrait ignores it and always replaces the selection. Consistent with
+  the `Tab` cycle, which also replaces — but `Shift`-clicking three portraits to build a fire team
+  is the obvious thing a player will try. One `IsShiftDown()` away, and worth a real squad to judge.
+- **Is `ExpandedHeight` (460px) the right size, or should the feed fill the screen height?** A
+  record you open to read after a fight may want to be much bigger than a slightly taller corner.
+  A PIE call, and one property.

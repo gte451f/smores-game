@@ -91,6 +91,16 @@ public:
 	 */
 	URefusalWidget* GetRefusalWidget() const { return RefusalWidget; }
 
+	/**
+	 *  Expands or collapses the activity feed.
+	 *
+	 *  The `L` key is bound on the player controller, and the feed is a region inside this HUD's
+	 *  widget - so the controller asks the HUD, which forwards to the root, which forwards to the
+	 *  region. No new interface: `smores` already depends on SmoresUI, and the traffic runs that
+	 *  way round. IStrategyHUDCommands exists for the opposite direction.
+	 */
+	void ToggleActivityFeed();
+
 protected:
 
 	/** Draws the HUD */

@@ -39,6 +39,7 @@ Amend this topic in the same change as any new binding.
 | `Space` | `IA_Strategy_TogglePause` | Freeze the simulation, or return it to the speed it was running at |
 | `-` | `IA_Strategy_PaceSlower` | Step the pace ladder one tier slower, clamping at paused |
 | `=` | `IA_Strategy_PaceFaster` | Step the pace ladder one tier faster, clamping at 8× |
+| `L` | `IA_Strategy_ToggleActivityFeed` | Expand / collapse the activity feed — expanded it shows the history and stops fading |
 
 Each of the four panel keys has a nav-rail button that does the identical thing; both routes run
 `IStrategyHUDCommands::RequestPanel`, so they cannot drift apart. `I` (above) gained a rail button
@@ -52,21 +53,25 @@ and `-`/`=` walk all eight. That is deliberate, not an omission — see `hud-and
 `T`, `O` and `H` likewise each have a button on the target panel's action row when the current
 target is one they apply to.
 
+`L` is the odd one out among the HUD keys: it has **no button anywhere**. Expanding the feed is a
+property of the feed, not a command to the controller, so it goes controller ->
+`AStrategyHUD::ToggleActivityFeed` -> `UStrategyUI` -> the region rather than through
+`IStrategyHUDCommands`. If it ever gains a corner grip or a chevron, that control calls
+`UActivityFeedWidget::ToggleExpanded` directly and the key still cannot drift from it, because
+there is only the one method.
+
 ### Mapped and bound, but not yet implemented
 
-| Key | Action asset | Will do | Lands in |
-|---|---|---|---|
-| `L` | `IA_Strategy_ToggleActivityFeed` | Expand / collapse the activity feed | `hud-roadmap.md` Slice 3 |
+**Nothing.** Every key in the tables above does something. The HUD round's eight keys were mapped
+in one editor pass in Slice 1 — `UInputMappingContext` mappings have to be authored by hand, so
+doing them in one pass beat doing them in three — and the four that arrived ahead of their
+features (`Space`, `-`, `=` in Slice 2, `L` in Slice 3) each logged a line naming the slice that
+would implement them until it did.
 
-This key has a real action asset, a real mapping in `IMC_Strategy_Mouse`, and a real binding in
-`SetupInputComponent`; its handler currently only writes a log line naming the slice that will
-implement it.
-
-It was mapped early on purpose, along with `Space`, `-` and `=` (which Slice 2 implemented):
-`UInputMappingContext` mappings have to be authored by hand in the editor, so all eight of the HUD
-round's keys were done in one pass rather than three. **Treat `L` as taken** — it is not free, and
-the logging is what distinguishes a mistyped mapping from an unimplemented feature when it appears
-not to work. It is deliberately absent from the in-game help panel until it does something.
+That pattern is worth reusing, and so is the discipline around it: a key mapped ahead of its
+feature must be **treated as taken** in the reserved list, must log rather than silently doing
+nothing (which is what distinguishes a mistyped mapping from an unimplemented feature), and must
+stay **out of the in-game help panel** until it works.
 
 ### Defaults — inventory (`IMC_Strategy_Inventory`, priority 1, only while a window is open)
 
@@ -93,6 +98,9 @@ have their own convention below. In use today:
 | Right-click | A filled paperdoll slot | Take it off, back into that pawn's pack |
 | Left-click | A `UButton` or dropdown in a window's own chrome (the inventory sort buttons, the category filter) | Whatever that control does |
 | Left-click | A nav-rail button on the HUD | Opens or closes that panel — the same path as its key |
+| Left-click | A squad portrait | Selects that unit alone |
+| Left-click twice, fast | A squad portrait | Selects it **and** cuts the camera to it. The first click has already selected - see Core Rules |
+| Left-click | An activity-feed tab | Filters the feed to that tab |
 
 The last row is the ordinary case, not a special one: a button the player clicks *inside* a
 window is just a button. It needs no action asset and takes no key. The flip side is that a
@@ -153,6 +161,18 @@ because a window now swallows the *press* of every button that lands on it — s
   right default, since it makes a fast second click mean what a slow one does. This is easy to
   miss because it only reproduces inside the OS double-click time *and* slop rectangle — a
   slightly slower repeat comes through as two ordinary presses and behaves correctly.
+- **A widget that wants a double-click of its own must time it, not listen for it.** The rule
+  above cuts the other way too: because `SButton` routes `OnMouseButtonDoubleClick` into
+  `OnMouseButtonDown`, a real `UButton` never reports a double-click - it reports two ordinary
+  clicks. So a control that wants "click does X, double-click also does Y" measures the gap
+  between two `OnClicked` calls itself, which is what `USquadPortraitWidget` does (0.5s, matching
+  `IA_Strategy_SelectAllDoubleClick` and Windows' own double-click speed).
+  **Keeping the `UButton` is the point** - it consumes its own press, so the gesture can never
+  fall through to the world. The alternative, a non-button root carrying both mouse overrides, is
+  re-solving the clickable-HUD trap by hand. One consequence to design around: the first click's
+  action has **already happened** by the time the second arrives, so the second click's behaviour
+  has to be additive rather than different. Selecting and then also focusing the camera works;
+  "click selects, double-click renames" would not.
 - **The double-click gesture's own window is measured release-to-release, not press-to-press.**
   `IA_Strategy_SelectAllDoubleClick` uses `UInputTriggerRepeatedTap`, whose `RepeatDelay` clock
   starts when the *first* click is released and must stop by the time the *second* one is
@@ -264,7 +284,7 @@ the squad portrait bar (`hud-roadmap.md` Slice 3) selects a member with one clic
 `F2`–`F5` was the other option and is wrong — `F5` is quicksave.
 
 Broadly free today: `F`, `G`, `N`, `V`, `X`, `Y`, `Z`, and `F2`–`F4`. `P`, `U` and `L` have left
-this list. `R` is used in the
+this list, and `L` is now a live binding rather than merely a taken one. `R` is used in the
 inventory context only — prefer not to give it a second, unrelated meaning in the world
 context, since one key meaning two things is exactly what the context system exists to
 *avoid* needing.

@@ -16,6 +16,7 @@ class UInventoryComponent;
 class UEquipmentComponent;
 class UHealthComponent;
 class UCombatComponent;
+class UTexture2D;
 
 /** Delegate to report that this unit has finished moving */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnUnitMoveCompletedDelegate, AStrategyUnit*, Unit);
@@ -65,6 +66,18 @@ private:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Unit", meta = (AllowPrivateAccess = "true"))
 	FText UnitDisplayName;
 
+	/**
+	 *  Face shown on this unit's portrait in the squad bar. Optional, and unset is the expected
+	 *  state today: with no texture the portrait draws the unit's initials on a plain disc, which
+	 *  is what the wireframe itself does.
+	 *
+	 *  Authored per Blueprint, or per placed instance where one unit should differ from the rest
+	 *  of its class. A later characters pass may well move identity - name, face, biography - onto
+	 *  a component of its own; one property here is the cheap version that doesn't block that.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Unit", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UTexture2D> PortraitTexture;
+
 protected:
 
 	/** Cast reference to the AI Controlling this unit */
@@ -108,6 +121,9 @@ public:
 
 	/** Returns this unit's equipment (worn slots) component */
 	UEquipmentComponent* GetEquipment() const { return Equipment; }
+
+	/** This unit's portrait face, or null if none was authored - see PortraitTexture */
+	UTexture2D* GetPortraitTexture() const { return PortraitTexture; }
 
 	//~ Begin IInventoryHolder interface
 

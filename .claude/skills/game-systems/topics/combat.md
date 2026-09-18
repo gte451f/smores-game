@@ -172,6 +172,18 @@ hit while otherwise idle. Looting a body's inventory is a related but separate s
 - `AttackTarget`'s out-of-range branch reuses the same `MoveToLocation` path as player move
   commands (EQS-refined destination), so any future movement-behavior change affects combat
   approach too.
+- **`UHealthComponent`'s four delegates now have a second consumer, and it wants the victim's
+  identity.** `AStrategyUnit` binds them for its own behavior (retaliation, going inert); the HUD's
+  activity feed binds them through `USquadActivityWatcher` to write the fight record. Two things
+  worth knowing before changing them:
+  - **Three of the four carry no parameters** (`OnDowned`, `OnRecovered`, `OnDied`), so a listener
+    cannot tell *who* the event was about. That is the entire reason the feed needs one watcher
+    object per unit rather than four handlers on the player controller. Adding the owner as a
+    parameter would collapse that; it would also change every existing binding, so it is a
+    deliberate decision rather than a tidy-up.
+  - **They fire on whichever machine ran the damage**, which is the server, since `TakeDamage` is
+    authority-gated. Anything client-side that listens to them therefore works standalone and on a
+    listen server's own screen and nowhere else — see `hud-and-panels.md`'s Known Gaps.
 
 ## Known Gaps
 
