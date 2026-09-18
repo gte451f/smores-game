@@ -117,6 +117,10 @@ ignorable during a fight. `L` expands it: the box grows upward, the history show
 last few lines, and nothing fades while it is open. That is the whole point of the key — the fade
 is what makes the feed ignorable mid-fight, and the history is what makes it useful afterwards.
 
+Severity colours the feed only. **The floating damage numbers in the world are a separate system
+and are all red**, whoever took the hit (`UDamageNumberWidget`, `SmoresCombat`), so the feed is the
+only place a fight is colour-coded by which side it went for.
+
 **A refused action does two things now.** The line at the cursor answers it immediately, and the
 feed remembers it for the player who was looking somewhere else. Repeats of the same refusal
 inside two seconds count as one event, so leaning on a key can't push everything else out of the
@@ -245,6 +249,17 @@ coincidence (see Core Rules).
   `FocusCameraOnUnit` instead asks how far along the look direction the unit's height lies and
   puts the root that far back from the unit. Height and rotation are deliberately left alone — the
   player set those, and a focus that reset the framing would cost them it on every portrait click.
+- **A `UCanvasPanelSlot`'s size is not reliable in `NativeConstruct`; capture layout numbers at
+  first use instead.** `UActivityFeedWidget` needs to remember its authored height so collapsing
+  can restore it. Read in `NativeConstruct`, that came back as **zero** — so collapsing restored a
+  zero-height box, and the feed toggled between tall and gone, never returning to the size the
+  designer laid out. **Jim caught it in PIE**, and the symptom is worth recognising because it
+  reads as a maths error in the resize rather than as a bad reading: the expand is correct and
+  only the return trip is wrong. Capturing on the first toggle fixes it — by the time a player can
+  press the key the layout certainly exists, and `ToggleExpanded` flips `bExpanded` *before*
+  touching the slot, so the value read there is still the authored one. Anything else on this HUD
+  that wants to remember a laid-out number should do the same, and should refuse to act on a
+  non-positive reading rather than applying it.
 - **The squad bar owns the selection count, and that is a bug fix, not tidying.** The "N selected"
   readout used to be a bare `UBorder` loose on `HUDCanvas`, which is exactly the shape the
   everything-must-be-a-`UHUDRegionWidget` rule above exists to stop — a right-click on it issued a
@@ -404,8 +419,9 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
   handler on the next map load rather than a leak that gets collected. `ApplyExpandedHeight`
   resizes its own `UCanvasPanelSlot` on expand, reading the slot's alignment rather than assuming
   it so the box grows *upward* — the feed is bottom-anchored, and a taller box that kept its top
-  edge would push its newest lines off the bottom of the viewport. `CollapsedHeight` is captured
-  on construct so collapsing restores the authored layout rather than a number guessed in C++.
+  edge would push its newest lines off the bottom of the viewport. `CollapsedHeight` restores the
+  authored layout rather than a number guessed in C++, and is **captured on the first toggle,
+  not in `NativeConstruct`** — see Core Rules.
 - **`UActivityEntryWidget`** — one line, spawned from `EntryWidgetClass`. Not a
   `UHUDRegionWidget` and not clickable — a feed line is a record, not a control — so it needs
   neither a shield nor a button. Severity colour is the one piece of the wireframe's styling that

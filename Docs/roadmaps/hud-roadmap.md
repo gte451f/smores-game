@@ -536,7 +536,12 @@ open questions, which are the only reasons to open this file again.
     compile naming the function but not its use site. All eight nodes were deleted and the graph is
     now empty, which is correct — `GetSelectedUnitsCount` and `BP_UpdateUnitsCount` remain valid
     C++ for a future WBP.
-11. **A test failure that was an engine rule, and a lesson about green runs.**
+11. **The feed's collapsed height had to be captured at first toggle, not on construct.** Read in
+    `NativeConstruct` a `UCanvasPanelSlot`'s size comes back as zero, so collapsing restored a
+    zero-height box and the feed toggled between tall and gone. Jim's second PIE pass caught it.
+    Recorded in `hud-and-panels.md` as a rule about laid-out numbers generally, not as a note
+    about this widget.
+12. **A test failure that was an engine rule, and a lesson about green runs.**
     `ULocalPlayerSubsystem` declares `ClassWithin = ULocalPlayer`, and `ULocalPlayer` declares
     `ClassWithin = UEngine`; both are enforced at construction. Building the log over the transient
     package raised a handled ensure — which fires **once per call site per session**, so exactly

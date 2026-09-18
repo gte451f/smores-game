@@ -119,8 +119,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Activity Feed", meta = (ClampMin = 0))
 	float ExpandedHeight = 460.0f;
 
-	/** The slot height this widget was authored with, captured on construct so collapsing restores
-	 *  exactly what the designer laid out rather than a number guessed here. Negative until captured. */
+	/** The slot height this widget was authored with, so collapsing restores exactly what the
+	 *  designer laid out rather than a number guessed here. Captured on the **first toggle**, not
+	 *  on construct - see ApplyExpandedHeight for why that distinction was a bug. Non-positive
+	 *  until captured. */
 	float CollapsedHeight = -1.0f;
 
 	/** The tab currently showing */

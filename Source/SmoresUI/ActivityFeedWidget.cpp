@@ -251,12 +251,33 @@ void UActivityFeedWidget::ApplyExpandedHeight()
 {
 	UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Slot);
 
-	if (!CanvasSlot || ExpandedHeight <= 0.0f || CollapsedHeight < 0.0f)
+	if (!CanvasSlot || ExpandedHeight <= 0.0f)
 	{
 		return;
 	}
 
 	const FVector2D CurrentSize = CanvasSlot->GetSize();
+
+	// Captured here, on the first toggle, rather than in NativeConstruct - and that is a bug fix,
+	// not a preference. Read that early the slot's size comes back as zero, so collapsing restored
+	// a zero-height box and the feed toggled between tall and gone, never returning to the height
+	// it was authored at. By the time the player can press the key the layout certainly exists.
+	//
+	// bExpanded has already been flipped by ToggleExpanded when this runs, but the slot has not
+	// been touched yet, so what is read here is still the authored collapsed height.
+	if (CollapsedHeight <= 0.0f)
+	{
+		if (CurrentSize.Y <= 0.0f)
+		{
+			// nothing trustworthy to come back to, so don't resize at all. Refusing to expand is a
+			// far better failure than expanding and then collapsing to nothing, and the next
+			// toggle simply tries again.
+			return;
+		}
+
+		CollapsedHeight = CurrentSize.Y;
+	}
+
 	const float NewHeight = bExpanded ? ExpandedHeight : CollapsedHeight;
 
 	if (FMath::IsNearlyEqual(CurrentSize.Y, NewHeight))
@@ -280,12 +301,6 @@ void UActivityFeedWidget::ApplyExpandedHeight()
 void UActivityFeedWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
-
-	// captured before anything resizes it, so collapsing restores the authored layout exactly
-	if (const UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Slot))
-	{
-		CollapsedHeight = CanvasSlot->GetSize().Y;
-	}
 
 	if (LogTabButton)
 	{
