@@ -153,6 +153,15 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   not necessarily the newest. Close the duplicate **without saving** (it may hold a stale copy of
   the level), then re-run `save_assets([])` — the first editor's in-memory changes are still
   there, so nothing has to be redone.
+- **`AssetTools.save_assets` silently does nothing to an asset that isn't dirty.** Passing explicit
+  `asset_paths` for eight clean `DA_Item_*` data assets returned `true` and wrote no bytes - the
+  same silent-write family as the IMC-mappings and material-override bullets. There is no force
+  flag. To genuinely rewrite an asset (e.g. so it stops serializing a property name that only a
+  `CoreRedirect` is resolving), **dirty it first**: `ObjectTools.set_properties` writing a field
+  back to its own value marks the package dirty, and `save_assets([])` (save-all-dirty) then
+  flushes it. Read the current value first and write exactly that - a value you guessed wrong will
+  pass every content sweep. Confirm with a binary grep for the property name, never the return
+  value.
 - **`SceneTools.save_actor` is broken for World Partition external actors.** It builds a
   `/Game/__ExternalActors__/...` path that doesn't resolve and raises "Asset does not
   exist". Use `AssetTools.save_assets` with an empty list (save-all-dirty) instead — that does
