@@ -3,13 +3,7 @@
 
 #include "ItemDefinition.h"
 
-FPrimaryAssetId UItemDefinition::GetPrimaryAssetId() const
-{
-	// fall back to the base behavior (asset name) until a designer authors a stable ItemId
-	if (ItemId.IsNone())
-	{
-		return Super::GetPrimaryAssetId();
-	}
-
-	return FPrimaryAssetId(UItemDefinition::StaticClass()->GetFName(), ItemId);
-}
+// Has to match the PrimaryAssetType in Config/DefaultGame.ini's PrimaryAssetTypesToScan entry
+// for items, or USmoresDefinitionLibrary::FindDefinition will never resolve an item id. Spelled
+// out rather than derived from the class name so the two are visibly the same string.
+const FPrimaryAssetType UItemDefinition::DefinitionType = FPrimaryAssetType(TEXT("ItemDefinition"));

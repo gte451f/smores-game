@@ -4,56 +4,32 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-#include "AssetRegistry/ARFilter.h"
-#include "AssetRegistry/AssetRegistryModule.h"
-#include "AssetRegistry/IAssetRegistry.h"
 #include "ItemDefinition.h"
-#include "Modules/ModuleManager.h"
+#include "Tests/SmoresDefinitionRules.h"
 #include "Tests/SmoresTestWorld.h"
 
 /**
- *  A smoke test over the real UItemDefinition assets under Content/, and a different shape from
- *  every other test in this project: everything else builds its inputs in memory precisely so a
- *  designer retuning an asset can't break it. This group does the opposite on purpose - it is
- *  not asserting what a sword weighs, it is asserting that every definition is *well formed*,
- *  which is a rule about the content tree rather than about any one asset.
+ *  The **per-type** layer of the definition content sweeps, for items. SmoresCore's
+ *  Tests/SmoresDefinitionAssetTest.cpp already asserts the rules every definition shares - an id,
+ *  a name, no duplicate id within a type, and that the id actually resolves through the Asset
+ *  Manager. This file adds only what is true of an item and of nothing else, and is the worked
+ *  example for the same file a future faction or character definition will want.
  *
- *  The two failures it catches are both silent. A definition with no ItemId resolves to nothing
- *  and its items quietly can't stack or be looked up; two definitions sharing an ItemId are
- *  worse, because something will resolve the wrong one and nothing will say so.
+ *  Tests/SmoresDefinitionRules.h explains why these sweeps run against real content rather than
+ *  in-memory inputs, and why they need EditorContext.
  *
- *  The *rule itself* is proved against an in-memory definition rather than by adding a broken
- *  asset to Content/ - see MalformedDefinitionIsRejected. Deliberately malforming real content
- *  to watch a test fail is hand work in the editor that demonstrates nothing the in-memory case
- *  doesn't demonstrate for free.
- *
- *  These need EditorContext and the asset registry, so they will not run in a headless *game*
- *  target. The run command in testing.md uses UnrealEditor-Cmd, which covers them.
+ *  The *rules themselves* are proved against an in-memory definition rather than by adding a
+ *  broken asset to Content/ - see MalformedDefinitionIsRejected. Deliberately malforming real
+ *  content to watch a test fail is hand work in the editor that demonstrates nothing the
+ *  in-memory case doesn't demonstrate for free. That proof covers the base rules too, since
+ *  UItemDefinition is the concrete definition type they can be exercised through.
  */
 
-/** Every rule a definition asset has to satisfy. Returns false and names the first problem. */
+/** Every rule an item definition has to satisfy, base rules first. Returns false and names the first problem. */
 inline bool ValidateItemDefinition(const UItemDefinition* Definition, FString& OutProblem)
 {
-	if (!Definition)
+	if (!ValidateSmoresDefinition(Definition, OutProblem))
 	{
-		OutProblem = TEXT("the asset failed to load as a UItemDefinition");
-
-		return false;
-	}
-
-	// the stable identity everything else resolves through - an asset without one is unreachable
-	// by id no matter what it is named
-	if (Definition->ItemId.IsNone())
-	{
-		OutProblem = TEXT("ItemId is None");
-
-		return false;
-	}
-
-	if (Definition->DisplayName.IsEmpty())
-	{
-		OutProblem = TEXT("DisplayName is empty");
-
 		return false;
 	}
 
@@ -83,25 +59,6 @@ inline bool ValidateItemDefinition(const UItemDefinition* Definition, FString& O
 	return true;
 }
 
-/** Every UItemDefinition asset under /Game, with the registry scan forced to finish first */
-inline void GatherItemDefinitionAssets(TArray<FAssetData>& OutAssets)
-{
-	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
-	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
-
-	// a headless run can still be scanning when the test starts, and an unfinished scan reports
-	// no assets - which would pass this whole group having looked at nothing
-	AssetRegistry.SearchAllAssets(/*bSynchronousSearch*/ true);
-
-	FARFilter Filter;
-	Filter.ClassPaths.Add(UItemDefinition::StaticClass()->GetClassPathName());
-	Filter.bRecursiveClasses = true;
-	Filter.PackagePaths.Add(FName(TEXT("/Game")));
-	Filter.bRecursivePaths = true;
-
-	AssetRegistry.GetAssets(Filter, OutAssets);
-}
-
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FSmoresItemDefinitionWellFormedTest,
 	"Smores.Content.ItemDefinitions.EveryAssetIsWellFormed",
@@ -110,7 +67,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FSmoresItemDefinitionWellFormedTest::RunTest(const FString& Parameters)
 {
 	TArray<FAssetData> Assets;
-	GatherItemDefinitionAssets(Assets);
+	GatherDefinitionAssets(UItemDefinition::StaticClass(), Assets);
 
 	// a sweep that found nothing is green for the wrong reason, which is the failure mode
 	// testing.md's "check the number, not the colour" rule exists for
@@ -118,6 +75,8 @@ bool FSmoresItemDefinitionWellFormedTest::RunTest(const FString& Parameters)
 	{
 		return true;
 	}
+
+	TArray<FString> MissingIcons;
 
 	for (const FAssetData& AssetData : Assets)
 	{
@@ -130,50 +89,24 @@ bool FSmoresItemDefinitionWellFormedTest::RunTest(const FString& Parameters)
 			// name the offending asset - a failure saying only "a definition is malformed" costs
 			// whoever reads it a manual sweep of the whole folder
 			AddError(FString::Printf(TEXT("%s is malformed: %s"), *AssetData.GetSoftObjectPath().ToString(), *Problem));
-		}
-	}
-
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FSmoresItemDefinitionUniqueIdTest,
-	"Smores.Content.ItemDefinitions.ItemIdsAreUnique",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
-
-bool FSmoresItemDefinitionUniqueIdTest::RunTest(const FString& Parameters)
-{
-	TArray<FAssetData> Assets;
-	GatherItemDefinitionAssets(Assets);
-
-	if (!TestTrue(TEXT("At least one UItemDefinition asset exists under /Game"), Assets.Num() > 0))
-	{
-		return true;
-	}
-
-	TMap<FName, FString> SeenIds;
-
-	for (const FAssetData& AssetData : Assets)
-	{
-		const UItemDefinition* Definition = Cast<UItemDefinition>(AssetData.GetAsset());
-
-		if (!Definition || Definition->ItemId.IsNone())
-		{
-			// EveryAssetIsWellFormed owns that failure; reporting it twice helps nobody
-			continue;
-		}
-
-		const FString AssetPath = AssetData.GetSoftObjectPath().ToString();
-
-		if (const FString* ExistingPath = SeenIds.Find(Definition->ItemId))
-		{
-			AddError(FString::Printf(TEXT("ItemId '%s' is used by both %s and %s - something will resolve the wrong one"),
-				*Definition->ItemId.ToString(), **ExistingPath, *AssetPath));
 
 			continue;
 		}
 
-		SeenIds.Add(Definition->ItemId, AssetPath);
+		if (!Definition->Icon)
+		{
+			MissingIcons.Add(AssetData.GetSoftObjectPath().ToString());
+		}
+	}
+
+	// An icon is required of an *item* in a way no shared definition field could ever be, which is
+	// the whole reason Icon stayed on this class instead of moving up to USmoresDefinition. It is
+	// a warning rather than an error only because no item art has been made yet and every asset
+	// would fail; promote it to AddError the moment the first icon is authored.
+	if (MissingIcons.Num() > 0)
+	{
+		AddWarning(FString::Printf(TEXT("%d item definition(s) have no Icon: %s"),
+			MissingIcons.Num(), *FString::Join(MissingIcons, TEXT(", "))));
 	}
 
 	return true;
@@ -188,8 +121,8 @@ bool FSmoresItemDefinitionRuleTest::RunTest(const FString& Parameters)
 {
 	FSmoresTestWorld TestWorld;
 
-	// a freshly constructed definition has no ItemId and no DisplayName, which is exactly the
-	// shape of a definition somebody created in the editor and hasn't filled in yet
+	// a freshly constructed definition has no DefinitionId and no DisplayName, which is exactly
+	// the shape of a definition somebody created in the editor and hasn't filled in yet
 	UItemDefinition* Definition = TestWorld.NewKeptObject<UItemDefinition>();
 
 	if (!TestNotNull(TEXT("Definition created"), Definition))
@@ -199,10 +132,10 @@ bool FSmoresItemDefinitionRuleTest::RunTest(const FString& Parameters)
 
 	FString Problem;
 
-	TestFalse(TEXT("A definition with no ItemId is rejected"), ValidateItemDefinition(Definition, Problem));
-	TestTrue(TEXT("...and the failure names the field"), Problem.Contains(TEXT("ItemId")));
+	TestFalse(TEXT("A definition with no DefinitionId is rejected"), ValidateItemDefinition(Definition, Problem));
+	TestTrue(TEXT("...and the failure names the field"), Problem.Contains(TEXT("DefinitionId")));
 
-	Definition->ItemId = FName(TEXT("RuleProof"));
+	Definition->DefinitionId = FName(TEXT("RuleProof"));
 
 	TestFalse(TEXT("A definition with no DisplayName is rejected"), ValidateItemDefinition(Definition, Problem));
 	TestTrue(TEXT("...and the failure names that field instead"), Problem.Contains(TEXT("DisplayName")));
@@ -210,6 +143,11 @@ bool FSmoresItemDefinitionRuleTest::RunTest(const FString& Parameters)
 	Definition->DisplayName = FText::FromString(TEXT("Rule Proof"));
 
 	TestTrue(TEXT("A definition with both is accepted"), ValidateItemDefinition(Definition, Problem));
+
+	// the id an item answers to is {ItemDefinition, DefinitionId}; the type half has to match the
+	// config entry or nothing resolves - see EveryDefinitionResolvesById
+	TestEqual(TEXT("An item's primary asset id is typed ItemDefinition"),
+		Definition->GetPrimaryAssetId().ToString(), FString(TEXT("ItemDefinition:RuleProof")));
 
 	Definition->FootprintWidth = 0;
 

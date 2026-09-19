@@ -51,7 +51,7 @@ struct FInventoryItem
 	bool IsEmpty() const { return Definition == nullptr; }
 
 	/** Stable item-type identifier, or NAME_None when empty */
-	FName GetItemId() const { return Definition ? Definition->ItemId : NAME_None; }
+	FName GetItemId() const { return Definition ? Definition->DefinitionId : NAME_None; }
 
 	/** Player-facing name, or empty when this holds no item */
 	FText GetDisplayName() const { return Definition ? Definition->DisplayName : FText::GetEmpty(); }

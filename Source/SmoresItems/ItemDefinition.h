@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Engine/DataAsset.h"
+#include "SmoresDefinition.h"
 #include "ItemDefinition.generated.h"
 
 class UTexture2D;
@@ -44,9 +44,13 @@ enum class EEquipSlot : uint8
 
 /**
  *  Shared, immutable definition of one item type - the data every copy of that item has in
- *  common (name, icon, weight, value, grid footprint, stack size). One asset per item type
- *  under Content/Items/; a carried FInventoryItem only references one of these plus whatever
- *  actually varies copy-to-copy.
+ *  common (icon, weight, value, grid footprint, stack size, plus the id/name/description it
+ *  inherits from USmoresDefinition). One asset per item type under Content/Items/; a carried
+ *  FInventoryItem only references one of these plus whatever actually varies copy-to-copy.
+ *
+ *  Everything below is item-specific and stays here on purpose - Icon in particular, because a
+ *  character portrait and a faction crest are not the same kind of picture and a shared field
+ *  could never be *required* of any of them. See USmoresDefinition's comment.
  *
  *  A UPrimaryDataAsset rather than a UDataTable row because each definition directly
  *  references other assets (icon texture, world mesh), is Blueprint- and MCP-friendly to
@@ -56,23 +60,14 @@ enum class EEquipSlot : uint8
  *  pickup actor that consumes it is a later slice of the inventory roadmap.
  */
 UCLASS(BlueprintType)
-class SMORESITEMS_API UItemDefinition : public UPrimaryDataAsset
+class SMORESITEMS_API UItemDefinition : public USmoresDefinition
 {
 	GENERATED_BODY()
 
 public:
 
-	/** Stable identifier for this item type, independent of the asset's name/path */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Identity")
-	FName ItemId;
-
-	/** Player-facing name */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Identity")
-	FText DisplayName;
-
-	/** Player-facing description */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Identity", meta = (MultiLine = "true"))
-	FText Description;
+	/** The Asset Manager type items are registered under - see Config/DefaultGame.ini's PrimaryAssetTypesToScan */
+	static const FPrimaryAssetType DefinitionType;
 
 	/** Broad classification - drives equip-slot matching, UI filtering and (later) crafting lookups */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Identity")
@@ -114,8 +109,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Item")
 	bool IsStackable() const { return MaxStackSize > 1; }
 
-	//~ Begin UPrimaryDataAsset interface
-	/** Uses the authored ItemId so the asset can be renamed/moved without breaking references by ID */
-	virtual FPrimaryAssetId GetPrimaryAssetId() const override;
-	//~ End UPrimaryDataAsset interface
+	//~ Begin USmoresDefinition interface
+	virtual FPrimaryAssetType GetDefinitionType() const override { return DefinitionType; }
+	//~ End USmoresDefinition interface
 };

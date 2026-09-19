@@ -21,7 +21,7 @@
  *  of 10 is readable in the test body instead of requiring someone to open the editor.
  */
 
-/** Hands out a distinct ItemId per definition, so the sort's display-name tiebreak is well defined */
+/** Hands out a distinct DefinitionId per definition, so the sort's display-name tiebreak is well defined */
 inline int32& SmoresTestItemCounter()
 {
 	static int32 Counter = 0;
@@ -40,7 +40,7 @@ inline UItemDefinition* MakeTestItemDefinition(
 	float Weight = 0.0f,
 	int32 BaseValue = 0,
 	EEquipSlot EquipSlot = EEquipSlot::None,
-	FName ItemId = NAME_None)
+	FName DefinitionId = NAME_None)
 {
 	UItemDefinition* Definition = TestWorld.NewKeptObject<UItemDefinition>();
 
@@ -49,13 +49,13 @@ inline UItemDefinition* MakeTestItemDefinition(
 		return nullptr;
 	}
 
-	Definition->ItemId = (ItemId == NAME_None)
+	Definition->DefinitionId = (DefinitionId == NAME_None)
 		? FName(*FString::Printf(TEXT("TestItem_%03d"), SmoresTestItemCounter()++))
-		: ItemId;
+		: DefinitionId;
 
 	// the repack's last-resort ordering compares display names, so every definition needs a
 	// distinct one for a sort test to have a single correct answer
-	Definition->DisplayName = FText::FromName(Definition->ItemId);
+	Definition->DisplayName = FText::FromName(Definition->DefinitionId);
 
 	Definition->FootprintWidth = Footprint.X;
 	Definition->FootprintHeight = Footprint.Y;

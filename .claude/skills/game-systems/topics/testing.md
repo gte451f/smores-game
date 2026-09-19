@@ -7,11 +7,12 @@ the standing rule for when a piece of work should add to it. The forward-looking
 still needs building, in what order, and the decisions behind it — lives in
 `Docs/roadmaps/testing-roadmap.md`.
 
-> **Status: the harness is built and Slices 1 and 2 have shipped.** 92 tests run green, covering
-> `SmoresItems`, `SmoresEconomy`, `UHealthComponent`, the content smoke tests, and (added by the
-> HUD roadmap) the time-pace ladder, the target panel's action assembly and the activity log. Only
-> Slice 3 of `Docs/roadmaps/testing-roadmap.md` remains. Everything below has been executed
-> against this project rather than written in advance.
+> **Status: the harness is built and Slices 1 and 2 have shipped.** 95 tests run green (one with a
+> warning - see the content sweeps below), covering `SmoresItems`, `SmoresEconomy`,
+> `UHealthComponent`, the content smoke tests, and (added by later roadmaps) the time-pace ladder,
+> the target panel's action assembly, the activity log and the definition layer. Only Slice 3 of
+> `Docs/roadmaps/testing-roadmap.md` remains. Everything below has been executed against this
+> project rather than written in advance.
 
 `Automation_smores.slnx` is **not** a test setup. It is a solution file that pulls in Epic's own
 `UnrealBuildTool` and `EpicGames.*` C# projects, several of which are named `*.Tests`. None of
@@ -32,16 +33,18 @@ them test smores.
 | Wallet balance, refusals and broadcasts | `SmoresEconomy` | ✅ 8 tests | 2 |
 | Pricing (markup, markdown, totals, margin) | `SmoresEconomy` | ✅ 6 tests | 2 |
 | Health state machine (Alive/Downed/Dead) and its timer | `SmoresCombat` | ✅ 9 tests | 2 |
-| `UItemDefinition` assets under `Content/` | `SmoresItems` | ✅ 3 tests | 2 |
+| `UItemDefinition` assets under `Content/` (per-type rules) | `SmoresItems` | ✅ 2 tests | 2 / data 1 |
+| Every `USmoresDefinition` asset under `Content/` (base rules, id uniqueness, id look-up, enumerability) | `SmoresCore` | ✅ 4 tests | data 1 |
 | Both maps still load | `smores` | ✅ 1 test | 2 |
 | Time-pace ladder (tiers, dilation, stepping, clamping, authority) | `SmoresCore` | ✅ 6 tests | HUD 2 |
 | Target-panel action assembly (per target kind, reach, hostility) | `smores` | ✅ 7 tests | HUD 2 |
 | Activity log ring buffer (eviction, shrink, filtering, broadcast, ids) | `SmoresCore` | ✅ 6 tests | HUD 3 |
+| `USmoresDefinitionLibrary` look-up and enumeration | `SmoresCore` | ✅ via the sweeps above | data 1 |
 | Attack range / out-of-range branch | `SmoresCombat` | — | unclaimed |
 | Trade transaction ordering | `smores` | — | 3 |
 
-**92 tests.** The last three rows came from the HUD round, not from the testing roadmap — a slice
-that ships numbers-and-state-machine code writes its own tests, whichever roadmap it came from.
+**95 tests.** Several rows came from the HUD and game-data rounds, not from the testing roadmap — a
+slice that ships numbers-and-state-machine code writes its own tests, whichever roadmap it came from.
 Update this table as slices ship; it is the quick answer to "is this already covered?"
 
 ## What Is Deliberately Not Covered
@@ -474,13 +477,21 @@ instead of inside a `.uasset`.
 ### The content smoke tests are the one exception, and run in editor context
 
 `Smores.Content.*` deliberately does the opposite of everything above: it sweeps the real assets
-under `Content/`. It is not asserting what any one asset contains — it asserts every
-`UItemDefinition` is *well formed* (an `ItemId`, a `DisplayName`, a footprint inside the 1–16
-clamps, a stack cap of at least 1) and that no two share an `ItemId`, plus that both maps still
-load as packages. Those are rules about the content tree, not about an asset's tuning, so a
-designer retuning a sword can't break them.
+under `Content/`. It is not asserting what any one asset contains — it asserts every definition is
+*well formed*, that ids are unique and resolvable, and that both maps still load as packages.
+Those are rules about the content tree, not about an asset's tuning, so a designer retuning a
+sword can't break them.
 
-Four things about this group specifically:
+**The definition sweeps come in two layers, matching the class hierarchy.** `SmoresCore`'s
+`Tests/SmoresDefinitionAssetTest.cpp` covers every `USmoresDefinition` (an id, a display name, no
+duplicate id within a type, the id resolves through the Asset Manager, and every asset is
+enumerable under its type). `SmoresItems`' `Tests/ItemDefinitionAssetTest.cpp` adds only what is
+true of an item — footprint bounds, stack cap, icon — and is the worked example for the per-type
+file a future faction or character definition should copy. The shared validator and the registry
+gather live in `SmoresCore`'s `Tests/SmoresDefinitionRules.h`. **A new definition type joins the
+base sweeps by existing; only its own rules need a new file.** See `game-data.md`.
+
+Five things about this group specifically:
 
 - **The rule is proved in memory; the sweep is pointed at real content.**
   `MalformedDefinitionIsRejected` runs the same validator against a bare `NewObject<UItemDefinition>()`.
@@ -491,10 +502,14 @@ Four things about this group specifically:
 - **They need `EAutomationTestFlags::EditorContext`**, not `EAutomationTestFlags_ApplicationContextMask`,
   and they will not run in a headless *game* target. The `UnrealEditor-Cmd` command above covers
   them; a packaged-build runner would not.
-- **`SmoresItems` depends on `AssetRegistry`** (a private dependency) solely for this file. It is
-  the only `Build.cs` change any test has needed.
+- **`SmoresItems` and `SmoresCore` each depend on `AssetRegistry`** (privately) solely for these
+  files. It is the only `Build.cs` change any test has needed.
+- **One sweep warns rather than errors, on purpose.** `ItemDefinitions.EveryAssetIsWellFormed`
+  reports items with no `Icon` as a warning, because no item art exists yet and all eight assets
+  would fail. It is the suite's only expected warning — **if the run reports more than one, look
+  at it.** Promote the check to `AddError` once the first icon is authored.
 
-A sweep that finds no assets is green having looked at nothing, so both sweeps assert they found at
+A sweep that finds no assets is green having looked at nothing, so every sweep asserts it found at
 least one before checking anything — the same "check the number, not the colour" rule one level down.
 
 ## Known Gaps

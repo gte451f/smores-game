@@ -944,6 +944,15 @@ public:
 	UFUNCTION(Exec)
 	void SmoresDropItem(int32 EntryIndex = 0);
 
+	/**
+	 *  Debug exec: lists every definition the Asset Manager found, grouped by definition type -
+	 *  the direct check that a type's PrimaryAssetTypesToScan entry in Config/DefaultGame.ini is
+	 *  right and that its ids actually resolve. Not a server hop: the definition registry is
+	 *  authored content and is identical on every machine.
+	 */
+	UFUNCTION(Exec)
+	void SmoresDumpDefinitions();
+
 protected:
 
 	/** Server side of the inventory debug execs - optionally adds AddCount items, then logs the grid */

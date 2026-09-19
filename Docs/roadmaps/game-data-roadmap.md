@@ -17,38 +17,11 @@ Treat every section as "what to build next," not "what exists" — **except** wh
 marked SHIPPED, which means that section has moved into the skill and only its summary line
 remains here.
 
-## The Core Idea: Definition, Record, Actor
+## The Core Idea: Definition, Record, Actor — SHIPPED (Slice 1)
 
-Everything in the game splits into three layers. The project already does this for items; this
-roadmap generalizes it to the rest.
-
-| Layer | What it is | Where it lives | Saved? |
-|---|---|---|---|
-| **Definition** | What a *kind of thing* is — "Iron Sword", "Bandit", "Ironclan", "Bronze". Authored by hand, identical in every campaign, never written to at runtime. | A `.uasset` in the Content Browser | No — it ships with the game |
-| **Record** | One *particular* thing — this bandit, with this name, this health, this inventory. | A `USTRUCT` in memory, owned by a component on the `GameState` or `PlayerState` | **Yes — records *are* the save file** |
-| **Actor** | What is physically standing in the level right now. A puppet driven by a record. | `AStrategyUnit` and friends, in the loaded world | No — it is rebuilt from the record |
-
-The rule that follows from this, and that every slice below enforces:
-
-> **A definition is never written to. A record is never a copy of the actor — the actor is a
-> copy of the record.**
-
-That inversion is the expensive-to-retrofit part, and it is the reason this roadmap exists
-before the systems that will depend on it.
-
-### Why the actor can't be the truth
-
-An actor carries a skeletal mesh, an animation blueprint, a collision body, an AI controller
-running pathfinding, and a `Tick`. A few hundred is comfortable; the populated open world in
-`open-world.md` is far more than that, and most of it is nowhere near a player. Every open-world
-game solves this the same way: actors exist near a player, and everybody else is data.
-
-`ai-and-behavior.md` commits to exactly this ("characters far from every player behave at
-reduced fidelity — the world resolves what happened to them rather than playing out every
-step"), and `factions-and-world-state.md` depends on it (off-screen assaults resolve and are
-discovered later; a destroyed faction permanently loses its named NPCs). A character has to be
-able to die in a battle the player never saw, which means something other than an actor has to
-be able to kill them.
+The three-layer model (definition / record / actor), the rule that the actor is a copy of the
+record rather than the reverse, and why an actor can't be the truth now live in `game-systems`'
+`game-data.md`. Read that first — every slice below assumes it.
 
 ### The soft split — what this roadmap actually builds
 
@@ -67,59 +40,11 @@ everything reads through the record. The full split is worth building the moment
 faction simulation with something to resolve; until then it produces disappearing NPCs and no
 upside. When it lands it is mostly additive, because the records are already authoritative.
 
-## Common Attributes: One Definition Base
+## Common Attributes: One Definition Base — SHIPPED (Slice 1)
 
-Every definition in the game shares exactly three fields — a stable id, a display name, and a
-description. Slice 1 pulls those into a shared base in `SmoresCore`:
-
-```cpp
-UCLASS(Abstract, BlueprintType)
-class SMORESCORE_API USmoresDefinition : public UPrimaryDataAsset
-{
-    FName  DefinitionId;    // stable id, independent of asset name/path
-    FText  DisplayName;
-    FText  Description;
-
-    virtual FPrimaryAssetType GetDefinitionType() const PURE_VIRTUAL;
-    virtual FPrimaryAssetId GetPrimaryAssetId() const override;  // {Type, DefinitionId}
-};
-```
-
-**Presentation stays on the subclasses, deliberately.** It is tempting to put `Icon` on the base
-too, but the types disagree about what a picture even is: an item has a small transparent sprite
-sized to a grid cell, a character has a framed portrait, a faction has a crest — and a loot table
-or a recipe has no visual at all. Hoisting them into one `Icon` field makes two definition types
-carry a permanently-null property and, more practically, **makes the field impossible to
-validate**: the content sweep could never assert "this is set" without failing on the types that
-legitimately have none. Left on `UItemDefinition`, `Icon` can be *required* for items; on
-`UCharacterDefinition`, `Portrait` can be required for characters. Same reasoning for
-`WorldMesh`, footprint, stack size and equip slot — all of which are already item-specific and
-stay put.
-
-For non-player-facing types like a loot table, `DisplayName` and `Description` serve as the
-designer's own label and notes rather than anything the player reads.
-
-Every definition type below derives from it: items, item modifiers, factions, characters, loot
-tables — and later, recipes and buildings. This is the reusable-base-plus-thin-subclass default
-applied to content rather than to behavior.
-
-### Look-up by id, and why it matters now
-
-`UItemDefinition` already overrides `GetPrimaryAssetId()`, but `Config/DefaultGame.ini` never
-registers the type with the Asset Manager — so **nothing in the project can currently ask "give
-me the definition whose id is `IronSword`."** Every consumer in this roadmap needs that:
-
-- A **record** references its definition by id, not by asset pointer.
-- A **loot table** entry names an item by id.
-- A **recipe** (later) names its inputs by id.
-- A **save** stores ids, which is what makes `save-system.md`'s promise keepable: loading a save
-  without a mod that was active when it was written strips that mod's content rather than
-  refusing to load. That only works if saved data holds ids that can fail to resolve.
-
-**Id-by-value applies to saved data, not to content.** A definition referencing another
-definition (a recipe naming its output, a character naming its loadout) uses an ordinary asset
-pointer — that is normal content linking, it cooks correctly, and the editor shows the
-reference. It is the *record* and the carried `FInventoryItem` that must hold ids.
+`USmoresDefinition`, the three fields every definition shares, why presentation stays on the
+subclasses, the id-vs-asset-pointer rule, `USmoresDefinitionLibrary` and Asset Manager
+registration are all built and documented in `game-systems`' `game-data.md`.
 
 ## Materials and Modifiers
 
@@ -279,10 +204,9 @@ wrong about.
 
 What already exists and should be extended rather than reinvented:
 
-- **`UItemDefinition`** (`Source/SmoresItems/ItemDefinition.h`) — already the definition half of
-  the pattern, already a `UPrimaryDataAsset`, already overrides `GetPrimaryAssetId()`. Slice 1
-  reparents it; Slices 2 and 5 extend around it. Its class comment already anticipates crafting
-  and pricing lookups.
+- **`UItemDefinition`** (`Source/SmoresItems/ItemDefinition.h`) — reparented onto
+  `USmoresDefinition` in Slice 1 and registered with the Asset Manager. Slices 2 and 5 extend
+  around it. Its class comment already anticipates crafting and pricing lookups.
 - **`FInventoryItem`** (`Source/SmoresItems/InventoryComponent.h`) — already the instance half,
   already holds only what varies copy-to-copy, already exposes derived values through accessors.
   Slice 2 adds one field and changes what those accessors compute.
@@ -295,8 +219,11 @@ What already exists and should be extended rather than reinvented:
   `unreal-module-organization.md`'s rule and the `UWalletComponent` precedent. Notably that
   precedent also *deleted* an interface: state the UI wants to read is better as a component
   than as a fourth `I*Host`.
-- **`ItemDefinitionAssetTest.cpp`** — already sweeps every `UItemDefinition` under `Content/`.
-  Slice 1 generalizes it to every definition type and adds the duplicate-id check.
+- **The content sweeps** — Slice 1 split them into a base layer
+  (`Source/SmoresCore/Tests/SmoresDefinitionAssetTest.cpp`, over every `USmoresDefinition`) and a
+  per-type layer (`Source/SmoresItems/Tests/ItemDefinitionAssetTest.cpp`). **A new definition type
+  joins the base sweeps by existing**; only rules beyond "has an id, has a name" need a new file.
+  Copy the items file as the template.
 - **Console `exec` commands** on `AStrategyPlayerController` (`SmoresDumpInventory`,
   `SmoresAddItem`, …) — the established way to inspect server-side state from a running game.
   Each slice below adds one, because most of this work has no player-facing surface of its own.
@@ -335,39 +262,26 @@ different file":
 - **4 → 5**: Slice 5 is content authoring with a visible result (open a chest, see plausible
   loot), and it depends on the item shape from 2 and the record store from 4.
 
-### Slice 1 — The definition base and id look-up
+### Slice 1 — The definition base and id look-up — **DONE**
 
-**Builds:** `USmoresDefinition` in `SmoresCore`; `UItemDefinition` reparented onto it with
-`ItemId` → `DefinitionId`, `DisplayName` and `Description` moved up (and `Icon`, `WorldMesh` and
-every other item-specific field staying exactly where they are); Asset Manager registration so
-definitions are loadable by id; a look-up helper; a generalized content-validation test.
+Shipped into `game-systems`' `game-data.md`, with pointers added from `inventory.md` and
+`testing.md`. `USmoresDefinition` and `USmoresDefinitionLibrary` live in `SmoresCore`;
+`UItemDefinition` derives from the base with `ItemId` renamed to `DefinitionId`; `ItemDefinition`
+is registered with the Asset Manager; the content sweep is split into a base layer in `SmoresCore`
+and a per-type layer in `SmoresItems`; `SmoresDumpDefinitions` lists what the Asset Manager found.
+95 tests green.
 
-- Register each concrete definition type in `Config/DefaultGame.ini` under
-  `PrimaryAssetTypesToScan`, scanning `/Game`. Today only `Map`, `PrimaryAssetLabel` and
-  `GameFeatureData` are registered, which is why no id look-up is possible.
-- `USmoresDefinitionLibrary::FindDefinition(FPrimaryAssetType, FName)` wrapping
-  `UAssetManager::GetPrimaryAssetObject`. Synchronous load is fine at this scale; note in the
-  topic that it is a deliberate simplification.
-- Generalize `ItemDefinitionAssetTest.cpp` into two layers: a **base sweep** over every
-  `USmoresDefinition` under `Content/` (non-empty id, non-empty display name, and **no duplicate
-  id within a type**) and the **per-type rules** that already exist for items (footprint bounds,
-  stack size), which each new definition type extends with its own. The duplicate check is the
-  valuable new one — two assets sharing an id silently breaks every look-up and every save that
-  references it. `Icon` becomes a per-type rule for items, which is only possible because it
-  stayed off the base.
-- Add `SmoresDumpDefinitions` to list what the Asset Manager found, by type.
+Two notes worth carrying into later slices:
 
-**Hazards.** Renaming `ItemId` → `DefinitionId` *and* moving it to a base class needs a
-`CoreRedirect` in `DefaultEngine.ini` or the eight existing `DA_Item_*` assets lose the value.
-Unreal serializes properties by name, so moving a property to a base class without renaming is
-safe — but this slice does both, so verify rather than assume: open one asset after the build and
-confirm its id survived. `unreal-module-organization.md` has the `CoreRedirects` mechanics.
-
-**Verification:** headless suite green; all eight item assets still load with their ids;
-`SmoresDumpDefinitions` lists them.
-
-**Ships into:** a new `game-data.md` topic in `game-systems` — the definition/record/actor model,
-the base class, the look-up, and the id-vs-pointer rule.
+- **The `CoreRedirect` for the `ItemId` → `DefinitionId` rename worked**, on all eight assets,
+  including the unrenamed move of `DisplayName`/`Description` to the base. The entry is a
+  `PropertyRedirects` line in `DefaultEngine.ini` qualified against `UItemDefinition` (the class
+  being loaded) rather than the base the property now lives on.
+- **The eight `DA_Item_*` assets were re-saved afterwards**, so they now serialize `DefinitionId`
+  and the redirect is no longer load-bearing — which matters because CoreRedirects do not chain.
+  `AssetTools.save_assets` alone does nothing on a clean asset; the working recipe was
+  `ObjectTools.set_properties` writing each id back to its own value (to dirty the package)
+  followed by `save_assets([])`. Verify with a binary grep, not the return value.
 
 ### Slice 2 — Item modifiers: material and quality
 

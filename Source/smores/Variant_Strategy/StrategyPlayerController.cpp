@@ -38,6 +38,8 @@
 #include "WalletComponent.h"
 #include "TraderComponent.h"
 #include "ItemDefinition.h"
+#include "SmoresDefinition.h"
+#include "SmoresDefinitionLibrary.h"
 #include "Components/CapsuleComponent.h"
 #include "Blueprint/UserWidget.h"
 #include "StrategyGameState.h"
@@ -2306,6 +2308,47 @@ void AStrategyPlayerController::Server_DebugGold_Implementation(int32 Amount, bo
 void AStrategyPlayerController::SmoresDumpInventory()
 {
 	SmoresAddItem(0);
+}
+
+void AStrategyPlayerController::SmoresDumpDefinitions()
+{
+	TArray<FPrimaryAssetType> DefinitionTypes;
+	USmoresDefinitionLibrary::GetDefinitionTypes(DefinitionTypes);
+
+	if (DefinitionTypes.Num() == 0)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[DefDebug] The Asset Manager has no Smores definition types registered - check PrimaryAssetTypesToScan in Config/DefaultGame.ini."));
+
+		return;
+	}
+
+	for (const FPrimaryAssetType& DefinitionType : DefinitionTypes)
+	{
+		TArray<FName> DefinitionIds;
+		USmoresDefinitionLibrary::GetDefinitionIds(DefinitionType, DefinitionIds);
+
+		// the registry hands them back in scan order, which is neither stable nor readable
+		DefinitionIds.Sort(FNameLexicalLess());
+
+		UE_LOG(Logsmores, Warning, TEXT("[DefDebug] %s: %d definition(s)"), *DefinitionType.ToString(), DefinitionIds.Num());
+
+		for (const FName& DefinitionId : DefinitionIds)
+		{
+			const USmoresDefinition* Definition = USmoresDefinitionLibrary::FindDefinition(DefinitionType, DefinitionId);
+
+			// an id the registry knows but that won't load is exactly what a broken config or a
+			// stripped mod looks like, so say so rather than skipping the line
+			if (!Definition)
+			{
+				UE_LOG(Logsmores, Warning, TEXT("[DefDebug]   %s -> FAILED TO RESOLVE"), *DefinitionId.ToString());
+
+				continue;
+			}
+
+			UE_LOG(Logsmores, Warning, TEXT("[DefDebug]   %s \"%s\" (%s)"),
+				*DefinitionId.ToString(), *Definition->DisplayName.ToString(), *Definition->GetName());
+		}
+	}
 }
 
 void AStrategyPlayerController::SmoresAddItem(int32 Count)

@@ -183,9 +183,10 @@ documents what's actually built.
 ## Core Rules
 
 - **Item definitions are shared; item instances are per-copy; placements are per-holder.** A
-  `UItemDefinition` (`UPrimaryDataAsset`, one asset per item type under `Content/Items/`)
-  carries everything every copy of that item has in common — stable `ItemId`, display name,
-  description, `EItemCategory`, 2D `Icon`, 3D `WorldMesh`, `Weight`, `BaseValue`,
+  `UItemDefinition` (a `USmoresDefinition`, one asset per item type under `Content/Items/`)
+  carries everything every copy of that item has in common — the stable `DefinitionId`, display
+  name and description it inherits from the shared definition base (see `game-data.md`), plus
+  the item-specific `EItemCategory`, 2D `Icon`, 3D `WorldMesh`, `Weight`, `BaseValue`,
   `FootprintWidth`/`FootprintHeight`, `MaxStackSize`, `EEquipSlot`. An `FInventoryItem`
   carries only what varies copy-to-copy: a `Definition` pointer plus `Quantity`, `Condition`,
   and `bStolen`. An `FInventoryEntry` wraps one `FInventoryItem` with where it sits in *this*
@@ -975,9 +976,10 @@ documents what's actually built.
 ## Extension Points
 
 - **New item types** — add a `DA_Item_*` asset under `Content/Items/`; no code change
-  needed. `UItemDefinition`'s `GetPrimaryAssetId` keys off the authored `ItemId` (falling
-  back to the asset name when it's blank), so definitions can be renamed or moved without
-  breaking ID-based lookups once an asset-manager path needs them.
+  needed. Give it a `DefinitionId`: `UItemDefinition` is registered with the Asset Manager, so
+  `USmoresDefinitionLibrary::FindDefinition(UItemDefinition::DefinitionType, Id)` resolves it by
+  id and the asset can be renamed or moved without breaking those look-ups. The content sweeps
+  in `game-data.md` will fail the build if the id is blank or already taken.
 - **New holder types** — anything with a `UInventoryComponent` gets the grid for free; size
   it with `GridWidth`/`GridHeight` and set `StackMultiplier` above 1.0 for a holder meant to
   stack deeper than a pawn's pack (a storefront shelf, a warehouse chest). Nothing else needs

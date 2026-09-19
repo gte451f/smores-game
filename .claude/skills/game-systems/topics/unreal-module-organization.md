@@ -14,7 +14,9 @@ see "When to Actually Split" below.
 ## Current State
 
 Seven runtime modules: `smores` (`Source/smores/smores.Build.cs`, the primary/game
-module), `SmoresCore` (empty proving module, stood up alongside the first real split),
+module), `SmoresCore` (stood up as an empty proving module alongside the first real split, now
+holding `ESmoresRefusalReason`, `UTimePaceComponent`, `USmoresActivityLog` and the
+`USmoresDefinition` base plus its look-up library),
 `SmoresCombat` (`HealthComponent`, `CombatComponent`, `DamageNumberActor`/
 `DamageNumberWidget`, `AnimNotify_AttackHit`, plus a small `IAttackDamageDealer` interface),
 `SmoresItems` (`UItemDefinition`, `FInventoryItem`/`FInventoryEntry`/`UInventoryComponent`,
@@ -78,6 +80,8 @@ Source/
     SmoresRefusalReason.h         # ESmoresRefusalReason - the shared "why not" vocabulary
     GamePace.h TimePaceComponent.*  # simulation speed; here because it has no dependencies
                                    # and every module may want to read it
+    SmoresDefinition.*            # the base every authored definition asset derives from
+    SmoresDefinitionLibrary.*     # look up a definition by id - see game-data.md
   SmoresItems/
     SmoresItems.Build.cs
     SmoresItems.cpp / SmoresItems.h

@@ -14,7 +14,11 @@ public class SmoresCore : ModuleRules
 			"Engine"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { });
+		// AssetRegistry is here only for Tests/SmoresDefinitionAssetTest.cpp, which sweeps every
+		// USmoresDefinition asset under Content/. Nothing in the module's own runtime code uses it.
+		PrivateDependencyModuleNames.AddRange(new string[] {
+			"AssetRegistry"
+		});
 
 		PublicIncludePaths.AddRange(new string[] {
 			"SmoresCore"
