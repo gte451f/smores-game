@@ -33,7 +33,9 @@ void UTraderComponent::BeginPlay()
 
 int32 UTraderComponent::GetUnitBuyPrice(const FInventoryItem& Item) const
 {
-	const int32 BaseValue = Item.Definition ? Item.Definition->BaseValue : 0;
+	// the copy's own value, not the definition's - a masterwork bronze spear is worth a
+	// multiple of a bare spear, and the accessor is where that multiplication lives
+	const int32 BaseValue = Item.GetUnitBaseValue();
 
 	// a definition with no authored value is genuinely worthless rather than cheap, so it stays
 	// free; anything the designer did price is never rounded down to nothing by a small markup
@@ -47,7 +49,7 @@ int32 UTraderComponent::GetUnitBuyPrice(const FInventoryItem& Item) const
 
 int32 UTraderComponent::GetUnitSellPrice(const FInventoryItem& Item) const
 {
-	const int32 BaseValue = Item.Definition ? Item.Definition->BaseValue : 0;
+	const int32 BaseValue = Item.GetUnitBaseValue();
 
 	if (BaseValue <= 0)
 	{

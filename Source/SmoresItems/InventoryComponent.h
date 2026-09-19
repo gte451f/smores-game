@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "ItemDefinition.h"
+#include "ItemModifierDefinition.h"
 #include "SmoresRefusalReason.h"
 #include "InventoryComponent.generated.h"
 
@@ -15,11 +16,16 @@ class UTexture2D;
  *  is, plus only what actually varies copy-to-copy. Everything common (name, icon, weight,
  *  value, footprint, stack size) is read through Definition rather than duplicated here.
  *
+ *  **Read everything through the accessors below, never off Definition directly.** A modifier
+ *  can change the weight, value, name and colour a copy reports, so `Item.Definition->Weight` is
+ *  the base figure for an unqualified one of these rather than what this particular copy weighs.
+ *  GetUnitWeight(), GetUnitBaseValue(), GetDisplayName() and GetTint() are the honest answers.
+ *
  *  A default-constructed instance (no Definition) is "nothing" - it never appears as a placed
  *  grid entry, only as the empty result of a failed lookup.
  */
 USTRUCT(BlueprintType)
-struct FInventoryItem
+struct SMORESITEMS_API FInventoryItem
 {
 	GENERATED_BODY()
 
@@ -39,6 +45,18 @@ struct FInventoryItem
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory")
 	bool bStolen = false;
 
+	/**
+	 *  What this copy is made of and how well it was made - at most one modifier per
+	 *  EItemModifierSlot. Empty is the ordinary case: a bare, unqualified item.
+	 *
+	 *  Use AddModifier()/SetModifier() rather than pushing onto this directly, since those are
+	 *  what enforce one-per-slot. An array authored by hand with two materials in it still reads
+	 *  sanely - the accessors just multiply through everything they find - but the name it
+	 *  composes will say both.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory")
+	TArray<TObjectPtr<UItemModifierDefinition>> Modifiers;
+
 	FInventoryItem() = default;
 
 	explicit FInventoryItem(UItemDefinition* InDefinition, int32 InQuantity = 1)
@@ -53,23 +71,90 @@ struct FInventoryItem
 	/** Stable item-type identifier, or NAME_None when empty */
 	FName GetItemId() const { return Definition ? Definition->DefinitionId : NAME_None; }
 
-	/** Player-facing name, or empty when this holds no item */
-	FText GetDisplayName() const { return Definition ? Definition->DisplayName : FText::GetEmpty(); }
+	/**
+	 *  Player-facing name with every modifier composed into it - "Masterwork Bronze Spear" from
+	 *  a Spear definition plus two modifiers. Empty when this holds no item.
+	 *
+	 *  Composed through FText::Format using each modifier's own NamePattern, never string
+	 *  concatenation: word order differs by language, and the pattern lives on the modifier so a
+	 *  translator can reorder it.
+	 */
+	FText GetDisplayName() const;
 
 	/** Player-facing description, or empty when this holds no item */
 	FText GetDescription() const { return Definition ? Definition->Description : FText::GetEmpty(); }
 
-	/** Inventory icon, or null when this holds no item / the definition has no icon */
+	/** Inventory icon, or null when this holds no item / the definition has no icon. Draw it tinted by GetTint(). */
 	UTexture2D* GetIcon() const { return Definition ? Definition->Icon : nullptr; }
 
+	/** Colour this copy's icon should be drawn in - every modifier's tint multiplied together, White when there are none */
+	FLinearColor GetTint() const;
+
+	/** Broad classification, from the definition; None when this holds no item */
+	EItemCategory GetCategory() const { return Definition ? Definition->Category : EItemCategory::None; }
+
+	/** Which worn slot this copy equips into, from the definition; None when it isn't wearable */
+	EEquipSlot GetEquipSlot() const { return Definition ? Definition->EquipSlot : EEquipSlot::None; }
+
+	/** 3D representation for the world pickup actor, or null when this holds no item */
+	UStaticMesh* GetWorldMesh() const { return Definition ? Definition->WorldMesh : nullptr; }
+
+	/** Weight of a single unit of this copy - the definition's, scaled by every modifier's WeightMultiplier */
+	float GetUnitWeight() const;
+
+	/**
+	 *  Base resale value of a single unit of this copy, before any buy/sell markup - the
+	 *  definition's, scaled by every modifier's ValueMultiplier and rounded.
+	 *
+	 *  Rounded *per unit* rather than per stack on purpose: the trader prices a line by the unit
+	 *  and multiplies, so rounding anywhere else would make a stack's total disagree with its
+	 *  own unit price.
+	 */
+	int32 GetUnitBaseValue() const;
+
 	/** Combined weight of this entry (unit weight x quantity) */
-	float GetTotalWeight() const { return Definition ? Definition->Weight * Quantity : 0.0f; }
+	float GetTotalWeight() const { return GetUnitWeight() * Quantity; }
 
 	/** Combined base resale value of this entry, before any buy/sell markup */
-	int32 GetTotalBaseValue() const { return Definition ? Definition->BaseValue * Quantity : 0; }
+	int32 GetTotalBaseValue() const { return GetUnitBaseValue() * Quantity; }
 
-	/** Base (unmultiplied) stack cap from the definition; 0 when empty. The holder's StackMultiplier scales this - see UInventoryComponent::GetEffectiveMaxStack. */
+	/**
+	 *  How much wear this copy can take, as a multiple of a bare item's - every modifier's
+	 *  ConditionMultiplier. Authored and read by nothing yet; Condition is still a placeholder.
+	 */
+	float GetConditionScale() const;
+
+	/** Base (unmultiplied) stack cap from the definition; 0 when empty. Modifiers deliberately don't scale it - a masterwork arrow is still an arrow. The holder's StackMultiplier does - see UInventoryComponent::GetEffectiveMaxStackForItem. */
 	int32 GetBaseMaxStackSize() const { return Definition ? Definition->MaxStackSize : 0; }
+
+	//~ Modifiers
+
+	/** The modifier filling the given slot, or null if that slot is empty */
+	UItemModifierDefinition* GetModifier(EItemModifierSlot Slot) const;
+
+	/** True if this copy has a modifier in the given slot */
+	bool HasModifier(EItemModifierSlot Slot) const { return GetModifier(Slot) != nullptr; }
+
+	/**
+	 *  Adds a modifier, refusing when its slot is already filled. Returns false for a null
+	 *  modifier or an occupied slot, and changes nothing either way - one-per-slot is the rule
+	 *  the whole model rests on, so quietly replacing would lose the material an item was made
+	 *  of without saying so. Use SetModifier() when replacing is what you meant.
+	 */
+	bool AddModifier(UItemModifierDefinition* Modifier);
+
+	/** Adds a modifier, replacing whatever already filled its slot. Returns false only for a null modifier. */
+	bool SetModifier(UItemModifierDefinition* Modifier);
+
+	/** Clears the given slot. Returns false if it was already empty. */
+	bool RemoveModifier(EItemModifierSlot Slot);
+
+	/**
+	 *  True if both copies carry the same set of modifiers, regardless of the order they sit in
+	 *  the array - two bronze spears are the same thing whichever end the modifier was added
+	 *  from, and a stack that split on array order would fragment for no reason a player can see.
+	 */
+	bool HasSameModifiersAs(const FInventoryItem& Other) const;
 
 	/**
 	 *  Rectangular grid footprint in cells, from the definition. Rotation is the single
@@ -92,14 +177,18 @@ struct FInventoryItem
 	bool HasSameDefinitionAs(const FInventoryItem& Other) const { return Definition != nullptr && Definition == Other.Definition; }
 
 	/**
-	 *  True if these two entries may merge into one stack: same definition, the definition
-	 *  allows stacking at all, and neither launders the other's stolen flag away. Condition
-	 *  is deliberately *not* compared - stackable goods are bulk materials, and splitting a
-	 *  stack per wear value would fragment it uselessly.
+	 *  True if these two entries may merge into one stack: same definition, the same set of
+	 *  modifiers, the definition allows stacking at all, and neither launders the other's stolen
+	 *  flag away.
+	 *
+	 *  Modifiers are compared because they change what a unit is worth and weighs - two bronze
+	 *  spears stack, a bronze and a masterwork bronze do not, because a merged stack could only
+	 *  report one price for both. Condition is deliberately *not* compared: stackable goods are
+	 *  bulk materials, and splitting a stack per wear value would fragment it uselessly.
 	 */
 	bool CanStackWith(const FInventoryItem& Other) const
 	{
-		return HasSameDefinitionAs(Other) && Definition->IsStackable() && bStolen == Other.bStolen;
+		return HasSameDefinitionAs(Other) && Definition->IsStackable() && bStolen == Other.bStolen && HasSameModifiersAs(Other);
 	}
 };
 
@@ -255,6 +344,9 @@ protected:
 	/** Index into Entries for the given id, or INDEX_NONE */
 	int32 IndexOfEntry(int32 EntryId) const;
 
+	/** Shared body of the two GetEffectiveMaxStack* forms: this holder's multiplier applied to a base cap */
+	int32 ScaleStack(int32 BaseMaxStackSize) const;
+
 	/**
 	 *  Body of CanPlaceAt, tested against an arbitrary set of placements rather than this
 	 *  holder's own Entries. A repack builds its new arrangement in a scratch array and only
@@ -315,7 +407,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	bool IsOverWeightCapacity() const;
 
-	/** This holder's stack cap for the given definition: its base MaxStackSize x StackMultiplier, never below 1. Zero for a null definition. */
+	/**
+	 *  This holder's stack cap for the given carried item: the item's base MaxStackSize x this
+	 *  holder's StackMultiplier, never below 1. Zero for an empty item.
+	 *
+	 *  The item-taking form is the one gameplay code should call - it reads the cap through
+	 *  FInventoryItem's accessor rather than off the definition, which is the rule every derived
+	 *  figure follows now that a copy can differ from its definition.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	int32 GetEffectiveMaxStackForItem(const FInventoryItem& Item) const;
+
+	/** GetEffectiveMaxStackForItem for a caller holding a definition and no instance of it - a shop listing, a recipe preview. */
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	int32 GetEffectiveMaxStack(const UItemDefinition* Definition) const;
 

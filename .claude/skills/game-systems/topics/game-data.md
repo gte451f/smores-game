@@ -15,7 +15,7 @@ understand otherwise.
 
 | Layer | What it is | Where it lives | Saved? | Built? |
 |---|---|---|---|---|
-| **Definition** | What a *kind of thing* is — "Iron Sword", "Bandit", "Ironclan". Authored by hand, identical in every campaign, never written to at runtime. | A `.uasset` in the Content Browser | No — it ships with the game | ✅ |
+| **Definition** | What a *kind of thing* is — "Sword", "Bandit", "Ironclan". Authored by hand, identical in every campaign, never written to at runtime. | A `.uasset` in the Content Browser | No — it ships with the game | ✅ |
 | **Record** | One *particular* thing — this bandit, with this name, this health, this inventory. | A `USTRUCT` in memory, owned by a component on the `GameState` or `PlayerState` | **Yes — records *are* the save file** | ❌ not yet |
 | **Actor** | What is physically standing in the level right now. A puppet driven by a record. | `AStrategyUnit` and friends, in the loaded world | No — it is rebuilt from the record | partly (actors exist; nothing drives them from a record) |
 
@@ -64,7 +64,7 @@ ids that are *allowed* to fail to resolve. It buys nothing for content links, wh
 
 ### An id only has to be unique within its type
 
-`FPrimaryAssetId` is a `{Type, Name}` pair — `ItemDefinition:IronSword`. An item and a faction
+`FPrimaryAssetId` is a `{Type, Name}` pair — `ItemDefinition:Sword`. An item and a faction
 may both legitimately call themselves `Ironclan`. The content sweep checks uniqueness per type,
 not globally.
 
@@ -88,7 +88,7 @@ A `UBlueprintFunctionLibrary` wrapping `UAssetManager`. Three calls:
 
 | Call | Answers |
 |---|---|
-| `FindDefinition(Type, Id)` | "give me the definition whose id is `IronSword`" — null when it resolves to nothing, which is a legitimate outcome, not an error |
+| `FindDefinition(Type, Id)` | "give me the definition whose id is `Sword`" — null when it resolves to nothing, which is a legitimate outcome, not an error |
 | `GetDefinitionIds(Type)` | every id the Asset Manager knows for one type |
 | `GetDefinitionTypes()` | every registered type whose base class is a `USmoresDefinition` — i.e. the project's own, and none of the engine's `Map`/`PrimaryAssetLabel`/`GameFeatureData` |
 
@@ -119,10 +119,20 @@ is the test that catches it — it exists for exactly this failure.
 | Type | Module | `GetDefinitionType()` | Assets |
 |---|---|---|---|
 | `UItemDefinition` | `SmoresItems` | `ItemDefinition` | eight `DA_Item_*` under `Content/Items/` |
+| `UItemModifierDefinition` | `SmoresItems` | `ItemModifierDefinition` | five `DA_Modifier_*` under `Content/Items/Modifiers/` |
 
-`UItemDefinition::DefinitionType` is a `static const FPrimaryAssetType` holding the literal
-`"ItemDefinition"`, spelled out rather than derived from the class name so it and the config
-line are visibly the same string.
+Each type's `DefinitionType` is a `static const FPrimaryAssetType` holding the literal type
+string, spelled out rather than derived from the class name so it and the config line are visibly
+the same string.
+
+`UItemModifierDefinition` is the first type to arrive *after* the base existed, and it cost
+exactly the five steps in the extension-point list below and nothing else — the base content
+sweeps picked its assets up with no change, which is the shape a faction or character definition
+should expect. See `inventory.md` for what a modifier actually does to an item.
+
+It is also the first place the id look-up has a caller that isn't `SmoresDumpDefinitions`:
+`SmoresAddItem <Count> <ModifierId>` sends the id to the server and resolves it there through
+`USmoresDefinitionLibrary::FindDefinition`, which is the route a record or a loot table will take.
 
 ## The Content Sweeps
 
@@ -142,7 +152,14 @@ well formed, which is not a claim about any one asset.
 | `AtLeastOneTypeIsRegistered` | the config side going empty, which would make the test above pass vacuously |
 
 **Per-type layer** — `Source/SmoresItems/Tests/ItemDefinitionAssetTest.cpp` is the worked example
-a future faction or character type should copy. It adds footprint bounds, stack-size bounds and
+a future faction or character type should copy, and
+`Source/SmoresItems/Tests/ItemModifierDefinitionAssetTest.cpp` is the same shape for modifiers. The
+modifier one is worth reading for *why* a per-type file earns its place: a modifier's numbers are
+multipliers, and a multiplier fails differently from a weight or a price. An unfilled field
+defaults to 1.0 and is invisible; a field authored to **0** silently erases whatever it
+multiplies, and a masterwork spear weighing nothing reads as a bug in the inventory rather than
+in the asset. It also rejects an empty `NamePattern`, because the fallback is hard-coded English
+word order. Neither rule is one the base sweep could ever know about. It adds footprint bounds, stack-size bounds and
 the `Icon` check, and proves the rules themselves against an in-memory definition
 (`MalformedDefinitionIsRejected`) rather than by adding a broken asset to `Content/`.
 
@@ -196,12 +213,13 @@ none (Unreal serializes by name); doing both at once does. See
 - **There are no records.** Nothing in the project owns a `FCharacterRecord`, and nothing reads
   through one. `AStrategyUnit` and its components are still the truth. Slice 4 of
   `Docs/roadmaps/game-data-roadmap.md` is where that inverts.
-- **Nothing calls `FindDefinition` in anger yet.** The lookup is built and tested; its consumers
-  (records, loot tables, recipes, saves) are later slices. The one live caller is
-  `SmoresDumpDefinitions`.
-- **`FInventoryItem` still holds a definition by `TObjectPtr`, not by id.** That is correct for a
-  carried item under the current design, but the roadmap notes the carried item and the record
-  must hold ids once saving is real.
+- **Nothing calls `FindDefinition` in anger yet.** The lookup is built and tested; its real
+  consumers (records, loot tables, recipes, saves) are later slices. The two live callers are
+  `SmoresDumpDefinitions` and the `SmoresAddItem` modifier look-up, both debug execs.
+- **`FInventoryItem` still holds a definition by `TObjectPtr`, not by id** — and now holds its
+  modifiers the same way. That is correct for a carried item under the current design, but the
+  roadmap notes the carried item and the record must hold ids once saving is real, and that
+  applies to the `Modifiers` array as much as to `Definition`.
 - **No `Tags` on the base.** `FGameplayTagContainer` is planned for Slice 5, when loot-table
   entries first give something a reason to consume it. Adding it earlier would be dead data.
 - **Synchronous loading.** See above — deliberate, and the seam is `USmoresDefinitionLibrary`.

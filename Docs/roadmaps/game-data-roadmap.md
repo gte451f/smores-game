@@ -46,71 +46,12 @@ upside. When it lands it is mostly additive, because the records are already aut
 subclasses, the id-vs-asset-pointer rule, `USmoresDefinitionLibrary` and Asset Manager
 registration are all built and documented in `game-systems`' `game-data.md`.
 
-## Materials and Modifiers
+## Materials and Modifiers — SHIPPED (Slice 2)
 
-One core item expressed in several materials and qualities — an Iron, Bronze or Steel Spear;
-that Bronze Spear as Well-Made or Masterwork.
-
-The naive answer, one definition asset per combination, is a trap: three materials across eight
-weapon shapes is twenty-four assets, adding a material means authoring eight more, and every
-recipe becomes combinatorial too.
-
-Instead, **material and quality are the same mechanism** — a modifier that multiplies the base
-item's numbers and composes its name. Material is simply a modifier that is mandatory and
-mutually exclusive:
-
-```cpp
-UENUM(BlueprintType)
-enum class EItemModifierSlot : uint8 { Material, Quality };   // at most one of each
-
-UCLASS(BlueprintType)
-class SMORESITEMS_API UItemModifierDefinition : public USmoresDefinition
-{
-    EItemModifierSlot  Slot;
-    float  WeightMultiplier    = 1.0f;
-    float  ValueMultiplier     = 1.0f;
-    float  ConditionMultiplier = 1.0f;   // how much wear the item can take
-    FLinearColor  Tint = FLinearColor::White;
-    FText  NamePattern;                  // "{Modifier} {Item}"
-};
-```
-
-and `FInventoryItem` gains one field:
-
-```cpp
-TArray<TObjectPtr<UItemModifierDefinition>> Modifiers;   // <= one per slot
-```
-
-"Bronze Spear" is one definition plus one modifier. "Masterwork Bronze Spear" is one definition
-plus two. This is also what makes crafting authorable later: `tech-and-crafting.md` says output
-quality is a function of crafter skill, input material quality and facility level — which maps
-directly onto *material inherited from the inputs, quality modifier chosen at craft time*, with
-one recipe per shape rather than one per combination.
-
-### What this costs, honestly
-
-- **Stacking rules change.** `CanStackWith` currently compares definition and stolen flag; it
-  must compare the modifier set too. Two bronze spears stack; a bronze and a masterwork bronze
-  do not. Shipped code with existing tests (`InventoryStackingTest.cpp`).
-- **Derived values become computed.** Weight stops being `Definition->Weight * Quantity`. The
-  seam already exists — `FInventoryItem` exposes `GetTotalWeight()`, `GetTotalBaseValue()`,
-  `GetDisplayName()`, `GetIcon()` — and only **four** places in the codebase reach past those
-  accessors to a definition field: `TraderComponent.cpp:36` and `:50` (BaseValue),
-  `EquipmentComponent.cpp:51` (EquipSlot), `InventoryComponent.cpp:118` (MaxStackSize) and
-  `WorldItem.cpp:64` (WorldMesh). Contained, not a sweep.
-- **Names must compose through `FText::Format`,** never string concatenation — word order
-  differs by language and `localization.md` is a day-one commitment. The pattern lives on the
-  modifier so translators can reorder it.
-- **Icons tint rather than duplicate.** A colour on the modifier beats twenty-four hand-made
-  icons.
-
-### And why it comes early
-
-Reshaping `FInventoryItem` silently voided the per-placed-instance `StartingItems` overrides on
-four actors in `LVL_Strategy` during the inventory roadmap's Slice 1. That cost is proportional
-to how much authored content exists. There are eight item assets and a handful of placed
-containers today; after loot tables populate the world there will be far more. **If modifiers
-are wanted at all, they land before the content does** — hence Slice 2, not Slice 5.
+`UItemModifierDefinition`, the material/quality slot model, `FInventoryItem::Modifiers`, the
+accessors that multiply and compose through it, modifier-aware stacking and the five authored
+`DA_Modifier_*` assets are all built and documented in `game-systems`' `inventory.md`, with the
+new definition type recorded in `game-data.md`.
 
 ## Weighted Tables
 
@@ -207,9 +148,9 @@ What already exists and should be extended rather than reinvented:
 - **`UItemDefinition`** (`Source/SmoresItems/ItemDefinition.h`) — reparented onto
   `USmoresDefinition` in Slice 1 and registered with the Asset Manager. Slices 2 and 5 extend
   around it. Its class comment already anticipates crafting and pricing lookups.
-- **`FInventoryItem`** (`Source/SmoresItems/InventoryComponent.h`) — already the instance half,
-  already holds only what varies copy-to-copy, already exposes derived values through accessors.
-  Slice 2 adds one field and changes what those accessors compute.
+- **`FInventoryItem`** (`Source/SmoresItems/InventoryComponent.h`) — the instance half. Slice 2
+  added `Modifiers` and made every derived accessor compute through it, so a copy can now differ
+  from its definition. Slice 5's loot-table entries hand modifiers to newly rolled items.
 - **`AStrategyGameState`** (`Source/smores/Variant_Strategy/StrategyGameState.h`) — its own class
   comment already says "World clock, weather and faction standing will each want a component
   here." It is Unreal's composition root for session-wide replicated state, and it is where the
@@ -283,34 +224,35 @@ Two notes worth carrying into later slices:
   `ObjectTools.set_properties` writing each id back to its own value (to dirty the package)
   followed by `save_assets([])`. Verify with a binary grep, not the return value.
 
-### Slice 2 — Item modifiers: material and quality
+### Slice 2 — Item modifiers: material and quality — **DONE**
 
-**Builds:** `UItemModifierDefinition` in `SmoresItems`; `FInventoryItem::Modifiers`; multiplier
-and name composition inside the existing accessors; modifier-aware stacking.
+Shipped into `game-systems`' `inventory.md`, with the new definition type and its per-type content
+sweep recorded in `game-data.md` and the counts updated in `testing.md`.
+`UItemModifierDefinition` (+ `EItemModifierSlot`) lives in `SmoresItems`; `FInventoryItem` gained
+`Modifiers` with one-per-slot enforcement, multiplier arithmetic, `FText::Format` name composition
+in slot order, a `GetTint()` that multiplies, and modifier-aware order-independent stacking. The
+four accessor-bypassing call sites now go through the instance. Five `DA_Modifier_*` assets
+authored. 103 tests green.
 
-- Enforce at most one modifier per slot when one is added.
-- `GetTotalWeight()` and `GetTotalBaseValue()` multiply through the modifier chain;
-  `GetDisplayName()` composes via `FText::Format` applying Material then Quality, so the result
-  reads "Masterwork Bronze Spear"; a new `GetTint()` feeds the icon.
-- `CanStackWith()` compares the modifier set, order-independent.
-- Update the four call sites that bypass the accessors (listed above) to go through them.
-- Author via MCP: three material modifiers (Iron, Bronze, Steel) and two quality modifiers
-  (Well-Made, Masterwork); retune the eight existing item assets so `BaseValue` and `Weight`
-  now mean "with no material applied."
-- Extend `SmoresAddItem` to take an optional modifier id so the combination is testable from the
-  console.
+Four notes worth carrying into later slices:
 
-**Hazards.** Reshaping `FInventoryItem` is exactly what voided placed-instance `StartingItems`
-overrides before. **Grep `Content/__ExternalActors__/` for `StartingItems` before the build**, and
-re-check those actors after it. Don't assume Blueprint class defaults are the only authored copy.
-
-**Tests:** multiplier arithmetic, name composition, slot exclusivity, stacking with and without
-matching modifiers.
-
-**Verification:** Jim PIE-checks that names, weights, prices and tints read right in the
-inventory window and the trade window.
-
-**Ships into:** `inventory.md` (the item-instance shape), plus a pointer from `game-data.md`.
+- **Moving a `USTRUCT`'s method bodies out of its header needs `<MODULE>_API` on the struct** —
+  Slices 3 and 4 both add structs (`FFactionRecord`, `FCharacterRecord`) that other modules will
+  read. Written up in `unreal-module-organization.md`'s per-move mechanics; read it there rather
+  than relying on this line, which goes away with this roadmap.
+- **Adding a field to a `USTRUCT` is the benign direction.** The Slice-1 hazard was a *reshaped*
+  struct silently voiding placed-instance overrides; a purely additive `Modifiers` array
+  deserialized cleanly on all five placed actors that carry item data. Worth knowing the two
+  directions differ — a removed or renamed field still needs the full treatment.
+- **The per-type content sweep earns its place when a field's failure mode is silent.** A
+  modifier's multipliers default to 1.0 (invisible, harmless) but author to 0.0 as "erases
+  whatever it multiplies", and an empty `NamePattern` falls back to hard-coded English word order.
+  Neither is something the base sweep could know. A new definition type should ask what its
+  *zero-ish* values do before deciding it needs no per-type file.
+- **`DA_Item_IronSword` was rebased to `DA_Item_Sword`** (Jim's call) so "Iron Sword" composes
+  from the definition plus the Iron modifier. Iron is authored as the 1.0x baseline material,
+  which is what let every other item asset keep its numbers unchanged — the retune this slice
+  called for turned out to be an identity change on one asset, not an arithmetic change on eight.
 
 ### Slice 3 — Factions: definition, record and standing
 
@@ -416,7 +358,11 @@ pointer from `combat.md` and `inventory.md`.
 `AStrategyContainer` rolling its contents instead of listing them.
 
 - Entries name an item, a sub-table or a tag, with a weight, a quantity range and an optional
-  modifier pool so a table can yield "a spear, bronze or iron, occasionally well-made."
+  modifier pool so a table can yield "a spear, bronze or iron, occasionally well-made." The
+  modifier half of that is built as of Slice 2 — a rolled entry applies its pick with
+  `FInventoryItem::AddModifier`, which already enforces one per slot, so the table only has to
+  choose. Note that a table rolling modifiers is what first makes the stacking change visible in
+  bulk: a chest yielding bronze *and* iron spears produces two piles, not one.
 - The base class owns weights, roll counts and nesting; `ULootTableDefinition` is the only
   subclass today, and the world-activity roadmap adds the spawn-table sibling. One subclass now
   is deliberate, per the reusable-base default.

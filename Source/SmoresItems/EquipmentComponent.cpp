@@ -48,7 +48,7 @@ FText UEquipmentComponent::GetSlotDisplayName(EEquipSlot Slot)
 
 EEquipSlot UEquipmentComponent::GetSlotForItem(const FInventoryItem& Item)
 {
-	return Item.Definition ? Item.Definition->EquipSlot : EEquipSlot::None;
+	return Item.GetEquipSlot();
 }
 
 bool UEquipmentComponent::HasOwnerAuthority() const

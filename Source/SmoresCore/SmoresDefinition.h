@@ -63,7 +63,7 @@ public:
 
 	/**
 	 *  The Asset Manager type this definition is registered under - the "ItemDefinition" half of
-	 *  an FPrimaryAssetId like ItemDefinition:IronSword. Each concrete type names itself, and the
+	 *  an FPrimaryAssetId like ItemDefinition:Sword. Each concrete type names itself, and the
 	 *  name it returns has to match its PrimaryAssetTypesToScan entry in Config/DefaultGame.ini or
 	 *  nothing will ever resolve it by id.
 	 */

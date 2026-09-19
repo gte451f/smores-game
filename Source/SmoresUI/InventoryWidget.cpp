@@ -95,7 +95,7 @@ void UInventoryWidget::SetCategoryFilter(EItemCategory Category)
 bool UInventoryWidget::PassesCategoryFilter(const FInventoryItem& Item) const
 {
 	return FilterCategory == EItemCategory::None
-		|| (Item.Definition && Item.Definition->Category == FilterCategory);
+		|| (!Item.IsEmpty() && Item.GetCategory() == FilterCategory);
 }
 
 void UInventoryWidget::ApplyCategoryFilter()
@@ -559,7 +559,7 @@ bool UInventoryWidget::WouldAcceptDrop(const UInventoryDragDropOperation* DragOp
 		const FInventoryEntry TargetEntry = BoundInventory->GetEntry(TargetEntryId);
 
 		return TargetEntry.Item.CanStackWith(DragOperation->DraggedItem)
-			&& TargetEntry.Item.Quantity < BoundInventory->GetEffectiveMaxStack(TargetEntry.Item.Definition);
+			&& TargetEntry.Item.Quantity < BoundInventory->GetEffectiveMaxStackForItem(TargetEntry.Item);
 	}
 
 	const int32 IgnoreEntryId = bSameInventory ? DragOperation->SourceEntryId : INDEX_NONE;

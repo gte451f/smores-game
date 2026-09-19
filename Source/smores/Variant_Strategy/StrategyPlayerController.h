@@ -886,10 +886,15 @@ public:
 	/**
 	 *  Debug exec: adds Count more of whatever item already sits in the selected pawn's first grid
 	 *  entry, then dumps the grid - exercising stack-merge, auto-placement and rotation against
-	 *  real authored footprints without needing an item-id lookup path that doesn't exist yet.
+	 *  real authored footprints.
+	 *
+	 *  ModifierId optionally names an item modifier (SmoresDumpDefinitions lists the ids) to put
+	 *  on the copies being added - `SmoresAddItem 3 Bronze`. That is what makes the modifier model
+	 *  testable from a running game: the added copies won't merge with the unmodified ones already
+	 *  in the grid, and their name, weight and price all read differently.
 	 */
 	UFUNCTION(Exec)
-	void SmoresAddItem(int32 Count = 1);
+	void SmoresAddItem(int32 Count = 1, FName ModifierId = NAME_None);
 
 	/**
 	 *  Debug exec: repacks the selected pawn's grid by Criterion (0 = weight, 1 = value,
@@ -955,9 +960,16 @@ public:
 
 protected:
 
-	/** Server side of the inventory debug execs - optionally adds AddCount items, then logs the grid */
+	/**
+	 *  Server side of the inventory debug execs - optionally adds AddCount items carrying the
+	 *  modifier named by ModifierId, then logs the grid.
+	 *
+	 *  The modifier crosses as an id rather than an object pointer so the server resolves it
+	 *  itself through USmoresDefinitionLibrary - the same look-up a record or a loot table will
+	 *  use, and the first caller of it outside SmoresDumpDefinitions.
+	 */
 	UFUNCTION(Server, Reliable)
-	void Server_DebugInventory(UInventoryComponent* Inventory, int32 AddCount);
+	void Server_DebugInventory(UInventoryComponent* Inventory, int32 AddCount, FName ModifierId);
 
 	/** Server side of the sort debug exec - repacks the grid, then logs it the same way */
 	UFUNCTION(Server, Reliable)

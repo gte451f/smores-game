@@ -11,6 +11,11 @@ What an item *is* lives in a shared `UItemDefinition` data asset; what a carried
 like* lives in the `FInventoryItem` instance that references it; *where that copy sits* in a
 particular holder's grid lives in the `FInventoryEntry` placement that wraps it.
 
+What a copy is *made of* lives in a third kind of asset: a `UItemModifierDefinition`. A copy
+carries at most one material and one quality, and they multiply the item's weight and value and
+compose its name — so "Masterwork Bronze Spear" is one item definition plus two small modifier
+assets rather than a twenty-fourth hand-authored variant.
+
 Items occupy a rectangular footprint of cells rather than one uniform slot, may be rotated 90°
 to fit, and merge into stacks capped per holder. Carried weight is tracked and displayed
 alongside the grid but still applies no penalty. The player's gold balance lives in a
@@ -75,6 +80,17 @@ documents what's actually built.
   make it fit — auto-placement still tries both orientations on its own, but that's a different
   path, and turning an item the player didn't ask to turn works against the deliberate packing
   this design is built around.
+- **An item's name says what it's made of and how well it was made.** A copy carrying a material
+  or a quality reads as "Bronze Sword" or "Masterwork Bronze Sword" rather than plain "Sword",
+  and weighs and prices accordingly — a steel sword is worth over twice an iron one and a
+  masterwork steel one over six times. Nothing in the window says "this item has modifiers"; the
+  name, the weight and the price *are* the telling.
+- **A material also colours the item.** With no item icons authored yet the tint lands on the
+  item's label — bronze reads warm orange-brown, steel cool near-white. Quality deliberately
+  adds no colour of its own, so a masterwork bronze item still looks bronze.
+- **Items of different materials don't stack together.** Two bronze swords are one pile; a
+  bronze and a steel one are two, even sorted. That's the same rule as stolen goods not merging
+  with honest ones, and for the same reason — one pile can only quote one price.
 - Every inventory window shows a **carried-weight readout** above its grid — `Weight: 12.4 /
   30.0` for a pawn, and just `Weight: 8.0` for a chest, which has no capacity of its own. It
   updates live as items move in, out, and between windows. Exceeding the capacity turns the
@@ -189,9 +205,46 @@ documents what's actually built.
   the item-specific `EItemCategory`, 2D `Icon`, 3D `WorldMesh`, `Weight`, `BaseValue`,
   `FootprintWidth`/`FootprintHeight`, `MaxStackSize`, `EEquipSlot`. An `FInventoryItem`
   carries only what varies copy-to-copy: a `Definition` pointer plus `Quantity`, `Condition`,
-  and `bStolen`. An `FInventoryEntry` wraps one `FInventoryItem` with where it sits in *this*
-  holder: a stable `EntryId`, an `AnchorCell`, and a `bRotated` flag. All display data is read
-  through the definition; nothing is duplicated per instance.
+  `bStolen`, and a `Modifiers` array. An `FInventoryEntry` wraps one `FInventoryItem` with where
+  it sits in *this* holder: a stable `EntryId`, an `AnchorCell`, and a `bRotated` flag. All
+  display data is read through the accessors on the instance; nothing is duplicated per instance.
+- **Material and quality are one mechanism, and it is a multiplier — not an asset per
+  combination.** A `UItemModifierDefinition` (in `SmoresItems`, one asset per material or
+  quality under `Content/Items/Modifiers/`) holds a `Slot` (`EItemModifierSlot::Material` or
+  `::Quality`), a `WeightMultiplier`, a `ValueMultiplier`, a `ConditionMultiplier`, a `Tint`, and
+  a `NamePattern`. An `FInventoryItem` holds **at most one modifier per slot**, and the
+  multipliers compose by multiplication.
+
+  The alternative — one item definition per combination — is a trap: three materials across
+  eight weapon shapes is twenty-four assets, adding a material means authoring eight more, and
+  every future recipe becomes combinatorial with them. It is also what makes crafting authorable
+  later: material is inherited from a recipe's inputs and quality is chosen at craft time, so
+  there is one recipe per shape rather than one per combination.
+- **Every derived figure is read off the instance, never off the definition.**
+  `GetUnitWeight()`, `GetUnitBaseValue()`, `GetTotalWeight()`, `GetTotalBaseValue()`,
+  `GetDisplayName()` and `GetTint()` all multiply or compose through the modifier chain;
+  `GetCategory()`, `GetEquipSlot()`, `GetWorldMesh()`, `GetIcon()` and `GetBaseMaxStackSize()`
+  pass straight through. **`Item.Definition->Weight` is the figure for a bare, unmodified one of
+  these, not what this copy weighs** — which is why the four call sites that used to reach past
+  the accessors (the trader's two price calls, the equip-slot lookup and the world mesh) now go
+  through them, and why `FInventoryItem` is now exported (`SMORESITEMS_API`) so the bodies can
+  live in the `.cpp`.
+- **Value rounds per unit, not per stack.** `GetUnitBaseValue()` rounds the multiplied figure
+  and `GetTotalBaseValue()` multiplies that by quantity, so a trader's per-unit price and its
+  line total can never disagree. A priced item never multiplies down to worthless (floor of 1),
+  and an item authored at zero stays worth nothing however good its material.
+- **Names compose through `FText::Format`, in slot order, never by concatenation.** Each
+  modifier's `NamePattern` takes `{Modifier}` and `{Item}`, and material applies before quality —
+  so the result reads "Masterwork Bronze Spear" whichever order the modifiers were added in. The
+  pattern lives on the modifier because word order differs by language and a translator has to be
+  able to reorder it. A modifier whose `NamePattern` was left blank falls back to English
+  `"{Modifier} {Item}"` rather than dropping silently from the name; the content sweep treats an
+  empty pattern as an authoring error for exactly that reason.
+- **Tints multiply, so White is genuinely neutral.** `GetTint()` is the product of every
+  modifier's `Tint`, which is what lets a quality that isn't about colour leave the material's
+  colour alone. With no item icons authored yet it lands on the item label in the grid; move it
+  to the icon the moment there is one. An unmodified item tints White and draws exactly as before.
+- **Modifiers deliberately do not scale stack size.** A masterwork arrow is still an arrow.
 - **Storage is a `GridWidth` × `GridHeight` cell grid** (both clamped 1–32, defaulting to
   8×8 and sized per holder type in Blueprint — a pawn's pack is 6×4, a chest 8×6). `Entries`
   holds only the items actually placed, in no particular order; there is no per-cell array and
@@ -206,12 +259,17 @@ documents what's actually built.
   client→server round trip. Ids come from a server-side `NextEntryId` counter and are unique
   per holder, not globally.
 - **Stacking is capped at the definition's `MaxStackSize` × the holder's `StackMultiplier`**
-  (`GetEffectiveMaxStack`, never below 1). One number per holder covers "a shelf stacks deeper
-  than a backpack" without per-transfer special cases; it's 1.0 everywhere today. Two entries
-  merge only if `FInventoryItem::CanStackWith` agrees: same definition, the definition is
-  actually stackable (`MaxStackSize > 1`), and both carry the same `bStolen` flag — so theft
-  can't be laundered by merging. `Condition` is deliberately *not* compared, since splitting a
-  bulk-material stack per wear value would fragment it uselessly.
+  (`GetEffectiveMaxStackForItem`, never below 1). One number per holder covers "a shelf stacks
+  deeper than a backpack" without per-transfer special cases; it's 1.0 everywhere today. Two
+  entries merge only if `FInventoryItem::CanStackWith` agrees: same definition, the definition is
+  actually stackable (`MaxStackSize > 1`), both carry the same `bStolen` flag — so theft can't be
+  laundered by merging — and **both carry the same set of modifiers**. Two bronze spears stack; a
+  bronze and a masterwork bronze do not, because a merged stack could only report one weight and
+  one price for both. That comparison is per slot rather than per array position, so it is
+  order-independent: the array order is an accident of how a copy was built and a player can't
+  see it, and a stack that split on it would fragment for no visible reason. `Condition` is
+  deliberately *not* compared, since splitting a bulk-material stack per wear value would
+  fragment it uselessly.
 - **A sort is a change to the world; a filter is a change to one screen — and they are built
   completely differently because of it.** `SortEntries` is an authority-only mutator reached
   through `IInventoryMoveHost::Server_SortInventory`, replicating like any other grid change, so
@@ -510,7 +568,8 @@ documents what's actually built.
 ## C++ Implementation
 
 - **Primary classes:**
-  - `SmoresItems`: `UItemDefinition` (+ `EItemCategory` / `EEquipSlot`), `FInventoryItem`,
+  - `SmoresItems`: `UItemDefinition` (+ `EItemCategory` / `EEquipSlot`),
+    `UItemModifierDefinition` (+ the `EItemModifierSlot` enum), `FInventoryItem`,
     `UInventoryComponent` (+ the `EInventorySortCriterion` enum),
     `FEquippedItem` + `UEquipmentComponent` (the paperdoll),
     `AStrategyContainer` (abstract base for world containers),
@@ -530,10 +589,22 @@ documents what's actually built.
   - `smores` (`Variant_Strategy`): `AStrategyPlayerController`, `AStrategyPlayerState` (which
     now owns no state of its own — it hosts the `UWalletComponent` and nothing else)
 - **Important methods:**
-  - `FInventoryItem::GetDisplayName` / `GetIcon` / `GetItemId` / `GetDescription` /
-    `GetTotalWeight` / `GetTotalBaseValue` / `GetFootprint` / `HasSameDefinitionAs` /
-    `CanStackWith` — the read-through accessors that hide the definition indirection from
-    callers; `GetFootprint(bRotated)` is the one place width/height get swapped for rotation
+  - `FInventoryItem::GetDisplayName` / `GetIcon` / `GetTint` / `GetItemId` / `GetDescription` /
+    `GetCategory` / `GetEquipSlot` / `GetWorldMesh` / `GetUnitWeight` / `GetUnitBaseValue` /
+    `GetTotalWeight` / `GetTotalBaseValue` / `GetConditionScale` / `GetBaseMaxStackSize` /
+    `GetFootprint` / `HasSameDefinitionAs` / `CanStackWith` — the read-through accessors that
+    hide both the definition indirection and the modifier chain from callers. **Nothing outside
+    this struct should read a field off `Definition` directly.** `GetFootprint(bRotated)` is the
+    one place width/height get swapped for rotation
+  - `FInventoryItem::AddModifier` / `SetModifier` / `RemoveModifier` / `GetModifier` /
+    `HasModifier` / `HasSameModifiersAs` — the one-per-slot rule lives here. `AddModifier`
+    **refuses** when the slot is already filled and changes nothing, because quietly replacing
+    would lose the material an item was made of without saying so; `SetModifier` is the explicit
+    replacement path
+  - `UInventoryComponent::GetEffectiveMaxStackForItem` — the stack cap for a carried item, read
+    through the instance's accessor. `GetEffectiveMaxStack(const UItemDefinition*)` remains for a
+    caller holding a definition and no instance of it (a shop listing, a recipe preview); both
+    share the private `ScaleStack` body
   - `FInventoryEntry::GetFootprint` / `CoversCell` / `IsValidEntry` — placement geometry, used
     by every occupancy test in the component and the UI
   - `UInventoryWidget::GetItemLabel` (static) — the one place an item's player-facing label
@@ -620,10 +691,17 @@ documents what's actually built.
   - `AStrategyPlayerController::SmoresDumpInventory` / `SmoresAddItem` (console execs) —
     debug-only. `SmoresDumpInventory` logs the selected pawn's **server-side** grid as an
     ASCII occupancy map plus a per-entry list (id, quantity, anchor, footprint, rotation,
-    effective stack cap); `SmoresAddItem <Count>` adds `Count` more of whatever the pawn's
-    first entry holds and then dumps, exercising stack-merge, auto-placement and the rotation
-    fallback. Both hop to the server via `Server_DebugInventory`, since the local replicated
-    copy isn't the authoritative one
+    effective stack cap); `SmoresAddItem <Count> [ModifierId]` adds `Count` more of whatever the
+    pawn's first entry holds and then dumps, exercising stack-merge, auto-placement and the
+    rotation fallback, and logging the composed name, unit weight and unit price of what it
+    added. Naming a modifier (`SmoresAddItem 3 Bronze` — `SmoresDumpDefinitions` lists the ids)
+    puts it on the copies being added, which is how the modifier model is exercised from a
+    running game: the added copies won't merge with the unmodified ones already in the grid, and
+    their name, weight and price all read differently. An id that resolves to nothing is reported
+    and adds nothing, rather than silently adding a bare item. Both hop to the server via
+    `Server_DebugInventory`, since the local replicated copy isn't the authoritative one — and
+    the modifier crosses as an **id**, resolved server-side through `USmoresDefinitionLibrary`,
+    which is the same look-up records and loot tables will use
   - `UInventoryComponent::AddItemCounted` — `AddItem` plus the quantity that actually landed.
     `AddItem` is now a one-line forwarder that discards the count. Any caller still holding the
     source copy (a world pickup) needs the count rather than the bool, since a partial add keeps
@@ -870,7 +948,7 @@ documents what's actually built.
 - **`DA_Item_*`** (`Content/Items/`) — `UItemDefinition` assets, one per item type.
   Footprints and stack sizes are authored: `Apple` 1×1 stack 10, `GoldCoin` 1×1 stack 100,
   `HealthPotion` 1×1 stack 5, `PocketKnife` 1×1, `Torch` 1×2, `Rope` 2×2, `TrapKit` 2×2,
-  `IronSword` 1×3. `Icon` is unassigned on all of them — no 2D item art exists yet. `WorldMesh`
+  `Sword` 1×3. `Icon` is unassigned on all of them — no 2D item art exists yet. `WorldMesh`
   is assigned on all of them, but to the *same* placeholder (`/Engine/BasicShapes/Sphere`) rather
   than to real art: a uniform shape with a predictable centre pivot, which is what lets one ground
   offset serve every item. Because a definition is the only thing a carried item references, **deleting one
@@ -965,13 +1043,26 @@ documents what's actually built.
   mesh component with a null mesh reports zero material slots, so it silently discards any
   `OverrideMaterials` entry written to it: the write returns success and nothing lands. The default
   mesh exists to give the override a slot to stick to, not because its value is ever used.
+- **`DA_Modifier_*`** (`Content/Items/Modifiers/`) — `UItemModifierDefinition` assets, five of
+  them. Three materials: `Iron` (1.0× / 1.0× / 1.0×, pale grey), `Bronze` (1.1× weight, 0.7×
+  value, 0.8× condition, warm orange-brown), `Steel` (0.95× / 2.2× / 1.5×, cool near-white). Two
+  qualities: `WellMade` (1.0× / 1.6× / 1.25×) and `Masterwork` (1.0× / 3.0× / 1.6×), both tinting
+  pure White so the material's colour comes through. Every one authors
+  `NamePattern` = `"{Modifier} {Item}"`.
+
+  **Iron is deliberately the 1.0× baseline.** That is what lets every item asset's authored
+  `Weight` and `BaseValue` mean "with no material applied" without any of them being retuned —
+  and it is why `DA_Item_IronSword` was rebased to `DA_Item_Sword` (id `Sword`, display name
+  "Sword"): "Iron Sword" is now composed from the Sword definition plus the Iron modifier rather
+  than baked into one asset. No number changed in that rebase; only the identity did.
 - **`MI_WorldItem_Black`** (`Content/Variant_Strategy/Materials/`) — a `M_ContainerColor` instance
   with its `Color` vector parameter set to black, alongside the chests' `MI_Container_Green`
   pair. Placeholder colouring only; real item art would drop the override.
 - **`DA_Item_*` weights and values are authored** (Apple 0.2/2g, GoldCoin 0.01/1g,
-  HealthPotion 0.5/25g, PocketKnife 0.3/15g, Torch 0.8/5g, Rope 2.0/12g, IronSword 3.5/90g,
+  HealthPotion 0.5/25g, PocketKnife 0.3/15g, Torch 0.8/5g, Rope 2.0/12g, Sword 3.5/90g,
   TrapKit 4.0/60g) — a definition with a zero `Weight` contributes nothing to the readout, so
-  a new item type that forgets to set one looks weightless rather than broken.
+  a new item type that forgets to set one looks weightless rather than broken. **These are the
+  figures for a bare item**; what a copy actually weighs and is worth depends on its modifiers.
 
 ## Extension Points
 
@@ -980,6 +1071,14 @@ documents what's actually built.
   `USmoresDefinitionLibrary::FindDefinition(UItemDefinition::DefinitionType, Id)` resolves it by
   id and the asset can be renamed or moved without breaking those look-ups. The content sweeps
   in `game-data.md` will fail the build if the id is blank or already taken.
+- **New materials and qualities** — add a `DA_Modifier_*` asset under
+  `Content/Items/Modifiers/`; no code change needed. Give it a `DefinitionId`, pick its `Slot`,
+  and **author its `NamePattern`** — the content sweep treats an empty one as an error, because
+  the fallback is hard-coded English word order. Leave a multiplier at 1.0 for "this doesn't
+  affect that"; a zero silently erases whatever it multiplies, which is why the sweep rejects it.
+  A *new slot* (an enchantment, say) is a code change: add it to `EItemModifierSlot` **at the end
+  of the composition order you want**, since the enum's declaration order is the order names
+  compose in, and add it to `UItemModifierDefinition::GetAllModifierSlots()`.
 - **New holder types** — anything with a `UInventoryComponent` gets the grid for free; size
   it with `GridWidth`/`GridHeight` and set `StackMultiplier` above 1.0 for a holder meant to
   stack deeper than a pawn's pack (a storefront shelf, a warehouse chest). Nothing else needs
@@ -1061,6 +1160,23 @@ documents what's actually built.
 
 ## Known Gaps
 
+- **Modifier tints land on the item's text label, not on an icon**, because no item icons are
+  authored yet. It is the right colour on the wrong surface; move it to the icon the moment
+  `UItemDefinition::Icon` is filled in. An unmodified item tints White, so nothing looks
+  different from before.
+- **`ConditionMultiplier` is authored and read by nothing.** `FInventoryItem::GetConditionScale()`
+  computes it correctly and no caller exists — `Condition` itself is still the placeholder it
+  always was, and the durability/upkeep pass that consumes both owns that.
+- **Nothing puts a modifier on an item except the debug exec and hand-authored content.** Loot
+  tables gain a per-entry modifier pool in Slice 5 of `Docs/roadmaps/game-data-roadmap.md`, and
+  crafting is what makes them systematic; until then a modified item has to be authored or added
+  from the console.
+- **A hand-authored `Modifiers` array can hold two of the same slot.** `AddModifier` refuses it,
+  but the array is `EditAnywhere`, so a designer *can* put two materials in a `StartingItems`
+  entry by hand. Nothing crashes — the accessors just multiply through everything they find and
+  the composed name says both materials — but nothing detects it either. The content sweeps only
+  see definition assets, not per-instance authored arrays, which is a gap the record layer
+  (Slice 4) inherits rather than one this slice can close.
 - No partial-stack drag — the UI always moves the whole stack even though `MoveItem` already
   takes a quantity and supports the split. Splitting needs a player-facing way to say "how
   many", which hasn't been designed.

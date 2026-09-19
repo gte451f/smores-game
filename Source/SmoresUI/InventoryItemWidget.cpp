@@ -64,8 +64,14 @@ void UInventoryItemWidget::RefreshVisuals()
 {
 	if (ItemLabel)
 	{
-		// name/quantity come from the shared definition, not the carried instance
+		// name/quantity come from the carried instance's accessors, which is what composes a
+		// bare "Spear" into "Masterwork Bronze Spear" when the copy carries modifiers
 		ItemLabel->SetText(UInventoryWidget::GetItemLabel(Entry.Item));
+
+		// with no item icons authored yet the label is the only thing there is to colour, so the
+		// modifier tint lands on it - a bronze item reads bronze. Move this onto the icon the
+		// moment there is one; an unmodified item tints White and so is left exactly as before.
+		ItemLabel->SetColorAndOpacity(FSlateColor(Entry.Item.GetTint()));
 
 		// with no item icons authored, the label *is* the item, and a horizontal name in a
 		// one-cell-wide column is unreadable - turn it down the footprint's long axis instead.

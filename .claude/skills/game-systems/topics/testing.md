@@ -7,7 +7,7 @@ the standing rule for when a piece of work should add to it. The forward-looking
 still needs building, in what order, and the decisions behind it — lives in
 `Docs/roadmaps/testing-roadmap.md`.
 
-> **Status: the harness is built and Slices 1 and 2 have shipped.** 95 tests run green (one with a
+> **Status: the harness is built and Slices 1 and 2 have shipped.** 103 tests run green (one with a
 > warning - see the content sweeps below), covering `SmoresItems`, `SmoresEconomy`,
 > `UHealthComponent`, the content smoke tests, and (added by later roadmaps) the time-pace ladder,
 > the target panel's action assembly, the activity log and the definition layer. Only Slice 3 of
@@ -24,7 +24,8 @@ them test smores.
 |---|---|---|---|
 | Test world holds authority | `SmoresCore` | ✅ 1 test | 1 |
 | Inventory grid geometry and placement | `SmoresItems` | ✅ 8 tests | 1 |
-| Inventory stacking and counted returns | `SmoresItems` | ✅ 7 tests | 1 |
+| Inventory stacking and counted returns | `SmoresItems` | ✅ 8 tests | 1 / data 2 |
+| Item modifiers (multipliers, rounding, slot exclusivity, name composition, tint) | `SmoresItems` | ✅ 5 tests | data 2 |
 | Inventory moves and transfers | `SmoresItems` | ✅ 8 tests | 1 |
 | Inventory entries, grid resize, weight, delegate | `SmoresItems` | ✅ 8 tests | 1 |
 | Inventory sort repack (determinism, all-or-nothing) | `SmoresItems` | ✅ 8 tests | 1 |
@@ -34,6 +35,7 @@ them test smores.
 | Pricing (markup, markdown, totals, margin) | `SmoresEconomy` | ✅ 6 tests | 2 |
 | Health state machine (Alive/Downed/Dead) and its timer | `SmoresCombat` | ✅ 9 tests | 2 |
 | `UItemDefinition` assets under `Content/` (per-type rules) | `SmoresItems` | ✅ 2 tests | 2 / data 1 |
+| `UItemModifierDefinition` assets under `Content/` (per-type rules) | `SmoresItems` | ✅ 2 tests | data 2 |
 | Every `USmoresDefinition` asset under `Content/` (base rules, id uniqueness, id look-up, enumerability) | `SmoresCore` | ✅ 4 tests | data 1 |
 | Both maps still load | `smores` | ✅ 1 test | 2 |
 | Time-pace ladder (tiers, dilation, stepping, clamping, authority) | `SmoresCore` | ✅ 6 tests | HUD 2 |
@@ -43,7 +45,7 @@ them test smores.
 | Attack range / out-of-range branch | `SmoresCombat` | — | unclaimed |
 | Trade transaction ordering | `smores` | — | 3 |
 
-**95 tests.** Several rows came from the HUD and game-data rounds, not from the testing roadmap — a
+**103 tests.** Several rows came from the HUD and game-data rounds, not from the testing roadmap — a
 slice that ships numbers-and-state-machine code writes its own tests, whichever roadmap it came from.
 Update this table as slices ship; it is the quick answer to "is this already covered?"
 

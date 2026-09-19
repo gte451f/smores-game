@@ -8,6 +8,7 @@
 
 #include "InventoryComponent.h"
 #include "ItemDefinition.h"
+#include "ItemModifierDefinition.h"
 #include "Tests/SmoresTestWorld.h"
 
 /**
@@ -65,6 +66,41 @@ inline UItemDefinition* MakeTestItemDefinition(
 	Definition->EquipSlot = EquipSlot;
 
 	return Definition;
+}
+
+/**
+ *  An item modifier with exactly the numbers the assertion cares about.
+ *
+ *  Same rule as the definitions above: **tests never load a UItemModifierDefinition out of
+ *  Content/**, so retuning Bronze in the editor can't break an arithmetic test that happens to
+ *  use it. The multipliers default to 1.0 here as they do on the asset, so a test that only
+ *  cares about naming or stacking needn't pick numbers it doesn't use.
+ */
+inline UItemModifierDefinition* MakeTestModifier(
+	FSmoresTestWorld& TestWorld,
+	EItemModifierSlot Slot,
+	const TCHAR* DisplayName,
+	float WeightMultiplier = 1.0f,
+	float ValueMultiplier = 1.0f,
+	FLinearColor Tint = FLinearColor::White,
+	const TCHAR* NamePattern = TEXT("{Modifier} {Item}"))
+{
+	UItemModifierDefinition* Modifier = TestWorld.NewKeptObject<UItemModifierDefinition>();
+
+	if (!Modifier)
+	{
+		return nullptr;
+	}
+
+	Modifier->DefinitionId = FName(*FString::Printf(TEXT("TestModifier_%03d"), SmoresTestItemCounter()++));
+	Modifier->DisplayName = FText::FromString(DisplayName);
+	Modifier->Slot = Slot;
+	Modifier->WeightMultiplier = WeightMultiplier;
+	Modifier->ValueMultiplier = ValueMultiplier;
+	Modifier->Tint = Tint;
+	Modifier->NamePattern = FText::FromString(NamePattern);
+
+	return Modifier;
 }
 
 /** An instance of a test definition, ready to hand to AddItem/AddItemAt */
@@ -214,7 +250,8 @@ struct FInventorySnapshot
 				&& A.Item.Definition == B.Item.Definition
 				&& A.Item.Quantity == B.Item.Quantity
 				&& A.Item.bStolen == B.Item.bStolen
-				&& A.Item.Condition == B.Item.Condition;
+				&& A.Item.Condition == B.Item.Condition
+				&& A.Item.HasSameModifiersAs(B.Item);
 
 			if (!bSame)
 			{

@@ -162,6 +162,25 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   flushes it. Read the current value first and write exactly that - a value you guessed wrong will
   pass every content sweep. Confirm with a binary grep for the property name, never the return
   value.
+- **`ObjectTools.set_properties` on an array property grows it by at most one element per call.**
+  Writing a 4-element `TArray<FInventoryItem>` onto a template holding 1 element produced 2
+  elements, then 3, then 4 over successive *identical* calls, returning `true` every time. It is
+  not a replace, it is a merge capped at `current_length + 1` — so the first call reads exactly
+  like one of the silent-write bugs above, and giving up after it is the wrong move. **Read the
+  array back and repeat the same write until the length matches.** Seen while putting modifiers
+  into `BP_Trader`'s `StartingStock` and `BP_Chest`'s `StartingItems`.
+- **`reset_properties` walks past a compiled Blueprint default on an SCS *component* template
+  too, not just on a placed actor.** It emptied `BP_Trader`'s `StartingStock` and returned
+  `true`. Note this narrows the "a CDO write followed by `compile_blueprint` *is* durable" bullet
+  above: the compile does make the value serialize and survive, but it does **not** make
+  `reset_properties` fall back to it on a component template the way it does for an actor CDO.
+  Recovery is the repeat-write loop in the bullet above, not a reset.
+- **A Blueprint-added component's class defaults are not on the actor CDO.** `StartingStock`
+  lives on the Trader component, whose template object is
+  `/Game/.../BP_Trader.BP_Trader_C:Trader_GEN_VARIABLE` — a `get_properties` against the actor
+  CDO fails with "the following properties could not be read", which reads as a stale build
+  rather than as looking in the wrong place. The `:<ComponentName>_GEN_VARIABLE` suffix is where
+  the write has to go.
 - **`SceneTools.save_actor` is broken for World Partition external actors.** It builds a
   `/Game/__ExternalActors__/...` path that doesn't resolve and raises "Asset does not
   exist". Use `AssetTools.save_assets` with an empty list (save-all-dirty) instead — that does

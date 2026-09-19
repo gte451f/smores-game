@@ -5,6 +5,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "InventoryComponent.h"
+#include "ItemModifierDefinition.h"
 #include "Tests/SmoresItemTestFactory.h"
 #include "Tests/SmoresTestWorld.h"
 
@@ -96,6 +97,81 @@ bool FSmoresInventoryCanStackWithTest::RunTest(const FString& Parameters)
 	// an item holding nothing is not a stack partner
 	TestFalse(TEXT("An empty item merges with nothing"), FInventoryItem().CanStackWith(A));
 	TestFalse(TEXT("...and nothing merges with an empty item"), A.CanStackWith(FInventoryItem()));
+
+	TestWorld.ForwardErrors(this);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSmoresInventoryModifierStackingTest,
+	"Smores.Items.Inventory.CanStackWithComparesModifiers",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FSmoresInventoryModifierStackingTest::RunTest(const FString& Parameters)
+{
+	FSmoresTestWorld TestWorld;
+
+	UItemDefinition* Spear = MakeTestItemDefinition(TestWorld, FIntPoint(1, 1), /*MaxStack*/ 10, /*Weight*/ 2.0f, /*BaseValue*/ 10);
+
+	UItemModifierDefinition* Bronze = MakeTestModifier(TestWorld, EItemModifierSlot::Material, TEXT("Bronze"), 1.5f, 2.0f);
+	UItemModifierDefinition* Steel = MakeTestModifier(TestWorld, EItemModifierSlot::Material, TEXT("Steel"), 2.0f, 4.0f);
+	UItemModifierDefinition* Masterwork = MakeTestModifier(TestWorld, EItemModifierSlot::Quality, TEXT("Masterwork"), 1.0f, 3.0f);
+
+	if (!TestNotNull(TEXT("Spear created"), Spear) || !TestNotNull(TEXT("Bronze created"), Bronze))
+	{
+		return true;
+	}
+
+	FInventoryItem BronzeA = MakeTestItem(Spear, 1);
+	BronzeA.AddModifier(Bronze);
+
+	FInventoryItem BronzeB = MakeTestItem(Spear, 1);
+	BronzeB.AddModifier(Bronze);
+
+	TestTrue(TEXT("Two bronze spears merge"), BronzeA.CanStackWith(BronzeB));
+
+	// a merged stack can only report one weight and one price, so two copies that disagree
+	// about either must stay apart
+	FInventoryItem SteelSpear = MakeTestItem(Spear, 1);
+	SteelSpear.AddModifier(Steel);
+
+	TestFalse(TEXT("A bronze spear will not merge with a steel one"), BronzeA.CanStackWith(SteelSpear));
+
+	FInventoryItem MasterworkBronze = MakeTestItem(Spear, 1);
+	MasterworkBronze.AddModifier(Bronze);
+	MasterworkBronze.AddModifier(Masterwork);
+
+	TestFalse(TEXT("...nor with a masterwork bronze one"), BronzeA.CanStackWith(MasterworkBronze));
+	TestFalse(TEXT("A modified copy will not merge into an unmodified stack"), BronzeA.CanStackWith(MakeTestItem(Spear, 1)));
+
+	// order-independent: the array order is an accident of how the copy was built and a player
+	// can't see it, so a stack that split on it would fragment for no visible reason
+	FInventoryItem ReverseOrder = MakeTestItem(Spear, 1);
+	ReverseOrder.AddModifier(Masterwork);
+	ReverseOrder.AddModifier(Bronze);
+
+	TestTrue(TEXT("The same modifier set added in the other order still merges"), MasterworkBronze.CanStackWith(ReverseOrder));
+
+	// and the same rule holding in a real grid, which is where it actually costs cells
+	UInventoryComponent* Inventory = MakeTestInventory(TestWorld, 4, 4);
+
+	if (!TestNotNull(TEXT("Inventory created"), Inventory))
+	{
+		return true;
+	}
+
+	FInventoryItem BronzeStack = MakeTestItem(Spear, 3);
+	BronzeStack.AddModifier(Bronze);
+
+	TestTrue(TEXT("Three bare spears placed"), Inventory->AddItem(MakeTestItem(Spear, 3)));
+	TestTrue(TEXT("Three bronze spears placed"), Inventory->AddItem(BronzeStack));
+
+	TestEqual(TEXT("They did not merge into one stack"), Inventory->GetEntries().Num(), 2);
+	TestEqual(TEXT("Every unit is still there"), GetTotalQuantity(Inventory), 6);
+
+	// the two stacks weigh and are worth different amounts, which is the reason they stayed apart
+	TestEqual(TEXT("The grid's weight is the two stacks' own, not six bare spears'"), Inventory->GetTotalWeight(), 15.0f);
 
 	TestWorld.ForwardErrors(this);
 

@@ -558,6 +558,16 @@ first:
   external symbol` at link time for every method/property another module touches. Cheap to
   get right up front; easy to miss because the compile step alone won't catch it, only the
   link step will.
+- **The same macro is needed the day a header-inline method moves into a `.cpp` — even though
+  nothing moved modules.** A `USTRUCT` whose methods are all inline in the header needs no export
+  macro at all: every caller compiles its own copy, so cross-module calls link fine and the
+  omission is invisible for as long as it lasts. The moment one body moves to the `.cpp` the
+  symbol lives in one DLL and every other module's call to it fails with `LNK2019`. Hit on
+  `FInventoryItem` when item modifiers made `GetDisplayName()` too big to keep inline: four
+  modules failed to link at once, and the fix was one `SMORESITEMS_API` on a struct that had been
+  in its final module for months. Worth knowing because the trigger is a *refactor inside one
+  file*, not a move — so nothing about the change looks module-shaped, and the error arrives from
+  four unrelated modules at the link step.
 - **Moving a `UCLASS`/`USTRUCT` changes its native package path** (e.g.
   `/Script/smores.HealthComponent` → `/Script/SmoresCombat.HealthComponent`). Any Blueprint
   or asset that references the old path will show a missing/null parent class until either

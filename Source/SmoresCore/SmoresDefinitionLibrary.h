@@ -9,7 +9,7 @@
 class USmoresDefinition;
 
 /**
- *  "Give me the definition whose id is IronSword."
+ *  "Give me the definition whose id is Sword."
  *
  *  Everything that stores a definition by id rather than by asset pointer - a record, a loot
  *  table entry, a crafting recipe's inputs, a save file - needs this one lookup to turn that id

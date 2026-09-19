@@ -61,7 +61,7 @@ void AWorldItem::OnRep_Item()
 
 void AWorldItem::RefreshMesh()
 {
-	ItemMesh->SetStaticMesh(Item.Definition ? Item.Definition->WorldMesh : nullptr);
+	ItemMesh->SetStaticMesh(Item.GetWorldMesh());
 }
 
 bool AWorldItem::IsInRangeOf(const AActor* Other) const

@@ -38,6 +38,7 @@
 #include "WalletComponent.h"
 #include "TraderComponent.h"
 #include "ItemDefinition.h"
+#include "ItemModifierDefinition.h"
 #include "SmoresDefinition.h"
 #include "SmoresDefinitionLibrary.h"
 #include "Components/CapsuleComponent.h"
@@ -2307,7 +2308,7 @@ void AStrategyPlayerController::Server_DebugGold_Implementation(int32 Amount, bo
 
 void AStrategyPlayerController::SmoresDumpInventory()
 {
-	SmoresAddItem(0);
+	SmoresAddItem(0, NAME_None);
 }
 
 void AStrategyPlayerController::SmoresDumpDefinitions()
@@ -2351,7 +2352,7 @@ void AStrategyPlayerController::SmoresDumpDefinitions()
 	}
 }
 
-void AStrategyPlayerController::SmoresAddItem(int32 Count)
+void AStrategyPlayerController::SmoresAddItem(int32 Count, FName ModifierId)
 {
 	// the exec runs wherever the console was typed, but the grid it wants to inspect and mutate
 	// only authoritatively exists on the server - so resolve the pawn locally and hop across
@@ -2359,7 +2360,7 @@ void AStrategyPlayerController::SmoresAddItem(int32 Count)
 	{
 		if (AStrategyPlayerUnit* PlayerUnit = Cast<AStrategyPlayerUnit>(CurrentUnit))
 		{
-			Server_DebugInventory(PlayerUnit->GetInventory(), Count);
+			Server_DebugInventory(PlayerUnit->GetInventory(), Count, ModifierId);
 			return;
 		}
 	}
@@ -2367,7 +2368,7 @@ void AStrategyPlayerController::SmoresAddItem(int32 Count)
 	UE_LOG(Logsmores, Warning, TEXT("[InvDebug] No player pawn selected."));
 }
 
-void AStrategyPlayerController::Server_DebugInventory_Implementation(UInventoryComponent* Inventory, int32 AddCount)
+void AStrategyPlayerController::Server_DebugInventory_Implementation(UInventoryComponent* Inventory, int32 AddCount, FName ModifierId)
 {
 	if (!Inventory)
 	{
@@ -2387,10 +2388,31 @@ void AStrategyPlayerController::Server_DebugInventory_Implementation(UInventoryC
 		}
 		else
 		{
-			const bool bAddedAll = Inventory->AddItem(FInventoryItem(Existing[0].Item.Definition, AddCount));
+			FInventoryItem ItemToAdd(Existing[0].Item.Definition, AddCount);
 
-			UE_LOG(Logsmores, Warning, TEXT("[InvDebug] AddItem(%d x %s) -> %s"),
-				AddCount, *GetNameSafe(Existing[0].Item.Definition), bAddedAll ? TEXT("all placed") : TEXT("PARTIAL/FAILED"));
+			// an id that resolves to nothing is worth saying out loud rather than silently adding
+			// a bare item - a typo'd modifier would otherwise look exactly like one that did nothing
+			if (ModifierId != NAME_None)
+			{
+				UItemModifierDefinition* Modifier = Cast<UItemModifierDefinition>(
+					USmoresDefinitionLibrary::FindDefinition(UItemModifierDefinition::DefinitionType, ModifierId));
+
+				if (!Modifier)
+				{
+					UE_LOG(Logsmores, Warning, TEXT("[InvDebug] No item modifier with id '%s' - run SmoresDumpDefinitions for the list."),
+						*ModifierId.ToString());
+
+					return;
+				}
+
+				ItemToAdd.AddModifier(Modifier);
+			}
+
+			const bool bAddedAll = Inventory->AddItem(ItemToAdd);
+
+			UE_LOG(Logsmores, Warning, TEXT("[InvDebug] AddItem(%d x '%s', %.1f kg, %d gold each) -> %s"),
+				AddCount, *ItemToAdd.GetDisplayName().ToString(), ItemToAdd.GetUnitWeight(), ItemToAdd.GetUnitBaseValue(),
+				bAddedAll ? TEXT("all placed") : TEXT("PARTIAL/FAILED"));
 		}
 	}
 
@@ -2474,7 +2496,7 @@ void AStrategyPlayerController::LogInventoryGrid(UInventoryComponent* Inventory)
 		UE_LOG(Logsmores, Warning, TEXT("[InvDebug]   %c: id=%d %s x%d @ (%d,%d) %dx%d%s (cap %d)"),
 			TCHAR(TEXT('a') + (EntryIndex % 26)), Entry.EntryId, *GetNameSafe(Entry.Item.Definition), Entry.Item.Quantity,
 			Entry.AnchorCell.X, Entry.AnchorCell.Y, Footprint.X, Footprint.Y,
-			Entry.bRotated ? TEXT(" rotated") : TEXT(""), Inventory->GetEffectiveMaxStack(Entry.Item.Definition));
+			Entry.bRotated ? TEXT(" rotated") : TEXT(""), Inventory->GetEffectiveMaxStackForItem(Entry.Item));
 	}
 }
 

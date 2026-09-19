@@ -5,6 +5,193 @@
 #include "Net/UnrealNetwork.h"
 #include "SmoresItems.h"
 
+#define LOCTEXT_NAMESPACE "SmoresInventory"
+
+namespace
+{
+	/**
+	 *  Word order for a modifier whose asset left NamePattern blank. English, and deliberately
+	 *  a last resort - the pattern lives on the modifier precisely so a translator can reorder
+	 *  it, and this fallback can't be reordered per modifier. It exists only so an unfilled
+	 *  asset shows its modifier rather than silently dropping it from the name.
+	 */
+	FText GetModifierNamePattern(const UItemModifierDefinition* Modifier)
+	{
+		return Modifier->NamePattern.IsEmpty()
+			? LOCTEXT("DefaultModifierNamePattern", "{Modifier} {Item}")
+			: Modifier->NamePattern;
+	}
+}
+
+FText FInventoryItem::GetDisplayName() const
+{
+	if (!Definition)
+	{
+		return FText::GetEmpty();
+	}
+
+	FText Composed = Definition->DisplayName;
+
+	// slot order, not array order: a copy holding its quality first must still read
+	// "Masterwork Bronze Spear", because the array order is an accident of how it was built
+	for (const EItemModifierSlot Slot : UItemModifierDefinition::GetAllModifierSlots())
+	{
+		if (const UItemModifierDefinition* Modifier = GetModifier(Slot))
+		{
+			FFormatNamedArguments Args;
+			Args.Add(TEXT("Modifier"), Modifier->DisplayName);
+			Args.Add(TEXT("Item"), Composed);
+
+			Composed = FText::Format(GetModifierNamePattern(Modifier), Args);
+		}
+	}
+
+	return Composed;
+}
+
+FLinearColor FInventoryItem::GetTint() const
+{
+	FLinearColor Tint = FLinearColor::White;
+
+	for (const TObjectPtr<UItemModifierDefinition>& Modifier : Modifiers)
+	{
+		if (Modifier)
+		{
+			// multiplied rather than "last one wins", so a quality left at White lets the
+			// material's colour through instead of washing it out
+			Tint *= Modifier->Tint;
+		}
+	}
+
+	return Tint;
+}
+
+float FInventoryItem::GetUnitWeight() const
+{
+	if (!Definition)
+	{
+		return 0.0f;
+	}
+
+	float Weight = Definition->Weight;
+
+	for (const TObjectPtr<UItemModifierDefinition>& Modifier : Modifiers)
+	{
+		if (Modifier)
+		{
+			Weight *= Modifier->WeightMultiplier;
+		}
+	}
+
+	return Weight;
+}
+
+int32 FInventoryItem::GetUnitBaseValue() const
+{
+	if (!Definition)
+	{
+		return 0;
+	}
+
+	double Value = Definition->BaseValue;
+
+	for (const TObjectPtr<UItemModifierDefinition>& Modifier : Modifiers)
+	{
+		if (Modifier)
+		{
+			Value *= Modifier->ValueMultiplier;
+		}
+	}
+
+	// a definition priced at nothing is genuinely worthless rather than cheap, and no multiplier
+	// makes it worth something; anything the designer did price never rounds away to nothing
+	if (Definition->BaseValue <= 0)
+	{
+		return 0;
+	}
+
+	return FMath::Max(1, FMath::RoundToInt32(Value));
+}
+
+float FInventoryItem::GetConditionScale() const
+{
+	float Scale = 1.0f;
+
+	for (const TObjectPtr<UItemModifierDefinition>& Modifier : Modifiers)
+	{
+		if (Modifier)
+		{
+			Scale *= Modifier->ConditionMultiplier;
+		}
+	}
+
+	return Scale;
+}
+
+UItemModifierDefinition* FInventoryItem::GetModifier(EItemModifierSlot Slot) const
+{
+	for (const TObjectPtr<UItemModifierDefinition>& Modifier : Modifiers)
+	{
+		if (Modifier && Modifier->Slot == Slot)
+		{
+			return Modifier;
+		}
+	}
+
+	return nullptr;
+}
+
+bool FInventoryItem::AddModifier(UItemModifierDefinition* Modifier)
+{
+	if (!Modifier || HasModifier(Modifier->Slot))
+	{
+		return false;
+	}
+
+	Modifiers.Add(Modifier);
+
+	return true;
+}
+
+bool FInventoryItem::SetModifier(UItemModifierDefinition* Modifier)
+{
+	if (!Modifier)
+	{
+		return false;
+	}
+
+	RemoveModifier(Modifier->Slot);
+	Modifiers.Add(Modifier);
+
+	return true;
+}
+
+bool FInventoryItem::RemoveModifier(EItemModifierSlot Slot)
+{
+	// RemoveAll rather than a single removal, so a hand-authored array that got two materials
+	// into it is left genuinely empty in that slot rather than one deep
+	return Modifiers.RemoveAll([Slot](const TObjectPtr<UItemModifierDefinition>& Modifier)
+		{
+			return Modifier && Modifier->Slot == Slot;
+		}) > 0;
+}
+
+bool FInventoryItem::HasSameModifiersAs(const FInventoryItem& Other) const
+{
+	// compared per slot rather than as two arrays, which is what makes the comparison
+	// order-independent: there is at most one modifier per slot, so matching every slot matches
+	// the whole set
+	for (const EItemModifierSlot Slot : UItemModifierDefinition::GetAllModifierSlots())
+	{
+		if (GetModifier(Slot) != Other.GetModifier(Slot))
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
 namespace
 {
 	/** True if two axis-aligned cell rectangles share at least one cell */
@@ -93,7 +280,8 @@ float UInventoryComponent::GetTotalWeight() const
 
 	for (const FInventoryEntry& Entry : Entries)
 	{
-		// unit weight x quantity, read through the shared definition like every other display figure
+		// unit weight x quantity, read through the accessor like every other derived figure - so a
+		// steel sword weighs what its material says rather than what a bare sword does
 		TotalWeight += Entry.Item.GetTotalWeight();
 	}
 
@@ -106,16 +294,26 @@ bool UInventoryComponent::IsOverWeightCapacity() const
 	return HasWeightLimit() && GetTotalWeight() > WeightCapacity;
 }
 
-int32 UInventoryComponent::GetEffectiveMaxStack(const UItemDefinition* Definition) const
+int32 UInventoryComponent::ScaleStack(int32 BaseMaxStackSize) const
 {
-	if (!Definition)
+	if (BaseMaxStackSize <= 0)
 	{
 		return 0;
 	}
 
 	// one number per holder type covers "a shelf stacks deeper than a backpack" without
 	// per-transfer special cases; a multiplier can never scale a stack below a single item
-	return FMath::Max(FMath::FloorToInt32(Definition->MaxStackSize * StackMultiplier), 1);
+	return FMath::Max(FMath::FloorToInt32(BaseMaxStackSize * StackMultiplier), 1);
+}
+
+int32 UInventoryComponent::GetEffectiveMaxStackForItem(const FInventoryItem& Item) const
+{
+	return ScaleStack(Item.GetBaseMaxStackSize());
+}
+
+int32 UInventoryComponent::GetEffectiveMaxStack(const UItemDefinition* Definition) const
+{
+	return ScaleStack(Definition ? Definition->MaxStackSize : 0);
 }
 
 FInventoryEntry UInventoryComponent::GetEntry(int32 EntryId) const
@@ -250,7 +448,7 @@ bool UInventoryComponent::AddItemCounted(const FInventoryItem& Item, int32& OutQ
 		return false;
 	}
 
-	const int32 MaxStack = GetEffectiveMaxStack(Item.Definition);
+	const int32 MaxStack = GetEffectiveMaxStackForItem(Item);
 
 	const int32 Requested = FMath::Max(Item.Quantity, 1);
 
@@ -330,7 +528,7 @@ bool UInventoryComponent::AddItemAt(const FInventoryItem& Item, FIntPoint Cell, 
 	}
 
 	FInventoryItem Placed = Item;
-	Placed.Quantity = FMath::Clamp(Placed.Quantity, 1, GetEffectiveMaxStack(Placed.Definition));
+	Placed.Quantity = FMath::Clamp(Placed.Quantity, 1, GetEffectiveMaxStackForItem(Placed));
 
 	Entries.Emplace(NextEntryId++, Placed, Cell, bRotated);
 
@@ -386,7 +584,7 @@ bool UInventoryComponent::SetEntryQuantity(int32 EntryId, int32 NewQuantity)
 		return true;
 	}
 
-	const int32 ClampedQuantity = FMath::Min(NewQuantity, GetEffectiveMaxStack(Entries[Index].Item.Definition));
+	const int32 ClampedQuantity = FMath::Min(NewQuantity, GetEffectiveMaxStackForItem(Entries[Index].Item));
 
 	if (ClampedQuantity == Entries[Index].Item.Quantity)
 	{
@@ -509,7 +707,7 @@ bool UInventoryComponent::SortEntriesWithReason(EInventorySortCriterion Criterio
 			continue;
 		}
 
-		const int32 MaxStack = GetEffectiveMaxStack(Working[Index].Item.Definition);
+		const int32 MaxStack = GetEffectiveMaxStackForItem(Working[Index].Item);
 
 		for (int32 OtherIndex = Index + 1; OtherIndex < Working.Num(); ++OtherIndex)
 		{
@@ -666,7 +864,7 @@ bool UInventoryComponent::MoveItemCounted(UInventoryComponent* SourceInventory, 
 	// a destination that stacks shallower than the source (a pawn's pack taking from a storefront
 	// shelf) can't hold the whole stack in one entry - move what it can and leave the remainder
 	// behind, rather than letting the placement clamp quietly destroy it
-	const int32 MoveQuantity = FMath::Min(RequestedQuantity, DestInventory->GetEffectiveMaxStack(SourceEntry.Item.Definition));
+	const int32 MoveQuantity = FMath::Min(RequestedQuantity, DestInventory->GetEffectiveMaxStackForItem(SourceEntry.Item));
 
 	if (MoveQuantity <= 0)
 	{
@@ -698,7 +896,7 @@ bool UInventoryComponent::MoveItemCounted(UInventoryComponent* SourceInventory, 
 			return false;
 		}
 
-		const int32 Space = DestInventory->GetEffectiveMaxStack(TargetEntry.Item.Definition) - TargetEntry.Item.Quantity;
+		const int32 Space = DestInventory->GetEffectiveMaxStackForItem(TargetEntry.Item) - TargetEntry.Item.Quantity;
 
 		if (Space <= 0)
 		{
@@ -759,3 +957,5 @@ void UInventoryComponent::OnRep_Entries()
 
 	OnInventoryChanged.Broadcast();
 }
+
+#undef LOCTEXT_NAMESPACE
