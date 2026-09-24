@@ -362,6 +362,13 @@ none (Unreal serializes by name); doing both at once does. See
 - **`MaxHealth` is on the actor's component, not the definition or record.** The record holds
   current health only, so a record without an actor can't say what "full health" is.
 - **No containment** between records (`ParentRecordId`) - see the roadmap's open questions.
+- **Clients can't read records** (deliberate - see "Multiplayer shape"). Today nothing is lost,
+  because health, pack, paperdoll, name and faction all reach clients through the unit. What *is*
+  invisible off the server: `Attributes`, and (after the full split) any character with no unit.
+  `SmoresDumpRecord` also prints to the server's log, not a remote player's. When the first screen
+  needs record data on a client, send only what it needs - copy the field onto the unit like
+  `FactionId`, or a per-player component carrying just that player's squad records
+  (`COND_OwnerOnly`, the `UPlayerStandingComponent` pattern). Don't replicate the whole store.
 - **Nothing calls `FindDefinition` in anger yet.** The lookup is built and tested; its real
   consumers (loot tables, recipes, saves) are later slices. The live callers are
   `SmoresDumpDefinitions`, the `SmoresAddItem` modifier look-up, `UWorldFactionComponent`'s
