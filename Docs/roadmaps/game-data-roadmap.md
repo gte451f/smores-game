@@ -5,7 +5,7 @@
 This is a **roadmap**, not a system reference: read it while implementing one of its slices, or
 when Jim points at it. The permanent record of how this data layer works will live in the
 `game-systems` skill — in a new `game-data.md` topic created by Slice 1, with additions to
-`inventory.md` (Slice 2), `combat.md`/a new `factions.md` (Slice 3) and `inventory.md` again
+`inventory.md` (Slice 2), a new `factions.md` (Slice 3, **written**) and `inventory.md` again
 (Slice 5).
 
 This roadmap answers one question: **where does the game keep its stuff?** Not how the stuff
@@ -152,11 +152,12 @@ What already exists and should be extended rather than reinvented:
   added `Modifiers` and made every derived accessor compute through it, so a copy can now differ
   from its definition. Slice 5's loot-table entries hand modifiers to newly rolled items.
 - **`AStrategyGameState`** (`Source/smores/Variant_Strategy/StrategyGameState.h`) — its own class
-  comment already says "World clock, weather and faction standing will each want a component
-  here." It is Unreal's composition root for session-wide replicated state, and it is where the
-  faction and character-record components go. `UTimePaceComponent` is the existing precedent for
-  the pattern.
-- **`AStrategyPlayerState`** — per-player standing goes here as a component, per
+  comment says world clock and weather will each want a component here. It is Unreal's
+  composition root for session-wide replicated state; `UTimePaceComponent` and (Slice 3)
+  `UWorldFactionComponent` already sit there, and the character-record component goes next to
+  them.
+- **`AStrategyPlayerState`** — per-player standing went here as a component (Slice 3,
+  `UPlayerStandingComponent`), per
   `unreal-module-organization.md`'s rule and the `UWalletComponent` precedent. Notably that
   precedent also *deleted* an interface: state the UI wants to read is better as a component
   than as a fourth `I*Host`.
@@ -261,7 +262,7 @@ Shipped into a new `game-systems` topic, `factions.md`, with the new definition 
 `testing.md`. `UFactionDefinition`, `UWorldFactionComponent` (GameState) and
 `UPlayerStandingComponent` (PlayerState) live in `SmoresCore`; four `DA_Faction_*` assets
 authored; `SmoresDumpFactions` and `SmoresAdjustStanding` added. Nothing reads standing for
-behavior. 111 tests green.
+behavior. 111 tests green; Jim PIE-verified both execs.
 
 Notes worth carrying into later slices:
 
@@ -276,6 +277,10 @@ Notes worth carrying into later slices:
   will hit the same wall.
 - **Players start neutral with every faction**; there is deliberately no per-faction starting
   player standing on the definition.
+- **For Slice 4:** `UCharacterDefinition::DefaultFactionId` and `FCharacterRecord::FactionId`
+  should be checked against `UWorldFactionComponent::IsKnownFaction` when a record is created —
+  but an unknown id must still be *allowed* (a stripped mod), so warn rather than refuse, the same
+  stance `UPlayerStandingComponent` takes. A per-type character sweep can require the id resolve.
 - **An array write through `ObjectTools.set_properties` onto an *empty* array landed both elements
   in one call**, unlike the grow-by-one behaviour `mcp-workflow` records for a non-empty one. Still
   read the length back.

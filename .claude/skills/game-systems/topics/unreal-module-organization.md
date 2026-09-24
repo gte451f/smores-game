@@ -15,8 +15,9 @@ see "When to Actually Split" below.
 
 Seven runtime modules: `smores` (`Source/smores/smores.Build.cs`, the primary/game
 module), `SmoresCore` (stood up as an empty proving module alongside the first real split, now
-holding `ESmoresRefusalReason`, `UTimePaceComponent`, `USmoresActivityLog` and the
-`USmoresDefinition` base plus its look-up library),
+holding `ESmoresRefusalReason`, `UTimePaceComponent`, `USmoresActivityLog`, the
+`USmoresDefinition` base plus its look-up library, and the faction storage layer —
+`UFactionDefinition`, `UWorldFactionComponent`, `UPlayerStandingComponent`; see `factions.md`),
 `SmoresCombat` (`HealthComponent`, `CombatComponent`, `DamageNumberActor`/
 `DamageNumberWidget`, `AnimNotify_AttackHit`, plus a small `IAttackDamageDealer` interface),
 `SmoresItems` (`UItemDefinition`, `FInventoryItem`/`FInventoryEntry`/`UInventoryComponent`,
@@ -224,7 +225,8 @@ corrected into it — the HUD roadmap's Slice 2 added it and the pace component 
 
 ```
 AStrategyGameState                 <- thin host; ~10 lines
-  +-- UTimePaceComponent   (SmoresCore)
+  +-- UTimePaceComponent       (SmoresCore)
+  +-- UWorldFactionComponent   (SmoresCore)   <- game-data Slice 3
 ```
 
 That is the point of writing the rule down: the cheap moment to apply it is the first piece of
@@ -246,7 +248,7 @@ the same home:
 |---|---|---|
 | Gold (**DONE**, Slice 8) | `economy.md` | `UWalletComponent` (`SmoresEconomy`) |
 | Squad roster & divisions | `characters-and-squads.md` | `USquadComponent` (`SmoresCharacters`) |
-| Faction standing | `factions-and-world-state.md` | `UStandingComponent` (`SmoresFactions`) |
+| Faction standing (**DONE**, game-data Slice 3) | `factions-and-world-state.md` | `UPlayerStandingComponent` (`SmoresCore` for now — see below) |
 | Research progress | `tech-and-crafting.md` | `UResearchComponent` (`SmoresTechCrafting`) |
 | Quest/objective state | `quests-and-objectives.md` | `UObjectiveComponent` |
 
@@ -349,6 +351,15 @@ as an open extension point. Unreal's built-in `FGenericTeamId` /
 team attitude for free when filtering what a character notices. Low layer in `SmoresCore`
 now (a naive "different id = hostile" answer), real standing in `SmoresFactions` later —
 the same two-layer shape as `SmoresEconomy` vs. `SmoresMarkets`.
+
+**Status, and a deliberate deviation.** Game-data Slice 3 put faction *storage* — definitions,
+records, the faction↔faction matrix and per-player standing — in `SmoresCore` rather than a new
+`SmoresFactions`, because combat, characters and economy all need to read faction identity and
+none of it is faction *behavior* yet (`factions.md`). Two halves of the primitive are still
+missing: **units carry no faction id** (game-data Slice 4 adds `FCharacterRecord::FactionId`),
+and **no "are we enemies?" query exists** — nothing turns a standing into hostility. Cut
+`SmoresFactions` when faction behavior arrives (stance derivation, the decision clock); the three
+components can move modules without touching their hosts.
 
 **The trigger for cutting `SmoresAI` is the first non-combat behavior** — a shopkeeper
 idling at a counter, a creature grazing, a squad member working a job queue. At that point

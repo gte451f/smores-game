@@ -166,7 +166,8 @@ hit while otherwise idle. Looting a body's inventory is a related but separate s
   per-unit or per-weapon damage variation.
 - `Disposition` is only ever toggled by `SetAggressive`; a faction/allegiance system could gate
   who auto-retaliates against whom, rather than every unit treating every other unit as a valid
-  target.
+  target. Faction standing is now *stored* (`factions.md`) but units have no faction yet and
+  nothing reads it — deriving hostility from it is exactly this extension point.
 - `OnHealthDamaged`'s auto-retaliation always targets the single instigator of the most recent
   hit; there's no threat table for multi-attacker scenarios.
 - `AttackTarget`'s out-of-range branch reuses the same `MoveToLocation` path as player move

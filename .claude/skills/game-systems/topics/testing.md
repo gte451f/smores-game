@@ -10,7 +10,8 @@ still needs building, in what order, and the decisions behind it — lives in
 > **Status: the harness is built and Slices 1 and 2 have shipped.** 111 tests run green (one with a
 > warning - see the content sweeps below), covering `SmoresItems`, `SmoresEconomy`,
 > `UHealthComponent`, the content smoke tests, and (added by later roadmaps) the time-pace ladder,
-> the target panel's action assembly, the activity log, the definition layer and faction standing. Only Slice 3 of
+> the target panel's action assembly, the activity log, the definition layer and faction standing.
+> Only Slice 3 of
 > `Docs/roadmaps/testing-roadmap.md` remains. Everything below has been executed against this
 > project rather than written in advance.
 

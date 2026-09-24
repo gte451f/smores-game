@@ -323,9 +323,9 @@ documents what's actually built.
 - **It is a component rather than a field on the player state, and that is a general rule, not
   a preference about gold.** `APlayerState` is Unreal's composition root for per-player data,
   and the way it becomes an 800-line junk drawer is fields being added inline because no feature
-  module obviously owns them yet — which is exactly how gold started. Squad roster, faction
-  standing and research progress are all queued for the same class and all want a component of
-  their own. See `unreal-module-organization.md`'s "Framework Classes vs. Feature Modules". The
+  module obviously owns them yet — which is exactly how gold started. Faction standing has since
+  followed (`UPlayerStandingComponent`, see `factions.md`); squad roster and research progress
+  are queued for the same class and each want a component of their own. See `unreal-module-organization.md`'s "Framework Classes vs. Feature Modules". The
   bonus the move actually paid: with the balance in `SmoresEconomy`, a module `SmoresUI` already
   depends on, `AStrategyHUD` reads it through
   `PlayerState->FindComponentByClass<UWalletComponent>()` and the `IStrategyResourceHost`
