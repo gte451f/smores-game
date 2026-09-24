@@ -296,7 +296,8 @@ multiplayer shape, the exec and the content), with pointers from `combat.md`, `i
 `UInventoryComponent::RestoreEntries` and `UEquipmentComponent::RestoreEquippedItems` are the
 record → actor direction. `AStrategyPlayerUnit::StartingItems` is gone - three `DA_Character_*`
 assets carry the loadouts, and all nine placed units have authored `PlacedRecordId`s.
-`SmoresDumpRecord` added. 126 tests green.
+`SmoresDumpRecord` added. 126 tests green; Jim PIE-verified, including `SmoresDumpRecord` on a
+selected pawn.
 
 Notes worth carrying into Slice 5:
 
