@@ -254,31 +254,31 @@ Four notes worth carrying into later slices:
   which is what let every other item asset keep its numbers unchanged — the retune this slice
   called for turned out to be an identity change on one asset, not an arithmetic change on eight.
 
-### Slice 3 — Factions: definition, record and standing
+### Slice 3 — Factions: definition, record and standing — **DONE**
 
-**Builds:** `UFactionDefinition` in `SmoresCore`; `FFactionRecord`; `UWorldFactionComponent` on
-the `GameState`; `UPlayerStandingComponent` on the `PlayerState`. **Storage and queries only.**
+Shipped into a new `game-systems` topic, `factions.md`, with the new definition type recorded in
+`game-data.md`, a worked example added to `multiplayer-discipline.md` and the counts updated in
+`testing.md`. `UFactionDefinition`, `UWorldFactionComponent` (GameState) and
+`UPlayerStandingComponent` (PlayerState) live in `SmoresCore`; four `DA_Faction_*` assets
+authored; `SmoresDumpFactions` and `SmoresAdjustStanding` added. Nothing reads standing for
+behavior. 111 tests green.
 
-- The definition holds authored identity: display name, short name, colour, lineage stance, and
-  the faction's **starting** tier. `factions-and-world-state.md` is explicit that faction type is
-  a *state*, not an identity — so current tier lives in the record, not the definition. This
-  slice is where that distinction first earns its keep on something other than a character.
-- `UWorldFactionComponent` (GameState, replicated, authority-gated): the faction records, and the
-  faction↔faction standing matrix keyed by an ordered id pair.
-- `UPlayerStandingComponent` (PlayerState, replicated to its owner): this player's standing with
-  each faction. Per-player, never global — `factions-and-world-state.md` tracks standing
-  independently per faction *and* per player, and `multiplayer-discipline.md` requires the
-  per-player half to hang off the player state.
-- Author three or four faction assets via MCP.
-- `SmoresDumpFactions` prints tiers, the matrix and the calling player's standing.
+Notes worth carrying into later slices:
 
-**Explicitly not in this slice:** nothing reads standing to decide hostility. No change to
-`AStrategyUnit::Disposition`, no stance derivation, no change to who attacks whom.
-
-**Tests:** standing symmetry and clamping, unknown-faction queries returning a neutral default,
-authority gating on every mutation.
-
-**Ships into:** a new `factions.md` topic in `game-systems`.
+- **The standing scale is -100..100 integers, clamped on every write, 0 neutral**, shared by both
+  halves through `SmoresStanding` in `FactionTypes.h`. Slice 4's `FCharacterRecord::FactionId` is
+  the first thing that will make a unit *have* a faction; still nothing should read standing to
+  decide hostility until the AI roadmap says so.
+- **Records seed themselves from the Asset Manager at `BeginPlay`**, with a public
+  `InitializeFromDefinitions` for tests. Slice 4's record component can copy that shape — an
+  in-memory seeding entry point is what made every faction test independent of `Content/`.
+- **Replicated `TArray`s, not `TMap`s** — Unreal can't replicate a map. `FCharacterRecord` storage
+  will hit the same wall.
+- **Players start neutral with every faction**; there is deliberately no per-faction starting
+  player standing on the definition.
+- **An array write through `ObjectTools.set_properties` onto an *empty* array landed both elements
+  in one call**, unlike the grow-by-one behaviour `mcp-workflow` records for a non-empty one. Still
+  read the length back.
 
 ### Slice 4 — Character definitions and the record store (the soft split)
 

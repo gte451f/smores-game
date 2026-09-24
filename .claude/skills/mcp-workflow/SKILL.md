@@ -169,6 +169,9 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   like one of the silent-write bugs above, and giving up after it is the wrong move. **Read the
   array back and repeat the same write until the length matches.** Seen while putting modifiers
   into `BP_Trader`'s `StartingStock` and `BP_Chest`'s `StartingItems`.
+  **Onto an *empty* array it is not capped the same way** — two `StartingRelations` entries written
+  onto a fresh `DA_Faction_*` asset both landed in one call (game-data Slice 3). Same habit either
+  way: read the length back.
 - **`reset_properties` walks past a compiled Blueprint default on an SCS *component* template
   too, not just on a placed actor.** It emptied `BP_Trader`'s `StartingStock` and returned
   `true`. Note this narrows the "a CDO write followed by `compile_blueprint` *is* durable" bullet

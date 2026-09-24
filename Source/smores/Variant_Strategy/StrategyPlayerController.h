@@ -34,6 +34,8 @@ class AStrategyPlayerState;
 class UWalletComponent;
 class UTraderComponent;
 class UTimePaceComponent;
+class UWorldFactionComponent;
+class UPlayerStandingComponent;
 class USmoresActivityLog;
 class USquadActivityWatcher;
 class IInventoryHolder;
@@ -517,6 +519,12 @@ public:
 	 *  Keyed off this controller's own player state - there is no global balance. */
 	UWalletComponent* GetWallet() const;
 
+	/** The session's faction records, or null if the GameState hasn't replicated in yet. Session-wide, like the pace. */
+	UWorldFactionComponent* GetWorldFactions() const;
+
+	/** This controller's player's faction standing, or null if the player state hasn't replicated in yet */
+	UPlayerStandingComponent* GetPlayerStanding() const;
+
 protected:
 
 	/** Returns true if the PC should run using touchscreen controls */
@@ -958,6 +966,22 @@ public:
 	UFUNCTION(Exec)
 	void SmoresDumpDefinitions();
 
+	/**
+	 *  Debug exec: logs every faction's record (current tier beside its authored starting tier),
+	 *  the faction-to-faction standing matrix, and this player's own standing with each faction.
+	 *  Hops to the server, since the records and this player's standing are server-owned.
+	 */
+	UFUNCTION(Exec)
+	void SmoresDumpFactions();
+
+	/**
+	 *  Debug exec: moves this player's standing with FactionId by Delta (clamped to -100..100),
+	 *  then dumps - the manual check that standing is per-player and survives a round trip.
+	 *  SmoresDumpDefinitions lists the faction ids.
+	 */
+	UFUNCTION(Exec)
+	void SmoresAdjustStanding(FName FactionId, int32 Delta = 10);
+
 protected:
 
 	/**
@@ -1026,6 +1050,10 @@ protected:
 	/** Server side of the gold debug execs - credits or debits, then logs the resulting balance */
 	UFUNCTION(Server, Reliable)
 	void Server_DebugGold(int32 Amount, bool bSpend);
+
+	/** Server side of the faction debug execs - optionally adjusts this player's standing, then logs everything */
+	UFUNCTION(Server, Reliable)
+	void Server_DebugFactions(FName AdjustFactionId, int32 Delta);
 
 public:
 

@@ -45,6 +45,9 @@
 #include "Blueprint/UserWidget.h"
 #include "StrategyGameState.h"
 #include "TimePaceComponent.h"
+#include "WorldFactionComponent.h"
+#include "PlayerStandingComponent.h"
+#include "FactionDefinition.h"
 #include "StrategyTargetInfo.h"
 #include "smores.h"
 
@@ -2269,6 +2272,100 @@ UTimePaceComponent* AStrategyPlayerController::GetTimePace() const
 	AStrategyGameState* StrategyGameState = GetWorld() ? GetWorld()->GetGameState<AStrategyGameState>() : nullptr;
 
 	return StrategyGameState ? StrategyGameState->GetTimePace() : nullptr;
+}
+
+UWorldFactionComponent* AStrategyPlayerController::GetWorldFactions() const
+{
+	// one per session, on the GameState, exactly like the pace
+	AStrategyGameState* StrategyGameState = GetWorld() ? GetWorld()->GetGameState<AStrategyGameState>() : nullptr;
+
+	return StrategyGameState ? StrategyGameState->GetWorldFactions() : nullptr;
+}
+
+UPlayerStandingComponent* AStrategyPlayerController::GetPlayerStanding() const
+{
+	// keyed off this controller's own player state - each player has their own reputation
+	const AStrategyPlayerState* StrategyPlayerState = GetStrategyPlayerState();
+
+	return StrategyPlayerState ? StrategyPlayerState->GetStanding() : nullptr;
+}
+
+void AStrategyPlayerController::SmoresDumpFactions()
+{
+	Server_DebugFactions(NAME_None, 0);
+}
+
+void AStrategyPlayerController::SmoresAdjustStanding(FName FactionId, int32 Delta)
+{
+	Server_DebugFactions(FactionId, Delta);
+}
+
+void AStrategyPlayerController::Server_DebugFactions_Implementation(FName AdjustFactionId, int32 Delta)
+{
+	UWorldFactionComponent* WorldFactions = GetWorldFactions();
+	UPlayerStandingComponent* PlayerStanding = GetPlayerStanding();
+
+	if (!WorldFactions)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[FactionDebug] No world faction component - is the game mode's GameStateClass set to a BP_StrategyGameState?"));
+		return;
+	}
+
+	if (!PlayerStanding)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[FactionDebug] No player standing component - is the game mode's PlayerStateClass set to a BP_StrategyPlayerState?"));
+		return;
+	}
+
+	if (!AdjustFactionId.IsNone())
+	{
+		const int32 Before = PlayerStanding->GetStanding(AdjustFactionId);
+		const bool bAdjusted = PlayerStanding->AdjustStanding(AdjustFactionId, Delta);
+
+		// player standing accepts ids the world doesn't know, on purpose (see the component), so
+		// flag a typo here rather than letting it quietly create an entry for nothing
+		UE_LOG(Logsmores, Warning, TEXT("[FactionDebug] AdjustStanding(%s, %d) -> %s, %d -> %d%s"),
+			*AdjustFactionId.ToString(), Delta, bAdjusted ? TEXT("ok") : TEXT("REJECTED"),
+			Before, PlayerStanding->GetStanding(AdjustFactionId),
+			WorldFactions->IsKnownFaction(AdjustFactionId) ? TEXT("") : TEXT(" (not a faction this world knows - typo?)"));
+	}
+
+	const TArray<FFactionRecord>& Records = WorldFactions->GetRecords();
+
+	UE_LOG(Logsmores, Warning, TEXT("[FactionDebug] %d faction(s):"), Records.Num());
+
+	for (const FFactionRecord& Record : Records)
+	{
+		const UFactionDefinition* Definition = Cast<UFactionDefinition>(
+			USmoresDefinitionLibrary::FindDefinition(UFactionDefinition::DefinitionType, Record.FactionId));
+
+		// current tier beside the authored one, so a faction that has moved reads as having moved
+		UE_LOG(Logsmores, Warning, TEXT("[FactionDebug]   %s \"%s\" tier %s (started %s), lineage %s, your standing %d"),
+			*Record.FactionId.ToString(),
+			Definition ? *Definition->DisplayName.ToString() : TEXT("?"),
+			*UEnum::GetDisplayValueAsText(Record.Tier).ToString(),
+			Definition ? *UEnum::GetDisplayValueAsText(Definition->StartingTier).ToString() : TEXT("?"),
+			Definition ? *UEnum::GetDisplayValueAsText(Definition->LineageStance).ToString() : TEXT("?"),
+			PlayerStanding->GetStanding(Record.FactionId));
+	}
+
+	const TArray<FFactionPairStanding>& Matrix = WorldFactions->GetStandingMatrix();
+
+	UE_LOG(Logsmores, Warning, TEXT("[FactionDebug] %d stored pair(s) - any pair not listed is 0:"), Matrix.Num());
+
+	for (const FFactionPairStanding& Pair : Matrix)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[FactionDebug]   %s <-> %s: %d"), *Pair.FirstId.ToString(), *Pair.SecondId.ToString(), Pair.Standing);
+	}
+
+	// entries for ids the world doesn't know would otherwise never be printed by the loop above
+	for (const FPlayerFactionStanding& Entry : PlayerStanding->GetStandings())
+	{
+		if (!WorldFactions->IsKnownFaction(Entry.FactionId))
+		{
+			UE_LOG(Logsmores, Warning, TEXT("[FactionDebug]   your standing with unknown faction %s: %d"), *Entry.FactionId.ToString(), Entry.Standing);
+		}
+	}
 }
 
 void AStrategyPlayerController::SmoresAddGold(int32 Amount)

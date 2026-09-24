@@ -7,10 +7,10 @@ the standing rule for when a piece of work should add to it. The forward-looking
 still needs building, in what order, and the decisions behind it — lives in
 `Docs/roadmaps/testing-roadmap.md`.
 
-> **Status: the harness is built and Slices 1 and 2 have shipped.** 103 tests run green (one with a
+> **Status: the harness is built and Slices 1 and 2 have shipped.** 111 tests run green (one with a
 > warning - see the content sweeps below), covering `SmoresItems`, `SmoresEconomy`,
 > `UHealthComponent`, the content smoke tests, and (added by later roadmaps) the time-pace ladder,
-> the target panel's action assembly, the activity log and the definition layer. Only Slice 3 of
+> the target panel's action assembly, the activity log, the definition layer and faction standing. Only Slice 3 of
 > `Docs/roadmaps/testing-roadmap.md` remains. Everything below has been executed against this
 > project rather than written in advance.
 
@@ -36,6 +36,8 @@ them test smores.
 | Health state machine (Alive/Downed/Dead) and its timer | `SmoresCombat` | ✅ 9 tests | 2 |
 | `UItemDefinition` assets under `Content/` (per-type rules) | `SmoresItems` | ✅ 2 tests | 2 / data 1 |
 | `UItemModifierDefinition` assets under `Content/` (per-type rules) | `SmoresItems` | ✅ 2 tests | data 2 |
+| `UFactionDefinition` assets under `Content/` (per-type rules, cross-faction relation agreement) | `SmoresCore` | ✅ 2 tests | data 3 |
+| Faction records and standing (symmetry, clamping, unknown-is-neutral, seeding, broadcasts, authority) | `SmoresCore` | ✅ 6 tests | data 3 |
 | Every `USmoresDefinition` asset under `Content/` (base rules, id uniqueness, id look-up, enumerability) | `SmoresCore` | ✅ 4 tests | data 1 |
 | Both maps still load | `smores` | ✅ 1 test | 2 |
 | Time-pace ladder (tiers, dilation, stepping, clamping, authority) | `SmoresCore` | ✅ 6 tests | HUD 2 |
@@ -45,7 +47,7 @@ them test smores.
 | Attack range / out-of-range branch | `SmoresCombat` | — | unclaimed |
 | Trade transaction ordering | `smores` | — | 3 |
 
-**103 tests.** Several rows came from the HUD and game-data rounds, not from the testing roadmap — a
+**111 tests.** Several rows came from the HUD and game-data rounds, not from the testing roadmap — a
 slice that ships numbers-and-state-machine code writes its own tests, whichever roadmap it came from.
 Update this table as slices ship; it is the quick answer to "is this already covered?"
 
@@ -62,7 +64,7 @@ destination quality, NPC behavior, and whether any number *feels* right. See
 
 The console `exec` commands remain the manual counterpart and are not replaced by any of this —
 `SmoresDumpInventory`, `SmoresAddItem`, `SmoresDropItem`, `SmoresDumpEquipment`, `SmoresAddGold`,
-`SmoresBuyItem`, `SmoresKillNPC` and the rest. They exercise the real code paths from inside a
+`SmoresBuyItem`, `SmoresKillNPC`, `SmoresDumpFactions` and the rest. They exercise the real code paths from inside a
 running game, which is something no test here does.
 
 ## Running the Tests

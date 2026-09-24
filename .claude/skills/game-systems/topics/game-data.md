@@ -6,17 +6,17 @@ Where the game keeps its stuff. Not how the stuff behaves — where it lives, ho
 and what will survive a save. This is the storage layer underneath items, characters, factions
 and loot, and it deliberately stops at the point where behavior begins.
 
-**Only the first of the three layers exists today.** Records and the record/actor split are
-future slices of `Docs/roadmaps/game-data-roadmap.md`; they are described here because the
-definition layer was built the shape it is *because* of them, and that shape is hard to
-understand otherwise.
+**Definitions exist for every type; records exist only for factions so far.** `FFactionRecord`
+(see `factions.md`) is the first record; character records and the record/actor split are future
+slices of `Docs/roadmaps/game-data-roadmap.md`. They are described here because the definition
+layer was built the shape it is *because* of them, and that shape is hard to understand otherwise.
 
 ## The Three Layers
 
 | Layer | What it is | Where it lives | Saved? | Built? |
 |---|---|---|---|---|
 | **Definition** | What a *kind of thing* is — "Sword", "Bandit", "Ironclan". Authored by hand, identical in every campaign, never written to at runtime. | A `.uasset` in the Content Browser | No — it ships with the game | ✅ |
-| **Record** | One *particular* thing — this bandit, with this name, this health, this inventory. | A `USTRUCT` in memory, owned by a component on the `GameState` or `PlayerState` | **Yes — records *are* the save file** | ❌ not yet |
+| **Record** | One *particular* thing — this bandit, with this name, this health, this inventory. | A `USTRUCT` in memory, owned by a component on the `GameState` or `PlayerState` | **Yes — records *are* the save file** | factions only (`FFactionRecord`) |
 | **Actor** | What is physically standing in the level right now. A puppet driven by a record. | `AStrategyUnit` and friends, in the loaded world | No — it is rebuilt from the record | partly (actors exist; nothing drives them from a record) |
 
 The rule the whole model turns on:
@@ -120,6 +120,7 @@ is the test that catches it — it exists for exactly this failure.
 |---|---|---|---|
 | `UItemDefinition` | `SmoresItems` | `ItemDefinition` | eight `DA_Item_*` under `Content/Items/` |
 | `UItemModifierDefinition` | `SmoresItems` | `ItemModifierDefinition` | five `DA_Modifier_*` under `Content/Items/Modifiers/` |
+| `UFactionDefinition` | `SmoresCore` | `FactionDefinition` | four `DA_Faction_*` under `Content/Factions/` — see `factions.md` |
 
 Each type's `DefinitionType` is a `static const FPrimaryAssetType` holding the literal type
 string, spelled out rather than derived from the class name so it and the config line are visibly
@@ -153,7 +154,9 @@ well formed, which is not a claim about any one asset.
 
 **Per-type layer** — `Source/SmoresItems/Tests/ItemDefinitionAssetTest.cpp` is the worked example
 a future faction or character type should copy, and
-`Source/SmoresItems/Tests/ItemModifierDefinitionAssetTest.cpp` is the same shape for modifiers. The
+`Source/SmoresItems/Tests/ItemModifierDefinitionAssetTest.cpp` is the same shape for modifiers
+(and `Source/SmoresCore/Tests/FactionDefinitionAssetTest.cpp` for factions, which adds the one
+*cross-asset* rule so far: a starting relation authored on both factions has to agree). The
 modifier one is worth reading for *why* a per-type file earns its place: a modifier's numbers are
 multipliers, and a multiplier fails differently from a weight or a price. An unfilled field
 defaults to 1.0 and is invisible; a field authored to **0** silently erases whatever it
@@ -210,12 +213,13 @@ none (Unreal serializes by name); doing both at once does. See
 
 ## Known Gaps
 
-- **There are no records.** Nothing in the project owns a `FCharacterRecord`, and nothing reads
-  through one. `AStrategyUnit` and its components are still the truth. Slice 4 of
+- **No character records.** Faction records exist (`factions.md`), but nothing owns a
+  `FCharacterRecord`, and `AStrategyUnit` and its components are still the truth. Slice 4 of
   `Docs/roadmaps/game-data-roadmap.md` is where that inverts.
 - **Nothing calls `FindDefinition` in anger yet.** The lookup is built and tested; its real
-  consumers (records, loot tables, recipes, saves) are later slices. The two live callers are
-  `SmoresDumpDefinitions` and the `SmoresAddItem` modifier look-up, both debug execs.
+  consumers (records, loot tables, recipes, saves) are later slices. The live callers are
+  `SmoresDumpDefinitions`, the `SmoresAddItem` modifier look-up, and `UWorldFactionComponent`'s
+  `BeginPlay`, which resolves every faction id to seed the records.
 - **`FInventoryItem` still holds a definition by `TObjectPtr`, not by id** — and now holds its
   modifiers the same way. That is correct for a carried item under the current design, but the
   roadmap notes the carried item and the record must hold ids once saving is real, and that

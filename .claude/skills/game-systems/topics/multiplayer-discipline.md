@@ -101,7 +101,8 @@ Read these rather than re-deriving the pattern:
 |---|---|
 | Per-pawn replicated state, authority-gated mutators | `UHealthComponent` (`SmoresCombat`) |
 | Per-player state on the player state | `UWalletComponent` on `AStrategyPlayerState` |
-| Session-wide state on the game state | `UTimePaceComponent` on `AStrategyGameState` |
+| Session-wide state on the game state | `UTimePaceComponent`, `UWorldFactionComponent` on `AStrategyGameState` |
+| Per-player state replicated to its owner only | `UPlayerStandingComponent` on `AStrategyPlayerState` (`COND_OwnerOnly`) |
 | Client → own controller → authoritative component | `Server_RequestPace`, `Server_MoveUnits`, `Server_MoveInventoryItem` |
 | Server → owning client, for a decision only the server could make | `Client_NotifyRefusal`, `Client_NotifyActivity` |
 | Deliberately unreplicated local UI state | `AStrategyPlayerController::PanelWidgets` |
