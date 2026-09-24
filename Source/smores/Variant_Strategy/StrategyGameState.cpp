@@ -4,9 +4,11 @@
 #include "StrategyGameState.h"
 #include "TimePaceComponent.h"
 #include "WorldFactionComponent.h"
+#include "CharacterRecordComponent.h"
 
 AStrategyGameState::AStrategyGameState()
 {
 	TimePace = CreateDefaultSubobject<UTimePaceComponent>(TEXT("TimePace"));
 	WorldFactions = CreateDefaultSubobject<UWorldFactionComponent>(TEXT("WorldFactions"));
+	CharacterRecords = CreateDefaultSubobject<UCharacterRecordComponent>(TEXT("CharacterRecords"));
 }

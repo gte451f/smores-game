@@ -680,9 +680,11 @@ deliberately short.
 - **No unit has a portrait texture**, so every tile draws initials. That is the designed
   fallback, not a fault; `PortraitTexture` on `AStrategyUnit` is authored per Blueprint or per
   placed instance whenever there is art.
-- **`AStrategyUnit` carries identity data directly** — `UnitDisplayName` and `PortraitTexture`
-  are properties on the actor. A later characters pass may well move name, face and biography onto
-  a component of its own; two properties is the cheap version that doesn't block that.
+- **Identity now comes from the character record** (game-data Slice 4, see `game-data.md`).
+  `UnitDisplayName` is the actor's replicated copy of `FCharacterRecord::Name`, so the tile shows
+  whatever the record says; a placed unit's authored name still names its record. The portrait is
+  the unit's own `PortraitTexture` if set, else `UCharacterDefinition::Portrait` - neither has art
+  yet. Biography (`Backstory`) is on the definition and nothing displays it.
 - **The portrait bar has no answer for a large squad.** The wireframe shows nine and stops, and
   roughly seven tiles fit the authored slot. Scroll, shrink or wrap is a layout decision nobody
   has to make until a squad gets that big.

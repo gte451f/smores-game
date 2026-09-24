@@ -982,6 +982,15 @@ public:
 	UFUNCTION(Exec)
 	void SmoresAdjustStanding(FName FactionId, int32 Delta = 10);
 
+	/**
+	 *  Debug exec: logs a unit's character record beside the live state of its components, field
+	 *  by field, flagging any that disagree - the manual check that the actor and its record are
+	 *  in sync. Reads the targeted NPC if one is clicked, otherwise the first selected unit. Hops
+	 *  to the server, since records exist only there.
+	 */
+	UFUNCTION(Exec)
+	void SmoresDumpRecord();
+
 protected:
 
 	/**
@@ -1054,6 +1063,10 @@ protected:
 	/** Server side of the faction debug execs - optionally adjusts this player's standing, then logs everything */
 	UFUNCTION(Server, Reliable)
 	void Server_DebugFactions(FName AdjustFactionId, int32 Delta);
+
+	/** Server side of the record debug exec */
+	UFUNCTION(Server, Reliable)
+	void Server_DebugRecord(AStrategyUnit* Unit);
 
 public:
 

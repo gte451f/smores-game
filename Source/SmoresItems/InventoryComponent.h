@@ -489,6 +489,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool RepositionEntry(int32 EntryId, FIntPoint NewCell, bool bRotated);
 
+	/**
+	 *  Replaces every placed entry with a stored set - the way a character record hands its
+	 *  carried items back to the actor that stands in for it. Entries keep their stored EntryId,
+	 *  anchor and rotation, so a UI holding an id across the restore still points at the same item.
+	 *
+	 *  Each entry is checked against the ones already restored: an empty item, a duplicate
+	 *  EntryId, or a footprint that falls off this grid or overlaps an earlier entry is dropped
+	 *  with a warning rather than placed somewhere it doesn't belong. Quantities are clamped to
+	 *  this holder's stack cap, as AddItemAt does.
+	 *
+	 *  Returns how many entries landed, so a caller can tell a clean restore (the input count)
+	 *  from a partial one. INDEX_NONE off-authority, having changed nothing. Always broadcasts on
+	 *  the authority, since the whole list was replaced.
+	 */
+	int32 RestoreEntries(const TArray<FInventoryEntry>& StoredEntries);
+
 	/** Resizes the grid, dropping any entry that no longer fits inside it. Returns false if the size was already that. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool SetGridSize(int32 NewWidth, int32 NewHeight);

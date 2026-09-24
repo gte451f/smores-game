@@ -455,6 +455,73 @@ bool FSmoresHealthIncapacitatedQueryTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+/**
+ *  RestoreState is how a character record hands its health back to the actor standing in for it,
+ *  so it has to behave like the transition it stands in for: broadcast the state it enters, never
+ *  a damage event, and leave the recovery timer in the state a real knockdown would. The Dead case
+ *  is the one that matters - a unit restored as Dead that later stood up would be the reloaded
+ *  save standing the boss back up.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSmoresHealthRestoreStateTest,
+	"Smores.Combat.Health.RestoreStateBroadcastsAndRearmsTimer",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FSmoresHealthRestoreStateTest::RunTest(const FString& Parameters)
+{
+	FSmoresTestWorld TestWorld;
+
+	FTestHealth Test = MakeTestHealth(TestWorld);
+
+	if (!TestTrue(TEXT("Health component and listeners created"), Test.IsValid()))
+	{
+		return true;
+	}
+
+	Test.Health->DownedDurationSeconds = 0.2f;
+
+	if (!TestTrue(TEXT("The test world began play"), TestWorld.BeginPlay()))
+	{
+		TestWorld.ForwardErrors(this);
+
+		return true;
+	}
+
+	TestTrue(TEXT("Restoring a wounded Alive state is accepted"), Test.Health->RestoreState(40.0f, EHealthState::Alive));
+	TestEqual(TEXT("...and sets the health"), Test.Health->GetHealth(), 40.0f);
+	TestEqual(TEXT("...without a damage broadcast - nothing was hit"), Test.Damaged->CallCount, 0);
+	TestEqual(TEXT("...or a recovery broadcast - the state didn't change"), Test.Recovered->CallCount, 0);
+
+	Test.Health->RestoreState(500.0f, EHealthState::Alive);
+
+	TestEqual(TEXT("Restored health is clamped to MaxHealth"), Test.Health->GetHealth(), Test.Health->MaxHealth);
+
+	// Downed: broadcasts once, and gets back up after the full duration like a real knockdown
+	Test.Health->RestoreState(80.0f, EHealthState::Downed);
+
+	TestTrue(TEXT("Restoring Downed downs it"), Test.Health->IsDowned());
+	TestEqual(TEXT("...at zero health whatever was passed"), Test.Health->GetHealth(), 0.0f);
+	TestEqual(TEXT("...broadcasting OnDowned once"), Test.Downed->CallCount, 1);
+	TestTrue(TEXT("The world ticked past the recovery"), TestWorld.TickFor(0.3f));
+	TestFalse(TEXT("...and a restored knockdown recovers on its own"), Test.Health->IsIncapacitated());
+	TestEqual(TEXT("...broadcasting OnRecovered"), Test.Recovered->CallCount, 1);
+
+	// Dead restored over a pending recovery: the recovery must not fire
+	Test.ResetListeners();
+	Test.Health->RestoreState(0.0f, EHealthState::Downed);
+	Test.Health->RestoreState(0.0f, EHealthState::Dead);
+
+	TestTrue(TEXT("Restoring Dead kills it"), Test.Health->IsDead());
+	TestEqual(TEXT("...broadcasting OnDied"), Test.Died->CallCount, 1);
+	TestTrue(TEXT("The world ticked past where the recovery would have fired"), TestWorld.TickFor(0.3f));
+	TestTrue(TEXT("...and it is still Dead - the pending recovery was cancelled"), Test.Health->IsDead());
+	TestEqual(TEXT("...with no recovery broadcast"), Test.Recovered->CallCount, 0);
+
+	TestWorld.ForwardErrors(this);
+
+	return true;
+}
+
 #undef EXPECT_DAMAGE_NUMBER_WARNING
 
 #endif // WITH_DEV_AUTOMATION_TESTS

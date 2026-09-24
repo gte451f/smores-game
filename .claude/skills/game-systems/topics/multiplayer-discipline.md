@@ -103,6 +103,7 @@ Read these rather than re-deriving the pattern:
 | Per-player state on the player state | `UWalletComponent` on `AStrategyPlayerState` |
 | Session-wide state on the game state | `UTimePaceComponent`, `UWorldFactionComponent` on `AStrategyGameState` |
 | Per-player state replicated to its owner only | `UPlayerStandingComponent` on `AStrategyPlayerState` (`COND_OwnerOnly`) |
+| Session-wide state that is deliberately **not** replicated, because clients already see its copy | `UCharacterRecordComponent` on `AStrategyGameState` - each record's replicated copy *is* its unit's components; see `game-data.md` |
 | Client → own controller → authoritative component | `Server_RequestPace`, `Server_MoveUnits`, `Server_MoveInventoryItem` |
 | Server → owning client, for a decision only the server could make | `Client_NotifyRefusal`, `Client_NotifyActivity` |
 | Deliberately unreplicated local UI state | `AStrategyPlayerController::PanelWidgets` |

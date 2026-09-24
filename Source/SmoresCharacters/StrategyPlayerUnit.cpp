@@ -2,22 +2,7 @@
 
 
 #include "StrategyPlayerUnit.h"
-#include "InventoryComponent.h"
 #include "Net/UnrealNetwork.h"
-
-void AStrategyPlayerUnit::BeginPlay()
-{
-	Super::BeginPlay();
-
-	// stock the inventory with the starting items
-	if (UInventoryComponent* InventoryComp = GetInventory())
-	{
-		for (const FInventoryItem& Item : StartingItems)
-		{
-			InventoryComp->AddItem(Item);
-		}
-	}
-}
 
 void AStrategyPlayerUnit::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {

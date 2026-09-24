@@ -127,6 +127,10 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   property-name grep in the stale-override bullets above works for `StartingItems`/`WeightCapacity`
   because those names are *not* carried by unrelated actors — it isn't a general rule, and
   `git status` on `Content/` is the cheaper first check either way.
+- **An `FGuid` property reads and writes as a plain string** -
+  `{"PlacedRecordId": "61F1962C-0A5F-4C56-9EBC-ACD4B20B08CB"}` round-trips through
+  `set_properties`/`get_properties` on a placed actor with no struct form needed. A soft class
+  reference (`TSoftClassPtr`) likewise accepts the bare `/Game/.../BP_X.BP_X_C` path string.
 - **`get_properties` and `set_properties` take different argument shapes.** Read is
   `instance` + `properties` (a list of names). Write is `instance` + **`values`, a JSON
   *string***, and `instance` wants the `{"refPath": "..."}` object form. Passing `properties`

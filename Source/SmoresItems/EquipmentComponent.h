@@ -170,6 +170,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	bool Unequip(EEquipSlot Slot, UInventoryComponent* ToInventory);
 
+	/**
+	 *  Replaces every worn item with a stored set - the way a character record hands its
+	 *  paperdoll back to the actor that stands in for it. Nothing moves through a grid: the items
+	 *  are simply worn.
+	 *
+	 *  An entry that names no slot, holds no item, doesn't belong in the slot it names
+	 *  (CanEquipItem) or repeats a slot already restored is dropped with a warning. Worn items are
+	 *  always quantity 1. Returns how many landed; INDEX_NONE off-authority, having changed
+	 *  nothing. Always broadcasts on the authority.
+	 */
+	int32 RestoreEquippedItems(const TArray<FEquippedItem>& StoredItems);
+
 	/** Unequip, additionally reporting why it refused (see EquipWithReason) */
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	bool UnequipWithReason(EEquipSlot Slot, UInventoryComponent* ToInventory, ESmoresRefusalReason& OutReason);

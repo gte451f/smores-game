@@ -109,6 +109,41 @@ bool UEquipmentComponent::CanEquipItem(const FInventoryItem& Item, EEquipSlot Sl
 	return Slot != EEquipSlot::None && GetSlotForItem(Item) == Slot;
 }
 
+int32 UEquipmentComponent::RestoreEquippedItems(const TArray<FEquippedItem>& StoredItems)
+{
+	// shared gameplay state - only the server may mutate it
+	if (!HasOwnerAuthority())
+	{
+		return INDEX_NONE;
+	}
+
+	TArray<FEquippedItem> Restored;
+
+	for (const FEquippedItem& Stored : StoredItems)
+	{
+		const bool bSlotTaken = Restored.ContainsByPredicate([&Stored](const FEquippedItem& Candidate)
+		{
+			return Candidate.Slot == Stored.Slot;
+		});
+
+		if (Stored.Item.IsEmpty() || bSlotTaken || !CanEquipItem(Stored.Item, Stored.Slot))
+		{
+			UE_LOG(LogSmoresItems, Warning, TEXT("RestoreEquippedItems on %s dropped %s in slot %s - empty, a repeated slot, or not worn there."),
+				*GetNameSafe(GetOwner()), *Stored.Item.GetDisplayName().ToString(), *GetSlotDisplayName(Stored.Slot).ToString());
+			continue;
+		}
+
+		FEquippedItem& Worn = Restored.Add_GetRef(Stored);
+		Worn.Item.Quantity = 1;
+	}
+
+	EquippedItems = MoveTemp(Restored);
+
+	OnEquipmentChanged.Broadcast();
+
+	return EquippedItems.Num();
+}
+
 float UEquipmentComponent::GetTotalWeight() const
 {
 	float Total = 0.0f;

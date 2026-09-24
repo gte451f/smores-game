@@ -22,7 +22,9 @@ holding `ESmoresRefusalReason`, `UTimePaceComponent`, `USmoresActivityLog`, the
 `DamageNumberWidget`, `AnimNotify_AttackHit`, plus a small `IAttackDamageDealer` interface),
 `SmoresItems` (`UItemDefinition`, `FInventoryItem`/`FInventoryEntry`/`UInventoryComponent`,
 `UEquipmentComponent`, `AStrategyContainer`, `AStrategyChest`, `AWorldItem`,
-`IInventoryHolder`), `SmoresCharacters` (`AStrategyUnit`, `AStrategyPlayerUnit`), `SmoresUI`
+`IInventoryHolder`), `SmoresCharacters` (`AStrategyUnit`, `AStrategyPlayerUnit`,
+`UCharacterDefinition`, `FCharacterRecord`/`FCharacterAttributes`, `UCharacterRecordComponent` - the
+record store on the GameState; see `game-data.md`), `SmoresUI`
 (`AStrategyHUD`, `UStrategyUI`, `UStrategyTouchControls`, `UWindowWidget`, `UInventoryWidget`,
 `UInventoryCellWidget`, `UInventoryItemWidget`, `UEquipmentWidget`/`UEquipmentSlotWidget`,
 `UInventoryDragDropOperation`, plus `IStrategySelectionHost`/`IStrategyCameraCommands`/
@@ -107,6 +109,7 @@ Source/
     SmoresCharacters.Build.cs
     SmoresCharacters.cpp / SmoresCharacters.h
     StrategyUnit.* StrategyPlayerUnit.*   # moved from smores/Variant_Strategy/
+    CharacterDefinition.* CharacterRecord.h CharacterRecordComponent.*   # game-data Slice 4
   SmoresFactions/
   SmoresWorld/
   SmoresAI/                        # individual behavior + per-character job queues,

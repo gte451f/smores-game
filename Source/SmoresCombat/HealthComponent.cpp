@@ -88,6 +88,48 @@ void UHealthComponent::Kill()
 	OnDied.Broadcast();
 }
 
+bool UHealthComponent::RestoreState(float NewHealth, EHealthState NewState)
+{
+	// shared gameplay state - only the server may mutate it
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return false;
+	}
+
+	const EHealthState OldState = HealthState;
+
+	// whatever was pending belonged to the state being replaced
+	GetWorld()->GetTimerManager().ClearTimer(RecoveryTimerHandle);
+
+	Health = (NewState == EHealthState::Alive) ? FMath::Clamp(NewHealth, 0.0f, MaxHealth) : 0.0f;
+	HealthState = NewState;
+
+	if (NewState == EHealthState::Downed)
+	{
+		GetWorld()->GetTimerManager().SetTimer(RecoveryTimerHandle, this, &UHealthComponent::Recover, DownedDurationSeconds, false);
+	}
+
+	if (NewState != OldState)
+	{
+		switch (NewState)
+		{
+		case EHealthState::Downed:
+			OnDowned.Broadcast();
+			break;
+
+		case EHealthState::Dead:
+			OnDied.Broadcast();
+			break;
+
+		case EHealthState::Alive:
+			OnRecovered.Broadcast();
+			break;
+		}
+	}
+
+	return true;
+}
+
 void UHealthComponent::SpawnDamageNumber(float Amount) const
 {
 	if (!DamageNumberActorClass)

@@ -189,8 +189,11 @@ identity, so `SmoresCore` is its home today. `SmoresFactions` is worth cutting w
 - **No crest/banner art.** The definition has a colour only. A crest belongs on
   `UFactionDefinition` (not the base — see `game-data.md` on presentation), and becomes a sweep
   requirement once one exists.
-- **Units have no faction.** `AStrategyUnit` carries no faction id; characters get one in Slice 4
-  (`FCharacterRecord::FactionId`).
+- **Units have a faction, and nothing reads it.** Since game-data Slice 4 each unit's record holds
+  a `FactionId` from its character definition (`DA_Character_Bandit` → `Raiders`,
+  `DA_Character_Trader` → `TradersGuild`, settlers none), copied to the actor as a replicated
+  `AStrategyUnit::GetFactionId()`. Hostility still comes from the placeholder, not from this -
+  see `game-data.md`.
 - **Lineage stance is read by nothing** and has three placeholder values
   (`Cosmopolitan` / `Guarded` / `MonoLineage`); the `game-design` text describes a range, not a
   fixed list.

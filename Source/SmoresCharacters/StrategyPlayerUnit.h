@@ -4,7 +4,6 @@
 
 #include "CoreMinimal.h"
 #include "StrategyUnit.h"
-#include "InventoryComponent.h"
 #include "StrategyPlayerUnit.generated.h"
 
 /**
@@ -35,14 +34,6 @@ public:
 	void ClaimForController(APlayerController* NewOwningController);
 
 protected:
-
-	/** Items every player unit starts with, authored per-Blueprint as references to UItemDefinition assets */
-	UPROPERTY(EditAnywhere, Category = "Inventory")
-	TArray<FInventoryItem> StartingItems;
-
-	//~ Begin AActor interface
-	virtual void BeginPlay() override;
-	//~ End AActor interface
 
 	//~ Begin UObject interface
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;

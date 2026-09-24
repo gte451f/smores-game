@@ -48,6 +48,8 @@
 #include "WorldFactionComponent.h"
 #include "PlayerStandingComponent.h"
 #include "FactionDefinition.h"
+#include "CharacterRecordComponent.h"
+#include "CharacterDefinition.h"
 #include "StrategyTargetInfo.h"
 #include "smores.h"
 
@@ -2368,6 +2370,125 @@ void AStrategyPlayerController::Server_DebugFactions_Implementation(FName Adjust
 	}
 }
 
+void AStrategyPlayerController::SmoresDumpRecord()
+{
+	// SelectedNPC and ControlledUnits are client-side input state, so resolve the unit here and
+	// hop to the server with the actor - the same shape as the kill exec
+	AStrategyUnit* Unit = IsValid(SelectedNPC) ? SelectedNPC.Get() : nullptr;
+
+	if (!Unit)
+	{
+		for (AStrategyUnit* CurrentUnit : ControlledUnits)
+		{
+			if (IsValid(CurrentUnit))
+			{
+				Unit = CurrentUnit;
+				break;
+			}
+		}
+	}
+
+	if (!Unit)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[RecordDebug] No unit - target an NPC or select a pawn first."));
+		return;
+	}
+
+	Server_DebugRecord(Unit);
+}
+
+/** One "record vs live" line for the record dump, flagged when the two disagree */
+static void SmoresLogRecordField(const TCHAR* Field, const FString& RecordValue, const FString& LiveValue)
+{
+	const bool bMatch = RecordValue == LiveValue;
+
+	UE_LOG(Logsmores, Warning, TEXT("[RecordDebug]   %-10s record %-28s live %s%s"),
+		Field, *RecordValue, *LiveValue, bMatch ? TEXT("") : TEXT("   <-- MISMATCH"));
+}
+
+/** A grid or paperdoll as one comparable line: "id@x,y name xN" per entry, in stored order */
+static FString SmoresDescribeCarried(const TArray<FInventoryEntry>& Entries)
+{
+	TArray<FString> Parts;
+
+	for (const FInventoryEntry& Entry : Entries)
+	{
+		Parts.Add(FString::Printf(TEXT("%d@%d,%d%s %s x%d"), Entry.EntryId, Entry.AnchorCell.X, Entry.AnchorCell.Y,
+			Entry.bRotated ? TEXT("r") : TEXT(""), *Entry.Item.GetDisplayName().ToString(), Entry.Item.Quantity));
+	}
+
+	return Parts.Num() > 0 ? FString::Join(Parts, TEXT(", ")) : FString(TEXT("(empty)"));
+}
+
+static FString SmoresDescribeEquipped(const TArray<FEquippedItem>& Items)
+{
+	TArray<FString> Parts;
+
+	for (const FEquippedItem& Worn : Items)
+	{
+		Parts.Add(FString::Printf(TEXT("%s: %s"), *UEquipmentComponent::GetSlotDisplayName(Worn.Slot).ToString(), *Worn.Item.GetDisplayName().ToString()));
+	}
+
+	return Parts.Num() > 0 ? FString::Join(Parts, TEXT(", ")) : FString(TEXT("(nothing)"));
+}
+
+void AStrategyPlayerController::Server_DebugRecord_Implementation(AStrategyUnit* Unit)
+{
+	if (!IsValid(Unit))
+	{
+		return;
+	}
+
+	const UCharacterRecordComponent* Store = UCharacterRecordComponent::Get(this);
+	const FCharacterRecord* Record = Unit->GetRecord();
+
+	if (!Store)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[RecordDebug] No record store - is the game mode's GameStateClass set to a BP_StrategyGameState?"));
+		return;
+	}
+
+	if (!Record)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[RecordDebug] %s has no record (see the log from its BeginPlay for why)."), *Unit->GetName());
+		return;
+	}
+
+	const UCharacterDefinition* Definition = Unit->GetCharacterDefinition();
+
+	UE_LOG(Logsmores, Warning, TEXT("[RecordDebug] %s - record %s of %d, bound to %s"),
+		*Unit->GetName(), *Record->RecordId.ToString(), Store->GetRecords().Num(), *GetNameSafe(Store->GetBoundActor(Record->RecordId)));
+
+	UE_LOG(Logsmores, Warning, TEXT("[RecordDebug]   definition %s%s, faction %s, role %s"),
+		*Record->DefinitionId.ToString(),
+		(Definition && Definition->bUnique) ? TEXT(" (unique)") : TEXT(""),
+		*Record->FactionId.ToString(),
+		Definition ? *Definition->RoleId.ToString() : TEXT("-"));
+
+	const FCharacterAttributes& Attributes = Record->Attributes;
+
+	UE_LOG(Logsmores, Warning, TEXT("[RecordDebug]   STR %.1f END %.1f AGI %.1f PER %.1f INT %.1f WIL %.1f CHA %.1f"),
+		Attributes.Strength, Attributes.Endurance, Attributes.Agility, Attributes.Perception,
+		Attributes.Intelligence, Attributes.Willpower, Attributes.Charisma);
+
+	// identity is copied record -> actor; condition is written back actor -> record. Every line
+	// below should match - a MISMATCH is a change that didn't reach the record.
+	SmoresLogRecordField(TEXT("Name"), Record->Name.ToString(), Unit->GetHolderDisplayName().ToString());
+	SmoresLogRecordField(TEXT("Faction"), Record->FactionId.ToString(), Unit->GetFactionId().ToString());
+
+	const UHealthComponent* LiveHealth = Unit->GetHealth();
+
+	SmoresLogRecordField(TEXT("Health"), FString::Printf(TEXT("%.1f"), Record->Health), FString::Printf(TEXT("%.1f"), LiveHealth->GetHealth()));
+	SmoresLogRecordField(TEXT("LifeState"), UEnum::GetValueAsString(Record->LifeState), UEnum::GetValueAsString(LiveHealth->GetHealthState()));
+
+	// location is only written on arrival and on other write-backs, so a unit mid-walk will
+	// legitimately disagree here - compare it after the unit stops
+	SmoresLogRecordField(TEXT("Location"), Record->LastKnownLocation.ToCompactString(), Unit->GetActorLocation().ToCompactString());
+
+	SmoresLogRecordField(TEXT("Carried"), SmoresDescribeCarried(Record->Carried), SmoresDescribeCarried(Unit->GetInventory()->GetEntries()));
+	SmoresLogRecordField(TEXT("Equipped"), SmoresDescribeEquipped(Record->Equipped), SmoresDescribeEquipped(Unit->GetEquipment()->GetEquippedItems()));
+}
+
 void AStrategyPlayerController::SmoresAddGold(int32 Amount)
 {
 	Server_DebugGold(Amount, /*bSpend =*/ false);
@@ -2481,7 +2602,7 @@ void AStrategyPlayerController::Server_DebugInventory_Implementation(UInventoryC
 
 		if (Existing.IsEmpty())
 		{
-			UE_LOG(Logsmores, Warning, TEXT("[InvDebug] Inventory is empty - nothing to duplicate. Seed StartingItems first."));
+			UE_LOG(Logsmores, Warning, TEXT("[InvDebug] Inventory is empty - nothing to duplicate. Give the unit a character definition with a DefaultLoadout first."));
 		}
 		else
 		{

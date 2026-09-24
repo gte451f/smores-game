@@ -17,6 +17,9 @@ class UEquipmentComponent;
 class UHealthComponent;
 class UCombatComponent;
 class UTexture2D;
+class UCharacterDefinition;
+class UCharacterRecordComponent;
+struct FCharacterRecord;
 
 /** Delegate to report that this unit has finished moving */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnUnitMoveCompletedDelegate, AStrategyUnit*, Unit);
@@ -62,8 +65,15 @@ private:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UCombatComponent> Combat;
 
-	/** Display name shown in the selection target UI (e.g. "Pawn 1", "NPC 3") */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Unit", meta = (AllowPrivateAccess = "true"))
+	/**
+	 *  Display name shown in the selection target UI (e.g. "Pawn 1", "NPC 3").
+	 *
+	 *  Authored per placed instance, where it names the character's record when that record is
+	 *  created (see UCharacterRecordComponent::CreateRecord - a unique character ignores it). At
+	 *  runtime it is the actor's working copy of FCharacterRecord::Name, set from the record and
+	 *  replicated so every client shows the name the server chose.
+	 */
+	UPROPERTY(EditAnywhere, Replicated, BlueprintReadOnly, Category = "Unit", meta = (AllowPrivateAccess = "true"))
 	FText UnitDisplayName;
 
 	/**
@@ -80,6 +90,30 @@ private:
 
 protected:
 
+	/**
+	 *  What kind of character this unit stands in for. Authored per Blueprint (or per placed
+	 *  instance). A new record is created from it - identity, attributes, faction, and the
+	 *  DefaultLoadout placed into this unit's grid. A unit with none still gets a record, with a
+	 *  warning, so nothing that predates definitions is left outside the record store.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character")
+	TObjectPtr<UCharacterDefinition> CharacterDefinition;
+
+	/**
+	 *  The id of the record this placed unit stands in for - authored, never derived.
+	 *
+	 *  This is what stops a reloaded save standing the dead boss back up: the placed actor finds
+	 *  its record by this key and adopts it, dead or alive, instead of creating a fresh one. It is
+	 *  authored rather than taken from the actor's runtime name because that name is not stable
+	 *  across edits to the level. Generated automatically when a unit is placed or pasted in the
+	 *  editor; a unit spawned at runtime has none and gets a fresh record.
+	 */
+	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "Character", AdvancedDisplay)
+	FGuid PlacedRecordId;
+
+	/** Sets UnitDisplayName as if a level designer had authored it - for code standing in for the level, like a test stand-in or a future spawner. Only meaningful before BeginPlay. */
+	void SetAuthoredDisplayName(const FText& Name) { UnitDisplayName = Name; }
+
 	/** Cast reference to the AI Controlling this unit */
 	TObjectPtr<AAIController> AIController;
 
@@ -94,7 +128,16 @@ protected:
 
 	//~ Begin AActor interface
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void PostActorCreated() override;
+#if WITH_EDITOR
+	virtual void PostEditImport() override;
+#endif
 	//~ End AActor interface
+
+	//~ Begin UObject interface
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	//~ End UObject interface
 
 public:
 
@@ -122,8 +165,36 @@ public:
 	/** Returns this unit's equipment (worn slots) component */
 	UEquipmentComponent* GetEquipment() const { return Equipment; }
 
-	/** This unit's portrait face, or null if none was authored - see PortraitTexture */
-	UTexture2D* GetPortraitTexture() const { return PortraitTexture; }
+	/** This unit's portrait face: its own PortraitTexture, else its character definition's Portrait, else null */
+	UTexture2D* GetPortraitTexture() const;
+
+	//~ Character record (the soft split - see game-data.md)
+
+	/** The kind of character this unit stands in for, or null if none was authored */
+	UCharacterDefinition* GetCharacterDefinition() const { return CharacterDefinition; }
+
+	/** The id of this unit's record. Invalid on clients, and on a unit that found no record store. */
+	const FGuid& GetRecordId() const { return RecordId; }
+
+	/** This unit's record, or null on a client or with no record store. Server-side reads only. */
+	const FCharacterRecord* GetRecord() const;
+
+	/** This unit's faction id - a replicated copy of its record's, None when unaffiliated. Nothing reads it for behaviour yet. */
+	FName GetFactionId() const { return FactionId; }
+
+	/**
+	 *  Copies this unit's current condition - health, life state, location, carried grid, worn
+	 *  slots - into its record. Authority only. Called on every change to any of them, so there is
+	 *  normally no reason to call it by hand; it is public for the debug exec and tests.
+	 */
+	void WriteBackToRecord();
+
+	/**
+	 *  Puts this unit's components into the state its record holds - the other direction from
+	 *  WriteBackToRecord. Authority only. Run when a unit adopts an existing record at BeginPlay;
+	 *  public so a test can prove the round trip.
+	 */
+	void ApplyRecordToActor();
 
 	//~ Begin IInventoryHolder interface
 
@@ -193,6 +264,13 @@ protected:
 	UFUNCTION()
 	void OnHealthDamaged(AActor* DamageInstigator);
 
+	/** Bound to every no-argument "my state changed" delegate on this unit's components - writes the change back to the record */
+	UFUNCTION()
+	void OnWorkingCopyChanged();
+
+	/** Finds or creates this unit's record at BeginPlay and binds to it. Authority only. */
+	void RegisterWithRecordStore();
+
 	/** Bound to Combat->OnTargetOutOfRange; moves into range and re-issues the attack on arrival */
 	UFUNCTION()
 	void OnCombatTargetOutOfRange(AActor* Target);
@@ -256,6 +334,20 @@ protected:
 
 	/** Repeating timer driving TryEngageNearestPlayerPawn while Aggressive */
 	FTimerHandle AggroRetargetTimerHandle;
+
+	/** The id of the record this unit is bound to. Server-side; invalid until RegisterWithRecordStore succeeds. */
+	UPROPERTY(Transient, VisibleInstanceOnly, Category = "Character")
+	FGuid RecordId;
+
+	/** The store RecordId lives in - cached at registration */
+	TWeakObjectPtr<UCharacterRecordComponent> RecordStore;
+
+	/** Replicated copy of the record's FactionId */
+	UPROPERTY(Replicated, VisibleInstanceOnly, Category = "Character")
+	FName FactionId;
+
+	/** True while ApplyRecordToActor is pushing record state into the components, so their change broadcasts don't write it straight back */
+	bool bApplyingRecord = false;
 
 public:
 

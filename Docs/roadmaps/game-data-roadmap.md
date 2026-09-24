@@ -5,8 +5,8 @@
 This is a **roadmap**, not a system reference: read it while implementing one of its slices, or
 when Jim points at it. The permanent record of how this data layer works will live in the
 `game-systems` skill — in a new `game-data.md` topic created by Slice 1, with additions to
-`inventory.md` (Slice 2), a new `factions.md` (Slice 3, **written**) and `inventory.md` again
-(Slice 5).
+`inventory.md` (Slice 2), a new `factions.md` (Slice 3, **written**), `game-data.md` again
+(Slice 4, **written**) and `inventory.md` again (Slice 5).
 
 This roadmap answers one question: **where does the game keep its stuff?** Not how the stuff
 behaves — where it lives, how it's authored, and what survives a save. It is the storage layer
@@ -153,9 +153,8 @@ What already exists and should be extended rather than reinvented:
   from its definition. Slice 5's loot-table entries hand modifiers to newly rolled items.
 - **`AStrategyGameState`** (`Source/smores/Variant_Strategy/StrategyGameState.h`) — its own class
   comment says world clock and weather will each want a component here. It is Unreal's
-  composition root for session-wide replicated state; `UTimePaceComponent` and (Slice 3)
-  `UWorldFactionComponent` already sit there, and the character-record component goes next to
-  them.
+  composition root for session-wide state; `UTimePaceComponent`, `UWorldFactionComponent` and
+  (Slice 4) `UCharacterRecordComponent` sit there.
 - **`AStrategyPlayerState`** — per-player standing went here as a component (Slice 3,
   `UPlayerStandingComponent`), per
   `unreal-module-organization.md`'s rule and the `UWalletComponent` precedent. Notably that
@@ -285,76 +284,41 @@ Notes worth carrying into later slices:
   in one call**, unlike the grow-by-one behaviour `mcp-workflow` records for a non-empty one. Still
   read the length back.
 
-### Slice 4 — Character definitions and the record store (the soft split)
+### Slice 4 — Character definitions and the record store (the soft split) — **DONE**
 
-The heart of the roadmap, and the biggest slice.
+Shipped into `game-systems`' `game-data.md` (a new "Character Records and the Soft Split" section:
+the three pieces, the boundary, find-or-create, `PlacedRecordId`, names, uniqueness, faction ids,
+multiplayer shape, the exec and the content), with pointers from `combat.md`, `inventory.md`,
+`factions.md`, `hud-and-panels.md` and `multiplayer-discipline.md`, and counts in `testing.md`.
+`UCharacterDefinition`, `FCharacterRecord`/`FCharacterAttributes` and `UCharacterRecordComponent`
+(on `AStrategyGameState`) live in `SmoresCharacters`; `AStrategyUnit` finds or creates its record at
+`BeginPlay` and writes every change back; `UHealthComponent::RestoreState`,
+`UInventoryComponent::RestoreEntries` and `UEquipmentComponent::RestoreEquippedItems` are the
+record → actor direction. `AStrategyPlayerUnit::StartingItems` is gone - three `DA_Character_*`
+assets carry the loadouts, and all nine placed units have authored `PlacedRecordId`s.
+`SmoresDumpRecord` added. 126 tests green.
 
-**Builds:** `UCharacterDefinition` in `SmoresCharacters`; `FCharacterRecord`;
-`UCharacterRecordComponent` on the `GameState`; `AStrategyUnit` rebound to read and write its
-record.
+Notes worth carrying into Slice 5:
 
-```cpp
-UCLASS(BlueprintType)
-class SMORESCHARACTERS_API UCharacterDefinition : public USmoresDefinition
-{
-    bool    bUnique;              // exactly one record, ever - Warlord Kess
-    FText   Backstory;
-    TObjectPtr<UTexture2D> Portrait;   // the squad panel / target panel face, not an item icon
-    FName   DefaultFactionId;
-    FName   RoleId;               // "shopkeeper", "guard" - an id, not a role system
-    FCharacterAttributes  BaseAttributes;        // the seven, from characters-and-squads.md
-    TArray<FInventoryItem> DefaultLoadout;
-    TArray<FText>          NamePool;             // generated names for non-uniques
-    TSubclassOf<AStrategyUnit> ActorClass;
-};
-```
-
-```cpp
-USTRUCT()
-struct FCharacterRecord
-{
-    FGuid   RecordId;             // this individual, forever
-    FName   DefinitionId;         // what kind they are
-    FText   Name;                 // authored for a unique, rolled for everyone else
-    FName   FactionId;
-    FCharacterAttributes  Attributes;   // current; drifts from the definition's base
-    float   Health;
-    ELifeState  LifeState;        // mirrors UHealthComponent's state machine
-    FVector LastKnownLocation;
-    TArray<FInventoryEntry>  Carried;
-    FEquipmentState          Equipped;
-};
-```
-
-- **Unique characters.** `bUnique` produces exactly one record at campaign start and never
-  respawns. Nothing about "is Kess alive" touches the definition asset — uniqueness is authored,
-  condition is recorded. `save-system.md` lists named-NPC alive/dead status and location as
-  must-persist, which is this field and this field only.
-- **Placed actors register once.** A unit placed in `LVL_Strategy` adopts its existing record if
-  there is one and creates it from its definition if there isn't, keyed off an authored
-  `PlacedRecordId` on the actor. Without this, reloading a save stands the dead boss back up —
-  the classic version of this bug, and the reason the key is authored rather than derived from
-  the actor's runtime name.
-- **The soft-split boundary, written down.** Records and actors are created and destroyed
-  together. Write-back happens whenever the actor's state changes, not only at despawn, because
-  there is no despawn. Nothing advances a record that has no actor. Every one of those sentences
-  is a thing the world-activity roadmap will change, and they belong in the topic so it is
-  obvious what it is changing.
-- `SmoresDumpRecord` prints a selected unit's record beside its live component state, which is
-  how the sync is verified.
-
-**Hazards.** This touches `AStrategyUnit`, `UHealthComponent`, `UInventoryComponent` and
-`UEquipmentComponent` — a cold build and a careful pass over authority gating. Every record
-mutation is server-side; `multiplayer-discipline.md` applies in full.
-
-**Tests:** record creation from a definition, unique-definition single-instance, name generation,
-write-back round trip (mutate the actor, read the record, and back), authority gating.
-
-**Verification:** Jim PIE-checks that units still select, move, fight, loot and trade exactly as
-before — this slice should be invisible in play.
-
-**Ships into:** `game-data.md` (records, the registry, the soft split and its boundary), with a
-pointer from `combat.md` and `inventory.md`.
+- **Deviations from the sketch above, all deliberate:** `LifeState` reuses `EHealthState` rather
+  than a mirrored `ELifeState`; `Equipped` is `TArray<FEquippedItem>` (there is no
+  `FEquipmentState`); `ActorClass` is a `TSoftClassPtr` so loading a definition doesn't load a
+  skeletal mesh; and **records are not replicated** - each unit's components already are the
+  replicated copy.
+- **A placed unit's authored `UnitDisplayName` names its record** (unique characters excepted), so
+  the level still reads "Pawn 1" / "NPC 3" / "Merchant Ada". The pool only names unnamed or spawned
+  units. That kept this slice invisible in play, which was its verification bar.
+- **`CreateRecord` fills identity only; the actor places the loadout and writes back.** A loot
+  table's rolled items go into a *container's* grid, not a record, so Slice 5 doesn't hit this -
+  but the full split will.
+- **The test world's `BeginPlay()` brings up the real `BP_StrategyGameState`**, components and
+  all. Now written up in `testing.md`; relevant to any Slice 5 test that wants a GameState.
+- **Placed-instance overrides bit again**, exactly as `mcp-workflow` warns: compiling the unit
+  Blueprints after setting `CharacterDefinition` froze `None` onto all nine placed units as an
+  override. Fixed by writing the intended value per instance and re-saving; the
+  `grep -arl CharacterDefinition Content/__ExternalActors__` check is what caught it.
+- **`FGuid` round-trips through `ObjectTools.set_properties` as a plain
+  `"XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"` string.**
 
 ### Slice 5 — Loot tables
 

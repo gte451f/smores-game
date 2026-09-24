@@ -19,7 +19,11 @@ public class SmoresCharacters : ModuleRules
 			"SmoresCombat"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { });
+		// AssetRegistry is here only for Tests/CharacterDefinitionAssetTest.cpp, which sweeps every
+		// UCharacterDefinition asset under Content/. Nothing in the module's own runtime code uses it.
+		PrivateDependencyModuleNames.AddRange(new string[] {
+			"AssetRegistry"
+		});
 
 		PublicIncludePaths.AddRange(new string[] {
 			"SmoresCharacters"

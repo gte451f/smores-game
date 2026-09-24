@@ -115,6 +115,20 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Health")
 	void Kill();
 
+	/**
+	 *  Puts this component into a stored state - the way a character record hands its health
+	 *  back to the actor that stands in for it. Authority-only; returns false having done nothing
+	 *  on a client.
+	 *
+	 *  NewHealth is clamped to 0..MaxHealth, and forced to 0 for Downed or Dead. Any pending
+	 *  recovery is cancelled; restoring Downed starts a fresh one, so a restored knockdown gets
+	 *  back up after the full DownedDurationSeconds. Entering a different state broadcasts the
+	 *  same delegate the ordinary transition would (OnDowned / OnDied / OnRecovered), so a unit
+	 *  restored as Dead goes inert exactly as one killed in front of you does. No OnDamaged and
+	 *  no damage number - nothing was hit.
+	 */
+	bool RestoreState(float NewHealth, EHealthState NewState);
+
 	/** Current state: on its feet, Downed, or Dead */
 	UFUNCTION(BlueprintPure, Category = "Health")
 	EHealthState GetHealthState() const { return HealthState; }

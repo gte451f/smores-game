@@ -20,7 +20,8 @@
  *                  rebuilt from it rather than the other way round.
  *
  *  A definition is never written to, and a record is never a copy of an actor - the actor is a
- *  copy of the record. Only the first layer exists today; see Docs/roadmaps/game-data-roadmap.md.
+ *  copy of the record. All three exist for characters (UCharacterDefinition, FCharacterRecord,
+ *  AStrategyUnit) and the first two for factions - see game-data.md.
  *
  *  Exactly three fields live here, because they are the only three every definition type
  *  genuinely shares. **Presentation deliberately stays on the subclasses**: an item's Icon is a

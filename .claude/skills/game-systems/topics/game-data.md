@@ -6,18 +6,19 @@ Where the game keeps its stuff. Not how the stuff behaves — where it lives, ho
 and what will survive a save. This is the storage layer underneath items, characters, factions
 and loot, and it deliberately stops at the point where behavior begins.
 
-**Definitions exist for every type; records exist only for factions so far.** `FFactionRecord`
-(see `factions.md`) is the first record; character records and the record/actor split are future
-slices of `Docs/roadmaps/game-data-roadmap.md`. They are described here because the definition
-layer was built the shape it is *because* of them, and that shape is hard to understand otherwise.
+**All three layers now exist.** Factions have records (`FFactionRecord`, see `factions.md`), and
+every unit in the level stands in for an `FCharacterRecord` under the *soft split* described below:
+records and actors live and die together, and the actor is a working copy kept in sync. The *full*
+split - actors spawning near players and despawning away from them while records persist - is the
+world-activity roadmap's, not built.
 
 ## The Three Layers
 
 | Layer | What it is | Where it lives | Saved? | Built? |
 |---|---|---|---|---|
 | **Definition** | What a *kind of thing* is — "Sword", "Bandit", "Ironclan". Authored by hand, identical in every campaign, never written to at runtime. | A `.uasset` in the Content Browser | No — it ships with the game | ✅ |
-| **Record** | One *particular* thing — this bandit, with this name, this health, this inventory. | A `USTRUCT` in memory, owned by a component on the `GameState` or `PlayerState` | **Yes — records *are* the save file** | factions only (`FFactionRecord`) |
-| **Actor** | What is physically standing in the level right now. A puppet driven by a record. | `AStrategyUnit` and friends, in the loaded world | No — it is rebuilt from the record | partly (actors exist; nothing drives them from a record) |
+| **Record** | One *particular* thing — this bandit, with this name, this health, this inventory. | A `USTRUCT` in memory, owned by a component on the `GameState` or `PlayerState` | **Yes — records *are* the save file** (no save exists yet) | ✅ factions (`FFactionRecord`) and characters (`FCharacterRecord`) |
+| **Actor** | What is physically standing in the level right now. A puppet driven by a record. | `AStrategyUnit` and friends, in the loaded world | No — it is rebuilt from the record | ✅ soft split - every unit is bound to a record; nothing spawns one from a record yet |
 
 The rule the whole model turns on:
 
@@ -121,6 +122,7 @@ is the test that catches it — it exists for exactly this failure.
 | `UItemDefinition` | `SmoresItems` | `ItemDefinition` | eight `DA_Item_*` under `Content/Items/` |
 | `UItemModifierDefinition` | `SmoresItems` | `ItemModifierDefinition` | five `DA_Modifier_*` under `Content/Items/Modifiers/` |
 | `UFactionDefinition` | `SmoresCore` | `FactionDefinition` | four `DA_Faction_*` under `Content/Factions/` — see `factions.md` |
+| `UCharacterDefinition` | `SmoresCharacters` | `CharacterDefinition` | three `DA_Character_*` under `Content/Characters/Definitions/` — see "Character Records" below |
 
 Each type's `DefinitionType` is a `static const FPrimaryAssetType` holding the literal type
 string, spelled out rather than derived from the class name so it and the config line are visibly
@@ -134,6 +136,137 @@ should expect. See `inventory.md` for what a modifier actually does to an item.
 It is also the first place the id look-up has a caller that isn't `SmoresDumpDefinitions`:
 `SmoresAddItem <Count> <ModifierId>` sends the id to the server and resolves it there through
 `USmoresDefinitionLibrary::FindDefinition`, which is the route a record or a loot table will take.
+
+## Character Records and the Soft Split
+
+Built by Slice 4 of `Docs/roadmaps/game-data-roadmap.md`. Every unit in the level now stands in for
+an `FCharacterRecord`, and the record - not the unit - is the truth about that character.
+
+### Three pieces
+
+| Piece | What it is | Lives in |
+|---|---|---|
+| `UCharacterDefinition` | a *kind* of character - "Bandit", "Settler", or one named individual. Unique flag, backstory, portrait, default faction id, role id, the seven base attributes, a default loadout, a name pool, and the actor class that would stand in for one | `SmoresCharacters/CharacterDefinition.h`; assets under `Content/Characters/Definitions/` |
+| `FCharacterRecord` | *this* character: `RecordId`, `DefinitionId`, `Name`, `FactionId`, `Attributes` (identity), and `Health`, `LifeState`, `LastKnownLocation`, `Carried`, `Equipped` (condition) | `SmoresCharacters/CharacterRecord.h`, with `FCharacterAttributes` |
+| `UCharacterRecordComponent` | every record in the session, plus which live actor stands in for which | `SmoresCharacters/CharacterRecordComponent.h`, a default subobject of `AStrategyGameState` |
+
+`FCharacterAttributes` holds the seven attributes from `characters-and-squads.md` (Strength,
+Endurance, Agility, Perception, Intelligence, Willpower, Charisma) as floats defaulting to 10.
+**Nothing reads them**, and 10 is a placeholder baseline, not a designed scale. There is
+deliberately no skill map - the skill roster is undecided. `LifeState` reuses `EHealthState`
+rather than mirroring it in a second enum.
+
+### The soft split - the boundary, written down
+
+Each of these sentences is something the world-activity roadmap will change. They are here so it
+is obvious what it is changing.
+
+- **Every record has exactly one actor, and they are made together.** A unit finds or creates its
+  record at `BeginPlay`. Nothing spawns a unit from a record and nothing despawns one.
+- **Identity flows record → actor; condition flows actor → record.** On creation the unit copies
+  the record's name and faction onto itself. From then on its components are the *working copy*
+  that play reads every frame, and every change is written back.
+- **Write-back happens on every change, not at despawn, because there is no despawn.** Health
+  (`OnDamaged` via `OnHealthDamaged`; `OnDowned`/`OnRecovered`/`OnDied`), the carried grid
+  (`OnInventoryChanged`), the paperdoll (`OnEquipmentChanged`) all call
+  `AStrategyUnit::WriteBackToRecord`, which copies all five condition fields.
+  `LastKnownLocation` is written on arrival from a move and alongside every other write-back -
+  not every frame - so a walking unit's record lags its actor until it stops.
+- **The record outlives its actor.** `EndPlay` writes back one last time and unbinds; it never
+  removes the record. Nothing mid-session destroys a unit today, but a record left behind is
+  exactly what a dead named character needs.
+- **Nothing advances a record that has no actor.** Records only change because an actor wrote
+  them.
+
+### Finding or creating the record - `AStrategyUnit::RegisterWithRecordStore`
+
+Authority only; clients see the unit through its replicated components.
+
+1. Look up the store (`UCharacterRecordComponent::Get` - the component on the world's GameState).
+   None (the main menu, a bare test world) → run as a plain actor, exactly as before records.
+2. **Adopt** if a record already exists under the unit's `PlacedRecordId`: bind to it and
+   `ApplyRecordToActor` - name, faction, location, then `RestoreEntries`, `RestoreEquippedItems`,
+   and finally `RestoreState`, so a unit restored Dead goes inert holding the pack it died with.
+   The loadout is *not* handed out again.
+3. If that record already has a *different* live actor bound (two placed units sharing a key), log
+   an error and fall through to creating a fresh record under a new id.
+4. **Create** otherwise: `CreateRecord(CharacterDefinition, PlacedRecordId, UnitDisplayName)`, bind,
+   copy name and faction onto the actor, `AddItem` each `DefaultLoadout` entry through the ordinary
+   grid rules, then write back.
+
+`ApplyRecordToActor` sets `bApplyingRecord` for its duration so the components' change broadcasts
+don't write a half-applied state back into the record it is reading.
+
+### Placed units register once - `PlacedRecordId`
+
+A unit placed in a level carries an authored `FGuid PlacedRecordId` (`EditInstanceOnly`, advanced).
+It is how a placed actor finds *its* record on the next load instead of creating a fresh one -
+without it, reloading a save stands the dead boss back up. It is authored rather than derived from
+the actor's runtime name because that name isn't stable across level edits.
+
+- `AStrategyUnit::PostActorCreated` generates one when a unit is placed in an editor world, and
+  `PostEditImport` generates a fresh one when a unit is pasted or alt-dragged (a copy is a different
+  person). PIE duplication goes through neither, so a PIE copy keeps its key.
+- A unit spawned at runtime has no key and gets a freshly minted record id. A *placed* unit with no
+  key (`IsNetStartupActor()`) logs a warning - it works, but a save could never find it again.
+- All nine units in `LVL_Strategy` had keys authored by hand, since they predate the auto-generation.
+
+### Names
+
+- A **unique** definition's record is named its `DisplayName`, always.
+- Otherwise a placed unit's authored `UnitDisplayName`, when set, names the record - which is why
+  "Pawn 1", "NPC 3" and "Merchant Ada" still read the same in play.
+- Otherwise the name is rolled from `NamePool`, **seeded from the record id** (`GetTypeHash(RecordId)`
+  mod pool size) rather than a random stream, so the same individual always gets the same name - the
+  save-scumming rule applied to names. An empty pool or a blank entry falls back to `DisplayName`.
+
+`UnitDisplayName` is now `Replicated`: it is the actor's copy of the record's name, and a client has
+to show the name the server chose. `FactionId` is copied the same way (`GetFactionId()`).
+
+### Unique characters
+
+`bUnique` means exactly one record of that definition, **ever** - alive or dead.
+`CreateRecord` refuses a second (`HasRecordOfDefinition`) with an error, and a second placed actor of
+a unique definition runs without a record rather than becoming a second Kess. Uniqueness is authored
+on the definition; condition is in the record; nothing writes "is he dead?" to the asset.
+
+### Faction ids
+
+`CreateRecord` copies `DefaultFactionId` and checks it with `IsFactionKnown`, which asks the
+`UWorldFactionComponent` beside it once that has seeded, and otherwise (the two `BeginPlay` in no
+guaranteed order) whether the id resolves to a faction definition at all. An unknown id is **kept
+with a warning** - a stripped mod's faction must not stop a save loading. The per-type content sweep
+is where an authored typo gets caught.
+
+### Multiplayer shape
+
+- **Server-owned and deliberately not replicated.** Every client already sees each character through
+  the actor's replicated components, which *are* the copy of the record. Replicating records as well
+  would send every character's pack to every player twice, and once the full split lands, records of
+  characters nowhere near anyone would be most of the traffic. A client-side view that needs a record
+  (a squad roster) wants its own narrower channel. This is the first piece of session-wide state that
+  is *not* replicated - see `multiplayer-discipline.md`.
+- Every store mutator (`CreateRecord`, `EditRecord`, `BindActor`) refuses off-authority; the unit's
+  `RegisterWithRecordStore`, `WriteBackToRecord` and `ApplyRecordToActor` return early on a client,
+  where the component delegates still fire through their `OnRep_`s.
+- `EditRecord` hands out a pointer into a `TArray`; don't hold it across a `CreateRecord`.
+
+### The debug exec
+
+`SmoresDumpRecord` (on `AStrategyPlayerController`) prints the targeted NPC's record - or the first
+selected unit's - beside the live state of its components, field by field, flagging any line that
+disagrees with `<-- MISMATCH`. Hops to the server, since only the server holds records. Location
+legitimately disagrees while a unit is walking.
+
+### Content
+
+| Asset | Id | Faction | Used by |
+|---|---|---|---|
+| `DA_Character_Settler` | `Settler` | none | `BP_PlayerUnit` - loadout Apple + Pocket Knife (moved from the old `AStrategyPlayerUnit::StartingItems`, which is gone) |
+| `DA_Character_Bandit` | `Bandit` | `Raiders` | `BP_StrategyUnit` - no loadout |
+| `DA_Character_Trader` | `Trader` | `TradersGuild` | `BP_Trader` - role `trader`, no loadout; the shelf stock is `UTraderComponent`'s own grid and is **not** part of the record |
+
+All placeholders for a setting that isn't chosen. No unique character is authored yet.
 
 ## The Content Sweeps
 
@@ -156,7 +289,11 @@ well formed, which is not a claim about any one asset.
 a future faction or character type should copy, and
 `Source/SmoresItems/Tests/ItemModifierDefinitionAssetTest.cpp` is the same shape for modifiers
 (and `Source/SmoresCore/Tests/FactionDefinitionAssetTest.cpp` for factions, which adds the one
-*cross-asset* rule so far: a starting relation authored on both factions has to agree). The
+*cross-asset* rule so far: a starting relation authored on both factions has to agree, and
+`Source/SmoresCharacters/Tests/CharacterDefinitionAssetTest.cpp` for characters: a
+`DefaultFactionId` must resolve - the one rule the runtime deliberately *doesn't* enforce - a
+non-unique character needs a `NamePool`, no pool entry may be blank, no loadout entry may name
+nothing, and no attribute may be negative). The
 modifier one is worth reading for *why* a per-type file earns its place: a modifier's numbers are
 multipliers, and a multiplier fails differently from a weight or a price. An unfilled field
 defaults to 1.0 and is invisible; a field authored to **0** silently erases whatever it
@@ -187,8 +324,9 @@ The one visible surface is a debug exec on `AStrategyPlayerController`:
 | Command | Does |
 |---|---|
 | `SmoresDumpDefinitions` | lists every definition the Asset Manager found, grouped by type, with its id and display name |
+| `SmoresDumpRecord` | prints a unit's character record beside its live component state, flagging mismatches - see "The debug exec" above. Hops to the server |
 
-Unlike the other `Smores*` execs it does **not** hop to the server — the definition registry is
+Unlike the other `Smores*` execs, `SmoresDumpDefinitions` does **not** hop to the server — the definition registry is
 authored content and is identical on every machine.
 
 ## Extension Points
@@ -213,17 +351,28 @@ none (Unreal serializes by name); doing both at once does. See
 
 ## Known Gaps
 
-- **No character records.** Faction records exist (`factions.md`), but nothing owns a
-  `FCharacterRecord`, and `AStrategyUnit` and its components are still the truth. Slice 4 of
-  `Docs/roadmaps/game-data-roadmap.md` is where that inverts.
+- **The soft split only.** No record exists without an actor, nothing spawns an actor from a record
+  (`UCharacterDefinition::ActorClass` is authored and read by nothing), and nothing advances a record
+  on its own. That is the world-activity roadmap's full split.
+- **A record can't be created without an actor to place its loadout.** `CreateRecord` fills the
+  identity half only; the `DefaultLoadout` is placed by the actor's grid, then written back. The
+  full split will need a grid-free packer (or records whose `Carried` starts unplaced).
+- **Records are not saved** - no save system exists. They are plain reflected structs holding their
+  definition by id, except for the item pointers below.
+- **`MaxHealth` is on the actor's component, not the definition or record.** The record holds
+  current health only, so a record without an actor can't say what "full health" is.
+- **No containment** between records (`ParentRecordId`) - see the roadmap's open questions.
 - **Nothing calls `FindDefinition` in anger yet.** The lookup is built and tested; its real
-  consumers (records, loot tables, recipes, saves) are later slices. The live callers are
-  `SmoresDumpDefinitions`, the `SmoresAddItem` modifier look-up, and `UWorldFactionComponent`'s
-  `BeginPlay`, which resolves every faction id to seed the records.
+  consumers (loot tables, recipes, saves) are later slices. The live callers are
+  `SmoresDumpDefinitions`, the `SmoresAddItem` modifier look-up, `UWorldFactionComponent`'s
+  `BeginPlay`, which resolves every faction id to seed the records, and
+  `UCharacterRecordComponent::IsFactionKnown`'s fallback. Character units still hold their
+  definition by asset pointer (it's content linking); only the *record* holds the id.
 - **`FInventoryItem` still holds a definition by `TObjectPtr`, not by id** — and now holds its
   modifiers the same way. That is correct for a carried item under the current design, but the
   roadmap notes the carried item and the record must hold ids once saving is real, and that
-  applies to the `Modifiers` array as much as to `Definition`.
+  applies to the `Modifiers` array as much as to `Definition`. **`FCharacterRecord::Carried` and
+  `Equipped` inherit this** - a character record is id-clean except for the items it holds.
 - **No `Tags` on the base.** `FGameplayTagContainer` is planned for Slice 5, when loot-table
   entries first give something a reason to consume it. Adding it earlier would be dead data.
 - **Synchronous loading.** See above — deliberate, and the seam is `USmoresDefinitionLibrary`.

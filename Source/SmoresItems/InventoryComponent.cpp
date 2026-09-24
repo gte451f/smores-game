@@ -537,6 +537,50 @@ bool UInventoryComponent::AddItemAt(const FInventoryItem& Item, FIntPoint Cell, 
 	return true;
 }
 
+int32 UInventoryComponent::RestoreEntries(const TArray<FInventoryEntry>& StoredEntries)
+{
+	// shared gameplay state - only the server may mutate it
+	if (!HasOwnerAuthority())
+	{
+		return INDEX_NONE;
+	}
+
+	// built in a scratch array so each stored entry is checked against the ones already accepted,
+	// never against whatever the grid happened to hold before
+	TArray<FInventoryEntry> Restored;
+	int32 HighestId = INDEX_NONE;
+
+	for (const FInventoryEntry& Stored : StoredEntries)
+	{
+		const bool bDuplicateId = Restored.ContainsByPredicate([&Stored](const FInventoryEntry& Candidate)
+		{
+			return Candidate.EntryId == Stored.EntryId;
+		});
+
+		if (!Stored.IsValidEntry() || bDuplicateId
+			|| !CanPlaceAgainst(Restored, Stored.Item, Stored.AnchorCell, Stored.bRotated, INDEX_NONE))
+		{
+			UE_LOG(LogSmoresItems, Warning, TEXT("RestoreEntries on %s dropped entry %d (%s at %d,%d) - empty, a duplicate id, or it doesn't fit."),
+				*GetNameSafe(GetOwner()), Stored.EntryId, *Stored.Item.GetDisplayName().ToString(), Stored.AnchorCell.X, Stored.AnchorCell.Y);
+			continue;
+		}
+
+		FInventoryEntry& Placed = Restored.Add_GetRef(Stored);
+		Placed.Item.Quantity = FMath::Clamp(Placed.Item.Quantity, 1, GetEffectiveMaxStackForItem(Placed.Item));
+
+		HighestId = FMath::Max(HighestId, Placed.EntryId);
+	}
+
+	Entries = MoveTemp(Restored);
+
+	// never hand out an id a restored entry already holds
+	NextEntryId = FMath::Max(NextEntryId, HighestId + 1);
+
+	OnInventoryChanged.Broadcast();
+
+	return Entries.Num();
+}
+
 bool UInventoryComponent::RemoveEntry(int32 EntryId)
 {
 	// shared gameplay state - only the server may mutate it

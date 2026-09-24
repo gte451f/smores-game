@@ -6,6 +6,7 @@
 #include "StrategyUnit.h"
 #include "StrategyPlayerUnit.h"
 #include "StrategyContainer.h"
+#include "CharacterDefinition.h"
 #include "SmoresStrategyTestActors.generated.h"
 
 /**
@@ -51,6 +52,19 @@ public:
 	 *  one piece of state the panel actually reads.
 	 */
 	void MakeHostileForTest() { Disposition = EStrategyDisposition::Aggressive; }
+
+	/**
+	 *  Authors what a placed unit would carry in the level - a character definition, a record key
+	 *  and optionally a name - onto a unit that hasn't begun play yet. Call between
+	 *  SpawnActorDeferred and FinishSpawning, since the unit finds or creates its record at
+	 *  BeginPlay and reads all three there.
+	 */
+	void SetCharacterForTest(UCharacterDefinition* Definition, const FGuid& InPlacedRecordId, const FText& PlacedName = FText::GetEmpty())
+	{
+		CharacterDefinition = Definition;
+		PlacedRecordId = InPlacedRecordId;
+		SetAuthoredDisplayName(PlacedName);
+	}
 };
 
 /** The player-pawn stand-in - the "one of your own squad" case. See ATestStrategyNPC. */

@@ -17,6 +17,9 @@
 #include "StrategyPlayerUnit.h"
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
+#include "CharacterDefinition.h"
+#include "CharacterRecordComponent.h"
+#include "Net/UnrealNetwork.h"
 #include "SmoresCharacters.h"
 
 AStrategyUnit::AStrategyUnit()
@@ -98,6 +101,18 @@ void AStrategyUnit::BeginPlay()
 	// react to our own attack requests that turned out to be out of range
 	Combat->OnTargetOutOfRange.AddDynamic(this, &AStrategyUnit::OnCombatTargetOutOfRange);
 
+	// every change to the working copy goes back to the record. Bound before registering, so a
+	// record restored as Dead or Downed runs this unit's own OnHealthDied/OnHealthDowned and goes
+	// inert exactly as it would have in front of you. OnDamaged carries an argument, so its
+	// write-back is in OnHealthDamaged instead.
+	Health->OnDowned.AddDynamic(this, &AStrategyUnit::OnWorkingCopyChanged);
+	Health->OnRecovered.AddDynamic(this, &AStrategyUnit::OnWorkingCopyChanged);
+	Health->OnDied.AddDynamic(this, &AStrategyUnit::OnWorkingCopyChanged);
+	Inventory->OnInventoryChanged.AddDynamic(this, &AStrategyUnit::OnWorkingCopyChanged);
+	Equipment->OnEquipmentChanged.AddDynamic(this, &AStrategyUnit::OnWorkingCopyChanged);
+
+	RegisterWithRecordStore();
+
 	// NOTE: Combat's auto-attack continuation is deliberately NOT bound here to a persistent
 	// AnimInstance::OnMontageEnded subscription. Switching the mesh's Animation Mode (e.g. the
 	// old EventInteractionBehavior's PlayAnimation/SetAnimationMode pair) destroys and recreates
@@ -106,6 +121,217 @@ void AStrategyUnit::BeginPlay()
 	// nothing would ever fire the continuation. UCombatComponent::PerformAttack binds fresh per
 	// swing instead, via Montage_SetEndDelegate, which works no matter how many times the
 	// AnimInstance is replaced.
+}
+
+void AStrategyUnit::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// the record outlives its actor: take the last word, then let go. Nothing removes the record -
+	// under the soft split nothing destroys a unit mid-session, and a record that stays behind is
+	// exactly what a dead named character needs.
+	if (HasAuthority() && RecordId.IsValid())
+	{
+		WriteBackToRecord();
+
+		if (UCharacterRecordComponent* Store = RecordStore.Get())
+		{
+			Store->UnbindActor(RecordId, this);
+		}
+	}
+
+	Super::EndPlay(EndPlayReason);
+}
+
+void AStrategyUnit::PostActorCreated()
+{
+	Super::PostActorCreated();
+
+#if WITH_EDITOR
+	// a unit newly placed in the editor gets its record key now, so nobody has to remember to
+	// author one. Game worlds are skipped: a unit spawned at runtime isn't placed, and gets a
+	// fresh record rather than a key that pretends it was.
+	const UWorld* World = GetWorld();
+
+	if (World && !World->IsGameWorld() && !PlacedRecordId.IsValid() && !HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject))
+	{
+		PlacedRecordId = FGuid::NewGuid();
+	}
+#endif
+}
+
+#if WITH_EDITOR
+void AStrategyUnit::PostEditImport()
+{
+	Super::PostEditImport();
+
+	// a pasted or alt-dragged copy is a different person - two placed actors sharing a key would
+	// fight over one record, and the second would be refused its binding at BeginPlay
+	PlacedRecordId = FGuid::NewGuid();
+}
+#endif
+
+void AStrategyUnit::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(AStrategyUnit, UnitDisplayName);
+	DOREPLIFETIME(AStrategyUnit, FactionId);
+}
+
+UTexture2D* AStrategyUnit::GetPortraitTexture() const
+{
+	if (PortraitTexture)
+	{
+		return PortraitTexture;
+	}
+
+	return CharacterDefinition ? CharacterDefinition->Portrait.Get() : nullptr;
+}
+
+const FCharacterRecord* AStrategyUnit::GetRecord() const
+{
+	const UCharacterRecordComponent* Store = RecordStore.Get();
+
+	return Store ? Store->FindRecord(RecordId) : nullptr;
+}
+
+void AStrategyUnit::RegisterWithRecordStore()
+{
+	// records are server-owned; a client sees this unit through its replicated components
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	UCharacterRecordComponent* Store = UCharacterRecordComponent::Get(this);
+
+	if (!Store)
+	{
+		// the main menu, or a test world with no store - run as a plain actor, as before records existed
+		UE_LOG(LogSmoresCharacters, Log, TEXT("%s found no character record store - running without a record."), *GetName());
+		return;
+	}
+
+	FGuid Key = PlacedRecordId;
+
+	if (!Key.IsValid() && IsNetStartupActor())
+	{
+		// placed in the level but never given a key - it works, but a save could never find it again
+		UE_LOG(LogSmoresCharacters, Warning, TEXT("%s is placed in the level with no PlacedRecordId - it gets a fresh record every session. Author one."), *GetName());
+	}
+
+	// adopt: a record already exists for this key, so this actor is its puppet and the record wins
+	if (Store->FindRecord(Key))
+	{
+		if (Store->BindActor(Key, this))
+		{
+			RecordId = Key;
+			RecordStore = Store;
+
+			ApplyRecordToActor();
+
+			return;
+		}
+
+		// another live actor already stands in for that record - two placed units sharing a key
+		UE_LOG(LogSmoresCharacters, Error, TEXT("%s's PlacedRecordId %s is already bound to %s - giving this one a fresh record instead."),
+			*GetName(), *Key.ToString(), *GetNameSafe(Store->GetBoundActor(Key)));
+
+		Key.Invalidate();
+	}
+
+	if (!CharacterDefinition)
+	{
+		UE_LOG(LogSmoresCharacters, Warning, TEXT("%s has no CharacterDefinition - its record has no definition, attributes or faction."), *GetName());
+	}
+
+	// create: identity from the definition, named by the level designer if they named this one
+	const FGuid NewId = Store->CreateRecord(CharacterDefinition, Key, UnitDisplayName);
+
+	if (!NewId.IsValid() || !Store->BindActor(NewId, this))
+	{
+		// CreateRecord has already said why (a second copy of a unique character, most likely)
+		UE_LOG(LogSmoresCharacters, Error, TEXT("%s could not be given a record - running without one."), *GetName());
+		return;
+	}
+
+	RecordId = NewId;
+	RecordStore = Store;
+
+	const FCharacterRecord* Record = Store->FindRecord(NewId);
+
+	UnitDisplayName = Record->Name;
+	FactionId = Record->FactionId;
+
+	// the loadout goes through the ordinary grid rules; each AddItem writes itself back
+	if (CharacterDefinition)
+	{
+		for (const FInventoryItem& Item : CharacterDefinition->DefaultLoadout)
+		{
+			Inventory->AddItem(Item);
+		}
+	}
+
+	// and the condition half: health, location, and an empty-handed character's empty grid
+	WriteBackToRecord();
+}
+
+void AStrategyUnit::WriteBackToRecord()
+{
+	if (!HasAuthority() || bApplyingRecord || !RecordId.IsValid())
+	{
+		return;
+	}
+
+	UCharacterRecordComponent* Store = RecordStore.Get();
+	FCharacterRecord* Record = Store ? Store->EditRecord(RecordId) : nullptr;
+
+	if (!Record)
+	{
+		return;
+	}
+
+	Record->Health = Health->GetHealth();
+	Record->LifeState = Health->GetHealthState();
+	Record->LastKnownLocation = GetActorLocation();
+	Record->Carried = Inventory->GetEntries();
+	Record->Equipped = Equipment->GetEquippedItems();
+}
+
+void AStrategyUnit::ApplyRecordToActor()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	const FCharacterRecord* Record = GetRecord();
+
+	if (!Record)
+	{
+		return;
+	}
+
+	// a copy: the component broadcasts below run this unit's handlers, and nothing should be
+	// reading through a pointer into the store while they do
+	const FCharacterRecord Stored = *Record;
+
+	TGuardValue<bool> ApplyingGuard(bApplyingRecord, true);
+
+	UnitDisplayName = Stored.Name;
+	FactionId = Stored.FactionId;
+
+	SetActorLocation(Stored.LastKnownLocation, false, nullptr, ETeleportType::TeleportPhysics);
+
+	Inventory->RestoreEntries(Stored.Carried);
+	Equipment->RestoreEquippedItems(Stored.Equipped);
+
+	// health last, so a unit restored as Dead goes inert holding the pack it died with
+	Health->RestoreState(Stored.Health, Stored.LifeState);
+}
+
+void AStrategyUnit::OnWorkingCopyChanged()
+{
+	WriteBackToRecord();
 }
 
 void AStrategyUnit::StopMoving()
@@ -258,6 +484,9 @@ void AStrategyUnit::OnMoveFinished(FAIRequestID RequestID, const FPathFollowingR
 
 void AStrategyUnit::HandleMoveFinished()
 {
+	// arrival is where a move changes the record - LastKnownLocation isn't written every frame
+	WriteBackToRecord();
+
 	// broadcast the move completed delegate
 	OnMoveCompleted.Broadcast(this);
 
@@ -470,6 +699,8 @@ void AStrategyUnit::OnHealthDied()
 
 void AStrategyUnit::OnHealthDamaged(AActor* DamageInstigator)
 {
+	WriteBackToRecord();
+
 	// already mid-engagement (fighting in range, or moving in to engage) - don't hijack an
 	// existing attack order onto whoever just landed a hit
 	if (Combat->GetCurrentAttackTarget() || bAttackOnArrival)

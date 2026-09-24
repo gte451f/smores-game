@@ -7,10 +7,11 @@ the standing rule for when a piece of work should add to it. The forward-looking
 still needs building, in what order, and the decisions behind it — lives in
 `Docs/roadmaps/testing-roadmap.md`.
 
-> **Status: the harness is built and Slices 1 and 2 have shipped.** 111 tests run green (one with a
+> **Status: the harness is built and Slices 1 and 2 have shipped.** 126 tests run green (one with a
 > warning - see the content sweeps below), covering `SmoresItems`, `SmoresEconomy`,
 > `UHealthComponent`, the content smoke tests, and (added by later roadmaps) the time-pace ladder,
-> the target panel's action assembly, the activity log, the definition layer and faction standing.
+> the target panel's action assembly, the activity log, the definition layer, faction standing and
+> character records.
 > Only Slice 3 of
 > `Docs/roadmaps/testing-roadmap.md` remains. Everything below has been executed against this
 > project rather than written in advance.
@@ -35,6 +36,11 @@ them test smores.
 | Wallet balance, refusals and broadcasts | `SmoresEconomy` | ✅ 8 tests | 2 |
 | Pricing (markup, markdown, totals, margin) | `SmoresEconomy` | ✅ 6 tests | 2 |
 | Health state machine (Alive/Downed/Dead) and its timer | `SmoresCombat` | ✅ 9 tests | 2 |
+| Health restore (broadcast on entry, timer re-armed or cancelled) | `SmoresCombat` | ✅ 1 test | data 4 |
+| Inventory/equipment restore (ids kept, bad entries dropped, counted return, authority) | `SmoresItems` | ✅ 2 tests | data 4 |
+| Character record store (creation, unique rule, seeded names, one actor per record, unknown faction, authority) | `SmoresCharacters` | ✅ 6 tests | data 4 |
+| Unit ↔ record sync (create, write-back round trip, adopt-dead-or-alive, shared key, second unique) | `smores` | ✅ 4 tests | data 4 |
+| `UCharacterDefinition` assets under `Content/` (per-type rules) | `SmoresCharacters` | ✅ 2 tests | data 4 |
 | `UItemDefinition` assets under `Content/` (per-type rules) | `SmoresItems` | ✅ 2 tests | 2 / data 1 |
 | `UItemModifierDefinition` assets under `Content/` (per-type rules) | `SmoresItems` | ✅ 2 tests | data 2 |
 | `UFactionDefinition` assets under `Content/` (per-type rules, cross-faction relation agreement) | `SmoresCore` | ✅ 2 tests | data 3 |
@@ -48,7 +54,7 @@ them test smores.
 | Attack range / out-of-range branch | `SmoresCombat` | — | unclaimed |
 | Trade transaction ordering | `smores` | — | 3 |
 
-**111 tests.** Several rows came from the HUD and game-data rounds, not from the testing roadmap — a
+**126 tests.** Several rows came from the HUD and game-data rounds, not from the testing roadmap — a
 slice that ships numbers-and-state-machine code writes its own tests, whichever roadmap it came from.
 Update this table as slices ship; it is the quick answer to "is this already covered?"
 
@@ -435,6 +441,26 @@ other five passed on the identical mistake. Two habits follow:
 
 Both objects go through `KeepAlive` for the usual reason — neither has an owner, and a collect
 part-way through would pull them out from under the assertions.
+
+### `BeginPlay()` brings the project's real game mode up
+
+`FSmoresTestWorld::BeginPlay()` runs the world's normal startup, which spawns the project's
+`GlobalDefaultGameMode` - `BP_StrategyGameMode` - and with it a real `BP_StrategyGameState`,
+**carrying every native component the GameState has**: `UTimePaceComponent`,
+`UWorldFactionComponent` (seeded from the real faction assets) and `UCharacterRecordComponent`.
+
+Found in game-data Slice 4, where a helper that added a record store to the GameState ended up with
+*two*: units registered in the native one (`FindComponentByClass` finds that first) while the test
+read the one it had added, and the first dereference of a missing record crashed the whole run. So:
+
+- **Look for the component on the GameState before adding one.** `MakeTestRecordStore`
+  (`SmoresCharacters/Tests/SmoresCharacterTestFactory.h`) reuses the existing store and only adds or
+  spawns what's missing.
+- **A world that has begun play is not an empty world.** Anything a test asserts about "the only
+  record" or "the only faction" has to allow for what the game mode brought.
+- **Never dereference a record lookup straight into an assertion** - a null crashes the run and
+  every test after it goes unreported. Read through a guard (`CharacterRecordSyncTest.cpp`'s
+  `Current()` lambda) so a miss fails one assertion instead.
 
 ### Timers need `BeginPlay()` before they will tick at all
 

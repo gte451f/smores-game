@@ -8,6 +8,7 @@
 
 class UTimePaceComponent;
 class UWorldFactionComponent;
+class UCharacterRecordComponent;
 
 /**
  *  Per-session state for the strategy variant. Like AStrategyPlayerState it owns no gameplay
@@ -15,7 +16,7 @@ class UWorldFactionComponent;
  *
  *  The GameState is Unreal's composition root for state that is shared by everyone in a session
  *  and replicated to every client, which is exactly the shape of the simulation's pace and of the
- *  world's factions. World clock and weather will each want a component here for the same reason, and
+ *  world's factions and characters. World clock and weather will each want a component here for the same reason, and
  *  each belongs in the module that owns it rather than as a field on this class - see
  *  unreal-module-organization.md's "Framework Classes vs. Feature Modules".
  */
@@ -35,6 +36,9 @@ public:
 	/** The session's faction records and faction-to-faction standing. Never null - it's a default subobject. */
 	UWorldFactionComponent* GetWorldFactions() const { return WorldFactions; }
 
+	/** Every character record in the session. Never null - it's a default subobject. */
+	UCharacterRecordComponent* GetCharacterRecords() const { return CharacterRecords; }
+
 private:
 
 	/** How fast the simulation is running, in SmoresCore. See the class comment for why it isn't
@@ -46,4 +50,9 @@ private:
 	 *  here; a player's own standing with a faction is on AStrategyPlayerState instead. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UWorldFactionComponent> WorldFactions;
+
+	/** Every character's record - the truth each unit in the level is a working copy of - in
+	 *  SmoresCharacters. Session-wide and server-only; see UCharacterRecordComponent. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UCharacterRecordComponent> CharacterRecords;
 };

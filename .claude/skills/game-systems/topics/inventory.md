@@ -1021,13 +1021,21 @@ documents what's actually built.
   instance, as the "Chest 2" actor in `LVL_Strategy` does) — no C++ constructor seeds it,
   since C++ shouldn't hard-code content paths. `BP_Chest` sets its `Inventory` subobject to an
   8×6 grid.
-- **Unit Blueprints** — `AStrategyPlayerUnit::StartingItems` is likewise Blueprint-authored
-  (`BP_PlayerUnit` seeds an Apple and a Pocket Knife) and its `Inventory` subobject is a 6×4
-  grid with the default 30 `WeightCapacity`. `BP_Chest` sets its capacity to **0** (no limit),
+- **Unit Blueprints** — a unit's starting pack is its character definition's `DefaultLoadout`,
+  not a property on the unit: `BP_PlayerUnit` points at `DA_Character_Settler`, which seeds an
+  Apple and a Pocket Knife (this was `AStrategyPlayerUnit::StartingItems` until game-data Slice 4
+  removed it). The loadout is placed once, when the unit's record is created, and afterwards the
+  record is what a pack is restored from - see `game-data.md`. `BP_PlayerUnit`'s `Inventory`
+  subobject is a 6×4 grid with the default 30 `WeightCapacity`. `BP_Chest` sets its capacity to **0** (no limit),
   since a chest doesn't carry anything anywhere.
   `GridWidth`/`GridHeight`/`StackMultiplier`/`WeightCapacity` are the per-holder knobs to
   override on any new holder Blueprint; `Entries` itself is not editable, so starting contents
-  always go through `StartingItems` and `AddItem`'s auto-placement.
+  always go through `StartingItems` (containers) or `DefaultLoadout` (characters) and `AddItem`'s
+  auto-placement. The one path that places entries at stored anchors is
+  `UInventoryComponent::RestoreEntries`, which a character record uses to hand a pack back to its
+  actor - it keeps ids, anchors and rotation, drops anything empty, duplicated or not fitting, and
+  returns the count that landed. `UEquipmentComponent::RestoreEquippedItems` is the paperdoll
+  equivalent.
 - **`BP_WorldItem`** — the concrete `AWorldItem` subclass, assigned to
   `AStrategyPlayerController::WorldItemClass` (which the drop debug exec spawns, and which logs a
   warning naming the controller if it's unset). One Blueprint serves every item type: `ItemMesh`
@@ -1127,9 +1135,10 @@ documents what's actually built.
 - **Equipped visuals** — `UItemDefinition::WorldMesh` is authored for it and nothing reads it
   yet. Attaching a mesh to a skeletal socket on `OnEquipmentChanged` is purely cosmetic and
   belongs on the character/animation side.
-- **Starting equipment** — there's no `StartingEquipment` counterpart to `StartingItems`; a pawn
-  starts wearing nothing. Seed it the same way if it's wanted: a Blueprint-authored array, applied
-  once server-side in `BeginPlay`, never hard-coded in C++.
+- **Starting equipment** — there's no worn counterpart to `UCharacterDefinition::DefaultLoadout`;
+  a pawn starts wearing nothing. If it's wanted, it belongs on the character definition beside the
+  loadout and is applied where the loadout is (`AStrategyUnit::RegisterWithRecordStore`, create
+  path only) - never on the unit, and never hard-coded in C++.
 - **Spending gold** — `UWalletComponent::TrySpendGold` is the seam, and
   `AStrategyPlayerController::TryTradeItem` is the worked example of using it: check
   affordability against the whole request, move the goods, then debit for what actually moved,
@@ -1175,8 +1184,9 @@ documents what's actually built.
   but the array is `EditAnywhere`, so a designer *can* put two materials in a `StartingItems`
   entry by hand. Nothing crashes — the accessors just multiply through everything they find and
   the composed name says both materials — but nothing detects it either. The content sweeps only
-  see definition assets, not per-instance authored arrays, which is a gap the record layer
-  (Slice 4) inherits rather than one this slice can close.
+  see definition assets, not per-instance authored arrays. Character loadouts moved onto
+  `UCharacterDefinition::DefaultLoadout` in game-data Slice 4, so the character sweep *could* now
+  check them for a doubled slot; it doesn't yet. Container `StartingItems` remain per-instance.
 - No partial-stack drag — the UI always moves the whole stack even though `MoveItem` already
   takes a quantity and supports the split. Splitting needs a player-facing way to say "how
   many", which hasn't been designed.
@@ -1221,8 +1231,8 @@ documents what's actually built.
   `unreal-module-organization.md`), not to equipment alone.
 - No equipped visuals — `WorldMesh` is authored but nothing attaches it to a socket, so an
   equipped item disappears from view entirely rather than showing on the pawn.
-- No starting equipment — every pawn starts with empty worn slots; only `StartingItems` is
-  seeded.
+- No starting equipment — every pawn starts with empty worn slots; only the character
+  definition's `DefaultLoadout` is seeded.
 - **Every loose world item looks identical.** All eight definitions point `WorldMesh` at the same
   black placeholder sphere, so an apple and a sword on the ground are indistinguishable until
   picked up. Deliberate — it makes the pickup testable without committing to art — but it is

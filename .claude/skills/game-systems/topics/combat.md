@@ -122,6 +122,11 @@ hit while otherwise idle. Looting a body's inventory is a related but separate s
     manage the recovery timer
   - `UHealthComponent::Kill` — the one transition into `Dead`; authority-only and terminal
   - `UHealthComponent::IsIncapacitated` — Downed-or-Dead, the query nearly all gameplay uses
+  - `UHealthComponent::RestoreState` — puts the component into a stored health and state, the
+    way a character record hands its condition back to its actor. Authority-only; broadcasts the
+    delegate of the state it *enters* (so a unit restored Dead goes inert through its ordinary
+    `OnHealthDied`), never `OnDamaged`; cancels any pending recovery and re-arms a fresh one for a
+    restored Downed. See `game-data.md`
   - `UHealthComponent::OnRep_HealthState` — non-authority machines' reaction to a replicated
     state change, dispatching `OnDowned`/`OnDied`/`OnRecovered` by the new state
   - `AStrategyUnit::AttackTarget` — in-range swing vs. move-then-swing, with Downed guards
@@ -136,7 +141,13 @@ hit while otherwise idle. Looting a body's inventory is a related but separate s
   - `AStrategyPlayerController::DoAttackCommand` — squad-wide player-issued attack
   - `AStrategyPlayerController::AttackKeyPressed` — entry point from input, gated on `SelectedNPC`
 - **Runtime ownership:** `UHealthComponent` is a default subobject of `AStrategyUnit`, alongside
-  `Inventory`.
+  `Inventory`. **It is the working copy, not the truth** (game-data Slice 4): every change of health
+  or state is written back to the unit's `FCharacterRecord` - `OnHealthDamaged` writes back
+  directly, and `OnDowned`/`OnRecovered`/`OnDied` are also bound to
+  `AStrategyUnit::OnWorkingCopyChanged`. A unit adopting an existing record at `BeginPlay` gets its
+  health *from* the record through `RestoreState`, which is what keeps a dead named character dead
+  across a reload. `MaxHealth` still lives on the component, per Blueprint; the record stores
+  current health only.
 - **Data flow (player-issued):** Attack key (`H`) with an NPC targeted →
   `DoAttackCommand(Target)` → `Target->SetAggressive(true)` + `AttackTarget()` on each
   `ControlledUnits` member → in range: `PerformAttack` → `Montage_Play` +
@@ -166,8 +177,9 @@ hit while otherwise idle. Looting a body's inventory is a related but separate s
   per-unit or per-weapon damage variation.
 - `Disposition` is only ever toggled by `SetAggressive`; a faction/allegiance system could gate
   who auto-retaliates against whom, rather than every unit treating every other unit as a valid
-  target. Faction standing is now *stored* (`factions.md`) but units have no faction yet and
-  nothing reads it — deriving hostility from it is exactly this extension point.
+  target. Faction standing is now *stored* (`factions.md`) and every unit now *has* a faction
+  (`AStrategyUnit::GetFactionId()`, from its character record) but nothing reads either -
+  deriving hostility from them is exactly this extension point.
 - `OnHealthDamaged`'s auto-retaliation always targets the single instigator of the most recent
   hit; there's no threat table for multi-attacker scenarios.
 - `AttackTarget`'s out-of-range branch reuses the same `MoveToLocation` path as player move
