@@ -73,6 +73,41 @@ accurate knowledge of a region requires an ongoing presence or contact network, 
 one-time visit. Scouting ahead with a high-perception, high-stealth element is a
 supported, rewarded tactic for gathering actionable intelligence before committing.
 
+## Travel the Player Isn't Watching
+
+Sending a group somewhere and turning attention elsewhere is normal play, not an edge
+case — it is what the squad-division design (`characters-and-squads.md`) and the time-pace
+control (`player-experience.md`) together encourage. A journey across several regions can
+take in-game days, and no player watches that at normal speed.
+
+**The standard: an unwatched journey should produce roughly what watching it would have
+produced.** That is the measure the travel simulation is held to, and it is deliberately a
+fidelity standard rather than a fairness one — the player looking away is not a tactical
+choice the world should reward or punish.
+
+Two things follow from it:
+
+**Encounters come from what is actually on the route, not from a die roll at intervals.**
+Had the player been watching, they would have met a specific group, of a specific strength,
+in a specific place. A periodic roll against a region-wide danger rating cannot reproduce
+that, because it is modelling the region rather than the journey. Anything with intent and
+identity — faction patrols, trade caravans, other travelling groups — therefore has to be
+somewhere at all times, whether or not anyone is looking at it.
+
+**Wildlife is the deliberate exception.** Per **Wildlife** below, it has no politics, no
+memory and no goals, and its danger is fixed per zone and never progresses. A region-level
+model of wildlife is not a shortcut — it is an accurate description of what wildlife
+already is in this design. The dividing line is intent, not importance.
+
+**Perception and stealth apply off-camera too.** If a high-perception, high-stealth group
+would have slipped past a patrol while the player watched, the unwatched journey has to let
+them slip past as well. Not as a reward for planning, but because a simulation that only
+honours stealth while observed is simply producing the wrong answer.
+
+How the player finds out any of this happened is owned by `notifications-and-alerts.md` —
+in short, a durable line in the activity feed, and a danger flash if one of their own is in
+trouble.
+
 ## Time Scale and Day/Night
 
 A full day/night cycle where darkness meaningfully affects stealth detection, patrol

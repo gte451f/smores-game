@@ -61,9 +61,17 @@ convenience redundancy, not a second source of truth.
 ### Time-Pace Controls
 
 The on-screen exposure of the discrete speed tiers already defined in
-`player-experience.md` (pause, 1/3x, 1/2x, 3/4x, 1x, 2x, 4x, 8x) — available anywhere, at
-any time, with no mode-specific exemptions, per that topic. This widget doesn't introduce
-new pacing behavior, only surfaces it.
+`player-experience.md` (pause, 1/3x, 1/2x, 3/4x, 1x, 2x, 4x, 8x) — in single-player,
+available anywhere, at any time, with no mode-specific exemptions, per that topic. This
+widget doesn't introduce new pacing behavior, only surfaces it.
+
+**In multiplayer every tier is locked at 1x, pause included** (see
+`player-experience.md`). The widget stays visible and honest rather than disappearing — it
+reads 1x and offers nothing to press, so the absence is explained where the player would go
+looking for it.
+
+No alert ever changes the pace on the player's behalf — see
+`notifications-and-alerts.md`.
 
 ### Quick-Access Menu Strip
 

@@ -30,7 +30,7 @@ This topic covers intendent game designs that may not exist yet.
 | [`topics/base-building.md`](topics/base-building.md) | The outpost/town-building split, site selection, raids, supply chains, upkeep |
 | [`topics/orders-and-jobs.md`](topics/orders-and-jobs.md) | Per-character job queues worked in priority order, the city-builder resemblance and its boundary, job categories, training as the slow path, reflex/order/autonomy precedence |
 | [`topics/tech-and-crafting.md`](topics/tech-and-crafting.md) | Tech tree structure, research mechanics, crafting quality, faction military tech progression |
-| [`topics/open-world.md`](topics/open-world.md) | Static handcrafted map, regions/biomes, points of interest, travel/visibility, wildlife, time scale |
+| [`topics/open-world.md`](topics/open-world.md) | Static handcrafted map, regions/biomes, points of interest, travel/visibility, unwatched travel, wildlife, time scale |
 | [`topics/save-system.md`](topics/save-system.md) | What must persist, save slots, version/mod compatibility as player-facing promises |
 | [`topics/player-experience.md`](topics/player-experience.md) | Onboarding philosophy, Codex, tooltips, settings, accessibility |
 | [`topics/multiplayer-and-content.md`](topics/multiplayer-and-content.md) | Co-op vision and scope, update/patch philosophy toward players, mod/DLC design relationship |
@@ -38,7 +38,7 @@ This topic covers intendent game designs that may not exist yet.
 | [`topics/difficulty-and-modifiers.md`](topics/difficulty-and-modifiers.md) | *(placeholder)* New-game difficulty modifiers beyond ironman |
 | [`topics/tutorial-and-scenario-start.md`](topics/tutorial-and-scenario-start.md) | No tutorial — player-chosen starter scenarios with cosmetic-only backstory, player-created starting squad (lineage/cosmetic only, fixed stats/skills baseline) |
 | [`topics/player-interface.md`](topics/player-interface.md) | In-session UI intent — squad roster/divisions, mini-map, time-of-day and pace controls, activity/alerts panel, meta menu, deliberate exclusions (no quest tracker, no danger overlays) |
-| [`topics/notifications-and-alerts.md`](topics/notifications-and-alerts.md) | *(placeholder)* What triggers a notification, severity, history |
+| [`topics/notifications-and-alerts.md`](topics/notifications-and-alerts.md) | Flash-vs-record split, the squad danger flash, why an alert never changes the simulation |
 | [`topics/world-map-and-travel.md`](topics/world-map-and-travel.md) | No fast travel, map view of explored area, map annotations (events/POIs/trade routes/faction territory), mini-map widget, candidate QoL nav commands ("run to destination," "follow the leader") |
 | [`topics/narrative-and-lore.md`](topics/narrative-and-lore.md) | Worldbuilding philosophy (plausibility default, austere tone), three threat categories, the planet's deep history — precursor terraforming, radiation-driven underground retreat, the karst underworld (future DLC), present-day penal-colony/dumping-ground use, the prisoners' civilization — and what it explains about other systems |
 | [`topics/quests-and-objectives.md`](topics/quests-and-objectives.md) | *(placeholder)* What structures player goals, if anything, beyond emergent play |

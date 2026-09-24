@@ -33,7 +33,7 @@ still owes it a visit, and this topic is the only thing that cites it now):
 | Resource strip | Top right | **Live.** Gold balance |
 | Target panel | Top right, below the strip | **Live.** Name, what it is, how far away, health, and what you may do to it |
 | Squad portraits | Bottom left | **Live.** One portrait per squad member, with health, a selection ring, and the "N selected" count |
-| Activity feed | Bottom right | **Live.** Tabbed record of what just happened, fading after 8 seconds, expandable |
+| Activity feed | Bottom right | **Live.** Tabbed record of what just happened; nothing fades, expandable |
 
 ### Panels
 

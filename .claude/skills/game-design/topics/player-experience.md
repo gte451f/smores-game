@@ -37,9 +37,31 @@ mode and an extended full-description mode, defaulting to extended for new playe
 Full graphics, audio, control, and UI configurability, plus gameplay-level knobs —
 notably an autosave interval, an optional ironman toggle (see `save-system.md`), and a
 time-flow control offering discrete speed tiers rather than a continuous slider: pause,
-1/3x, 1/2x, 3/4x, 1x (normal), 2x, 4x, and 8x. Available anywhere, at any time, with no
-mode-specific exemptions — see **Accessibility** below and `base-building.md`'s Building
-Mode for why that matters.
+1/3x, 1/2x, 3/4x, 1x (normal), 2x, 4x, and 8x. In single-player these are available
+anywhere, at any time, with no mode-specific exemptions — see **Accessibility** below and
+`base-building.md`'s Building Mode for why that matters.
+
+**In multiplayer the simulation runs at 1x and no player may retime it, decided.** A shared
+world where any of eight players can speed it up, slow it down or stop it is unstable for
+everyone else, and there is no version of "whoever clicked last wins" that reads as fair.
+Time dilation is a single-player feature.
+
+**Pause is inside that lock, decided** — it is a time change like any other, and a shared
+world that one of eight players can stop is the same instability as one they can speed up.
+There is no host-only or consent-based exemption.
+
+This does cost something real, and it is recorded here rather than hidden: the
+pause-anywhere commitment under **Accessibility** below is a **single-player guarantee**.
+Pause is the one tier with an accessibility claim on it where the rest carry only a
+convenience claim, so co-op asks more of a player than single-player does. That is accepted
+as the price of a stable shared world — co-op is opt-in, single-player is the mode the
+accessibility baseline is written against, and no other accessibility commitment is
+weakened by it.
+
+The lock keys off whether the session is networked at all, not off how many players are
+connected. A host sitting alone in a co-op session cannot pause either. That is deliberate:
+availability that changed the moment someone joined would be worse than availability that
+never existed.
 
 ## Accessibility
 
@@ -48,8 +70,8 @@ high-contrast UI mode, UI/font scaling independent of resolution, subtitles for 
 information-carrying audio, full key/button rebinding with no action locked to a specific
 input, a toggle alternative for anything that would otherwise require holding a key,
 sensitivity and dead-zone tuning, pause-anywhere (the simulation should never demand
-real-time reflexes to process), the full 1/3x–8x speed range described under **Settings**
-above, and notifications that persist until dismissed rather than auto-expiring — the
+real-time reflexes to process), the full 1/3x–8x speed range and pause-anywhere described under
+**Settings** above (both single-player; see the multiplayer lock recorded there), and notifications that persist until dismissed rather than auto-expiring — the
 persistence is what lets the player safely run at high speed without missing something
 that needed attention, rather than the game forcing a slowdown on their behalf.
 
