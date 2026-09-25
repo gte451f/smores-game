@@ -5,10 +5,12 @@
 #include "CoreMinimal.h"
 
 /**
- *  The one shape both conversation players are driven through - THROWAWAY, part of the spike.
+ *  The shape the spike's conversation player is driven through - THROWAWAY, part of the spike.
  *
- *  The tests and the PIE commands only ever see this, so they run the Ink scene and the Yarn scene
- *  identically and any difference in what comes out is a difference between the languages.
+ *  The tests and the PIE commands only ever see this. It began as the common shape for an Ink and a
+ *  Yarn player run side by side; Yarn won (2026-09-25) and the Ink half is in git history. It is
+ *  roughly what Slice 3's server-side conversation needs to hand its clients: a line as an id plus
+ *  its speaker, or the choices as ids with an availability flag.
  *
  *  A *script* is a loaded file, shared. A *conversation* is one playthrough of it with its own
  *  position and its own memory - several squads talking to the same NPC at once are several
@@ -21,7 +23,7 @@ struct FSpikeLine
 	/** The line's id - what would cross the network, and what a translation keys on */
 	FString Id;
 
-	/** Who says it, from the "Name: text" convention both languages' writers use. Empty for narration. */
+	/** Who says it, from Yarn's "Name: text" convention. Empty for narration. */
 	FString Speaker;
 
 	/** The words, without the speaker's name */
@@ -35,13 +37,14 @@ struct FSpikeChoice
 	FString Text;
 
 	/**
-	 *  False for a choice shown but not selectable - Yarn's `-> text <<if condition>>`.
-	 *  Ink has no such thing: a choice whose condition fails is simply not in the list.
+	 *  False for a choice shown but not selectable - Yarn's `-> text <<if condition>>`. Yarn never
+	 *  hides a choice whose condition fails; it offers it marked unavailable, and the screen decides
+	 *  whether to grey it out or leave it off.
 	 */
 	bool bAvailable = true;
 };
 
-/** What a conversation asks the game, and tells it to do. The same two hooks for both languages. */
+/** What a conversation asks the game, and tells it to do */
 struct FSpikeGameHooks
 {
 	/** Answers the script's gold() */
@@ -71,7 +74,7 @@ public:
 
 	virtual ~ISpikeConversation() = default;
 
-	/** "Yarn" or "Ink" */
+	/** "Yarn" */
 	virtual FString GetLanguage() const = 0;
 
 	/** Runs from the beginning to the first line or choice. False (and GetError) if it couldn't. */
@@ -97,28 +100,20 @@ public:
 /** A loaded Yarn script - the compiled program and its table of line text */
 struct FSpikeYarnScript;
 
-/** A loaded Ink script - the story, converted to inkcpp's form in memory */
-struct FSpikeInkScript;
-
 namespace SmoresDialogSpike
 {
 	/** Where the spike's scene lives: the example mod's conversations/ folder, as a player's mod would sit */
 	FString GetSceneDirectory();
 
-	/** The scene's file name without its extension, in both languages */
+	/** The scene's file name without its extension */
 	inline const TCHAR* GetSceneName() { return TEXT("shakedown"); }
 
 	/** Reads <Name>.yarnc and <Name>-Lines.csv from Directory - the files ysc writes */
 	TSharedPtr<FSpikeYarnScript> LoadYarnScript(const FString& Directory, const FString& Name, FString& OutError);
 
-	/** Reads <Name>.ink.json from Directory - the file Inky exports - and converts it in memory */
-	TSharedPtr<FSpikeInkScript> LoadInkScript(const FString& Directory, const FString& Name, FString& OutError);
-
 	/** A new conversation over a loaded script, starting at its first node ("Shakedown" for the scene) */
 	TUniquePtr<ISpikeConversation> MakeYarnConversation(const TSharedRef<FSpikeYarnScript>& Script, const FString& StartNode, FSpikeGameHooks Hooks);
 
-	TUniquePtr<ISpikeConversation> MakeInkConversation(const TSharedRef<FSpikeInkScript>& Script, FSpikeGameHooks Hooks);
-
-	/** Splits "Bandit: Toll road." into the speaker and the words. Shared by both players. */
+	/** Splits "Bandit: Toll road." into the speaker and the words */
 	void SplitSpeaker(const FString& Raw, FString& OutSpeaker, FString& OutText);
 }

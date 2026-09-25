@@ -10,12 +10,12 @@
 /**
  *  Holds the one conversation the PIE commands are playing - THROWAWAY, part of the spike.
  *
- *  SmoresSpikeTalk <yarn|ink> [gold]   starts the bandit shakedown in that language
- *  SmoresSpikeChoose <n>               picks choice n (counting from 1)
+ *  SmoresSpikeTalk [gold]   starts the bandit shakedown (gold defaults to 50)
+ *  SmoresSpikeChoose <n>    picks choice n (counting from 1)
  *
  *  Lines, choices and the script's commands go to the COMMS feed. Deliberately single-player and
  *  local, unlike Slice 3's real conversations (server-run, one per squad): this only exists so
- *  Jim can play the scene in both languages and compare.
+ *  Jim could play the scene in PIE while choosing a language.
  */
 UCLASS()
 class USpikeConversationSubsystem : public UWorldSubsystem
@@ -24,7 +24,7 @@ class USpikeConversationSubsystem : public UWorldSubsystem
 
 public:
 
-	void StartTalk(const FString& Language, int32 StartingGold);
+	void StartTalk(int32 StartingGold);
 	void Choose(int32 OneBasedChoice);
 
 protected:
@@ -38,9 +38,8 @@ private:
 
 	void Post(const FString& Text, const FString& Source = FString()) const;
 
-	/** The scripts stay loaded between talks, so a second talk plays the same loaded copy */
+	/** The script stays loaded between talks, so a second talk plays the same loaded copy */
 	TSharedPtr<FSpikeYarnScript> YarnScript;
-	TSharedPtr<FSpikeInkScript> InkScript;
 
 	TUniquePtr<ISpikeConversation> Conversation;
 

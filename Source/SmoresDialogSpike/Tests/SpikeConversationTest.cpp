@@ -10,12 +10,12 @@
 #include "Misc/Paths.h"
 
 /**
- *  The conversation-player spike's tests - THROWAWAY with the rest of the module.
+ *  The conversation-player spike's tests - THROWAWAY with the rest of the module; Slice 3 carries
+ *  what they prove over to the real conversation code.
  *
- *  Every test runs twice, once per language (Smores.DialogSpike.<Test>.Yarn / .Ink), over the same
- *  scene read from the real files in Mods/example/conversations - loaded the way a player's
- *  computer would load a mod. Nothing here has a screen, which is the nearest this project can
- *  get to "a server with no UI": the launcher engine can't build a real dedicated server.
+ *  They play the bandit shakedown from the real files in Mods/example/conversations, loaded the way
+ *  a player's computer would load a mod. Nothing here has a screen, which is the nearest this
+ *  project can get to "a server with no UI": the launcher engine can't build a real dedicated server.
  */
 
 namespace
@@ -38,29 +38,22 @@ namespace
 		}
 	};
 
-	using FSpikeConversationFactory = TFunction<TUniquePtr<ISpikeConversation>(FSpikeGameHooks)>;
-
-	/** Loads the scene once in the given language; each call of the result is a new conversation over it */
-	FSpikeConversationFactory LoadSpikeScene(const FString& Language, const FString& Directory, FString& OutError)
+	TSharedPtr<FSpikeYarnScript> LoadSpikeScene(FAutomationTestBase& Test)
 	{
-		if (Language == TEXT("Yarn"))
-		{
-			TSharedPtr<FSpikeYarnScript> Script = SmoresDialogSpike::LoadYarnScript(Directory, SmoresDialogSpike::GetSceneName(), OutError);
-			if (!Script)
-			{
-				return nullptr;
-			}
-			TSharedRef<FSpikeYarnScript> Loaded = Script.ToSharedRef();
-			return [Loaded](FSpikeGameHooks Hooks) { return SmoresDialogSpike::MakeYarnConversation(Loaded, TEXT("Shakedown"), MoveTemp(Hooks)); };
-		}
-
-		TSharedPtr<FSpikeInkScript> Script = SmoresDialogSpike::LoadInkScript(Directory, SmoresDialogSpike::GetSceneName(), OutError);
+		FString Error;
+		TSharedPtr<FSpikeYarnScript> Script = SmoresDialogSpike::LoadYarnScript(SmoresDialogSpike::GetSceneDirectory(), SmoresDialogSpike::GetSceneName(), Error);
 		if (!Script)
 		{
-			return nullptr;
+			Test.AddError(FString::Printf(TEXT("couldn't load the scene: %s"), *Error));
 		}
-		TSharedRef<FSpikeInkScript> Loaded = Script.ToSharedRef();
-		return [Loaded](FSpikeGameHooks Hooks) { return SmoresDialogSpike::MakeInkConversation(Loaded, MoveTemp(Hooks)); };
+		return Script;
+	}
+
+	TUniquePtr<ISpikeConversation> StartSpikeConversation(const TSharedPtr<FSpikeYarnScript>& Script, FSpikeTestGame& Game)
+	{
+		TUniquePtr<ISpikeConversation> Talk = SmoresDialogSpike::MakeYarnConversation(Script.ToSharedRef(), TEXT("Shakedown"), Game.MakeHooks());
+		Talk->Start();
+		return Talk;
 	}
 
 	/** Where the conversation is, in one line - for failure messages */
@@ -100,10 +93,9 @@ namespace
 	}
 
 	/**
-	 *  True if the choices a player can actually pick are exactly these ids, in order.
-	 *
-	 *  "Can pick" because the languages differ in how a failed condition looks: Ink leaves the
-	 *  choice out, Yarn keeps it in the list marked unavailable. The pick-able list is the same.
+	 *  True if the choices on offer are exactly these, in order - an id with a leading "!" meaning
+	 *  "offered, but unavailable". Yarn never hides a choice whose condition fails; it offers it
+	 *  marked unavailable.
 	 */
 	bool ExpectSpikeChoices(FAutomationTestBase& Test, const ISpikeConversation& Conversation, const TArray<FString>& Ids)
 	{
@@ -112,10 +104,7 @@ namespace
 		{
 			for (const FSpikeChoice& Choice : Conversation.GetChoices())
 			{
-				if (Choice.bAvailable)
-				{
-					Offered.Add(Choice.Id);
-				}
+				Offered.Add(Choice.bAvailable ? Choice.Id : TEXT("!") + Choice.Id);
 			}
 		}
 
@@ -127,7 +116,7 @@ namespace
 		return true;
 	}
 
-	/** Picks the choice with this id, wherever it sits in the list - positions differ between the languages */
+	/** Picks the choice with this id */
 	bool ChooseSpike(FAutomationTestBase& Test, ISpikeConversation& Conversation, const FString& Id)
 	{
 		const TArray<FSpikeChoice>& Choices = Conversation.GetChoices();
@@ -139,52 +128,30 @@ namespace
 		}
 		return true;
 	}
-
-	void AddSpikeLanguages(TArray<FString>& OutBeautifiedNames, TArray<FString>& OutTestCommands)
-	{
-		for (const TCHAR* Language : { TEXT("Yarn"), TEXT("Ink") })
-		{
-			OutBeautifiedNames.Add(Language);
-			OutTestCommands.Add(Language);
-		}
-	}
 }
 
 // -----------------------------------------------------------------------------------------------
 
-IMPLEMENT_COMPLEX_AUTOMATION_TEST(
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FSmoresDialogSpikePlaysTheSceneTest,
 	"Smores.DialogSpike.PlaysTheScene",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-void FSmoresDialogSpikePlaysTheSceneTest::GetTests(TArray<FString>& OutBeautifiedNames, TArray<FString>& OutTestCommands) const
-{
-	AddSpikeLanguages(OutBeautifiedNames, OutTestCommands);
-}
-
 /**
  *  The whole "ask, then refuse" path: every line's id, speaker and text; the choices at each point;
- *  the script's own memory removing the question once asked; and the command arriving with its
- *  arguments, in order, before the line that follows it.
+ *  the script's own memory turning the question unavailable once asked; and the command arriving
+ *  with its arguments before the line that follows it.
  */
-bool FSmoresDialogSpikePlaysTheSceneTest::RunTest(const FString& Language)
+bool FSmoresDialogSpikePlaysTheSceneTest::RunTest(const FString& Parameters)
 {
-	FString Error;
-	const FSpikeConversationFactory Make = LoadSpikeScene(Language, SmoresDialogSpike::GetSceneDirectory(), Error);
-	if (!Make)
+	const TSharedPtr<FSpikeYarnScript> Script = LoadSpikeScene(*this);
+	if (!Script)
 	{
-		AddError(FString::Printf(TEXT("couldn't load the %s scene: %s"), *Language, *Error));
 		return false;
 	}
 
 	FSpikeTestGame Game;
-	TUniquePtr<ISpikeConversation> Talk = Make(Game.MakeHooks());
-
-	if (!TestTrue(TEXT("starts"), Talk->Start()))
-	{
-		AddError(Talk->GetError());
-		return false;
-	}
+	TUniquePtr<ISpikeConversation> Talk = StartSpikeConversation(Script, Game);
 
 	if (!ExpectSpikeLine(*this, *Talk, TEXT("shakedown_toll"), TEXT("Bandit"), TEXT("Toll road. Twenty gold, or you walk back the way you came.")))
 	{
@@ -206,14 +173,14 @@ bool FSmoresDialogSpikePlaysTheSceneTest::RunTest(const FString& Language)
 
 	// Back at the choices, and the script remembers it was asked.
 	Talk->Advance();
-	if (!ExpectSpikeChoices(*this, *Talk, { TEXT("shakedown_pay"), TEXT("shakedown_refuse") }))
+	if (!ExpectSpikeChoices(*this, *Talk, { TEXT("shakedown_pay"), TEXT("!shakedown_ask"), TEXT("shakedown_refuse") }))
 	{
 		return false;
 	}
 
 	TestEqual(TEXT("no command before refusing"), Game.Commands.Num(), 0);
 	ChooseSpike(*this, *Talk, TEXT("shakedown_refuse"));
-	TestEqual(TEXT("the commands the script gave"), FString::Join(Game.Commands, TEXT(" | ")), FString(TEXT("ChangeStanding bandits -10")));
+	TestEqual(TEXT("the commands the script gave"), FString::Join(Game.Commands, TEXT(" | ")), FString(TEXT("ChangeStanding Raiders -10")));
 
 	if (!ExpectSpikeLine(*this, *Talk, TEXT("shakedown_wrong"), TEXT("Bandit"), TEXT("Wrong answer.")))
 	{
@@ -227,59 +194,32 @@ bool FSmoresDialogSpikePlaysTheSceneTest::RunTest(const FString& Language)
 
 // -----------------------------------------------------------------------------------------------
 
-IMPLEMENT_COMPLEX_AUTOMATION_TEST(
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FSmoresDialogSpikePayFollowsGoldTest,
 	"Smores.DialogSpike.PayChoiceFollowsGold",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-void FSmoresDialogSpikePayFollowsGoldTest::GetTests(TArray<FString>& OutBeautifiedNames, TArray<FString>& OutTestCommands) const
+/** gold() decides the "Pay the toll" choice: offered-but-unavailable when poor, and paying runs TakeMoney */
+bool FSmoresDialogSpikePayFollowsGoldTest::RunTest(const FString& Parameters)
 {
-	AddSpikeLanguages(OutBeautifiedNames, OutTestCommands);
-}
-
-/**
- *  gold() decides the "Pay the toll" choice. Where the languages differ, this records the
- *  difference rather than papering over it: Yarn still offers the choice, marked unavailable (the
- *  "a disabled action still shows, with its reason" rule), while Ink leaves it out.
- */
-bool FSmoresDialogSpikePayFollowsGoldTest::RunTest(const FString& Language)
-{
-	FString Error;
-	const FSpikeConversationFactory Make = LoadSpikeScene(Language, SmoresDialogSpike::GetSceneDirectory(), Error);
-	if (!Make)
+	const TSharedPtr<FSpikeYarnScript> Script = LoadSpikeScene(*this);
+	if (!Script)
 	{
-		AddError(FString::Printf(TEXT("couldn't load the %s scene: %s"), *Language, *Error));
 		return false;
 	}
 
-	// Too poor.
+	// Too poor: still offered, marked unavailable, and it can't be picked.
 	{
 		FSpikeTestGame Game;
 		Game.Gold = 5;
-		TUniquePtr<ISpikeConversation> Talk = Make(Game.MakeHooks());
-		Talk->Start();
+		TUniquePtr<ISpikeConversation> Talk = StartSpikeConversation(Script, Game);
 		Talk->Advance();
 
-		ExpectSpikeChoices(*this, *Talk, { TEXT("shakedown_ask"), TEXT("shakedown_refuse") });
-
-		if (Language == TEXT("Yarn"))
+		if (ExpectSpikeChoices(*this, *Talk, { TEXT("!shakedown_pay"), TEXT("shakedown_ask"), TEXT("shakedown_refuse") }))
 		{
-			const TArray<FSpikeChoice>& Choices = Talk->GetChoices();
-			if (TestEqual(TEXT("Yarn keeps all three in the list"), Choices.Num(), 3))
-			{
-				TestEqual(TEXT("the first is paying"), Choices[0].Id, FString(TEXT("shakedown_pay")));
-				TestFalse(TEXT("...marked unavailable"), Choices[0].bAvailable);
-				TestFalse(TEXT("an unavailable choice can't be picked"), Talk->Choose(0));
-				TestTrue(TEXT("still at the choices"), Talk->GetState() == ESpikeState::Choices);
-			}
-			AddInfo(TEXT("Yarn: a choice you can't afford is shown, marked unavailable"));
+			TestFalse(TEXT("an unavailable choice can't be picked"), Talk->Choose(0));
+			TestTrue(TEXT("still at the choices"), Talk->GetState() == ESpikeState::Choices);
 		}
-		else
-		{
-			TestEqual(TEXT("Ink leaves it out"), Talk->GetChoices().Num(), 2);
-			AddInfo(TEXT("Ink: a choice you can't afford is left out entirely"));
-		}
-
 		TestEqual(TEXT("nothing was bought"), Game.Commands.Num(), 0);
 	}
 
@@ -287,8 +227,7 @@ bool FSmoresDialogSpikePayFollowsGoldTest::RunTest(const FString& Language)
 	{
 		FSpikeTestGame Game;
 		Game.Gold = 50;
-		TUniquePtr<ISpikeConversation> Talk = Make(Game.MakeHooks());
-		Talk->Start();
+		TUniquePtr<ISpikeConversation> Talk = StartSpikeConversation(Script, Game);
 		Talk->Advance();
 
 		if (!ExpectSpikeChoices(*this, *Talk, { TEXT("shakedown_pay"), TEXT("shakedown_ask"), TEXT("shakedown_refuse") }))
@@ -309,49 +248,39 @@ bool FSmoresDialogSpikePayFollowsGoldTest::RunTest(const FString& Language)
 
 // -----------------------------------------------------------------------------------------------
 
-IMPLEMENT_COMPLEX_AUTOMATION_TEST(
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FSmoresDialogSpikeTwoAtOnceTest,
 	"Smores.DialogSpike.TwoConversationsOverOneScript",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
-
-void FSmoresDialogSpikeTwoAtOnceTest::GetTests(TArray<FString>& OutBeautifiedNames, TArray<FString>& OutTestCommands) const
-{
-	AddSpikeLanguages(OutBeautifiedNames, OutTestCommands);
-}
 
 /**
  *  Two squads talking to the same bandit: one loaded script, two conversations alive at once, each
  *  with its own place and its own memory, and each telling only its own game what to do.
  */
-bool FSmoresDialogSpikeTwoAtOnceTest::RunTest(const FString& Language)
+bool FSmoresDialogSpikeTwoAtOnceTest::RunTest(const FString& Parameters)
 {
-	FString Error;
-	const FSpikeConversationFactory Make = LoadSpikeScene(Language, SmoresDialogSpike::GetSceneDirectory(), Error);
-	if (!Make)
+	const TSharedPtr<FSpikeYarnScript> Script = LoadSpikeScene(*this);
+	if (!Script)
 	{
-		AddError(FString::Printf(TEXT("couldn't load the %s scene: %s"), *Language, *Error));
 		return false;
 	}
 
 	FSpikeTestGame GameA;
 	FSpikeTestGame GameB;
-	TUniquePtr<ISpikeConversation> A = Make(GameA.MakeHooks());
-	TUniquePtr<ISpikeConversation> B = Make(GameB.MakeHooks());
+	TUniquePtr<ISpikeConversation> A = StartSpikeConversation(Script, GameA);
+	TUniquePtr<ISpikeConversation> B = StartSpikeConversation(Script, GameB);
 
-	A->Start();
-	B->Start();
+	// A asks, and comes back to choices with the question used up...
 	A->Advance();
-
-	// A asks, and comes back to choices without the question...
 	ChooseSpike(*this, *A, TEXT("shakedown_ask"));
 	A->Advance();
-	if (!ExpectSpikeChoices(*this, *A, { TEXT("shakedown_pay"), TEXT("shakedown_refuse") }))
+	if (!ExpectSpikeChoices(*this, *A, { TEXT("shakedown_pay"), TEXT("!shakedown_ask"), TEXT("shakedown_refuse") }))
 	{
 		return false;
 	}
 
 	// ...while B, started at the same time over the same script, is still on its first line, and
-	// then gets all three choices: A's memory isn't B's.
+	// then can still ask: A's memory isn't B's.
 	if (!ExpectSpikeLine(*this, *B, TEXT("shakedown_toll"), TEXT("Bandit"), TEXT("Toll road. Twenty gold, or you walk back the way you came.")))
 	{
 		return false;
@@ -366,48 +295,33 @@ bool FSmoresDialogSpikeTwoAtOnceTest::RunTest(const FString& Language)
 	ChooseSpike(*this, *B, TEXT("shakedown_refuse"));
 	ChooseSpike(*this, *A, TEXT("shakedown_pay"));
 	TestEqual(TEXT("A's commands"), FString::Join(GameA.Commands, TEXT(" | ")), FString(TEXT("TakeMoney 20")));
-	TestEqual(TEXT("B's commands"), FString::Join(GameB.Commands, TEXT(" | ")), FString(TEXT("ChangeStanding bandits -10")));
+	TestEqual(TEXT("B's commands"), FString::Join(GameB.Commands, TEXT(" | ")), FString(TEXT("ChangeStanding Raiders -10")));
 	return true;
 }
 
 // -----------------------------------------------------------------------------------------------
 
-IMPLEMENT_COMPLEX_AUTOMATION_TEST(
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FSmoresDialogSpikeBrokenFileTest,
 	"Smores.DialogSpike.BrokenFileIsReported",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-void FSmoresDialogSpikeBrokenFileTest::GetTests(TArray<FString>& OutBeautifiedNames, TArray<FString>& OutTestCommands) const
-{
-	AddSpikeLanguages(OutBeautifiedNames, OutTestCommands);
-}
-
 /** A missing file and a garbage file each come back as an error message - never a crash, never a half-loaded script */
-bool FSmoresDialogSpikeBrokenFileTest::RunTest(const FString& Language)
+bool FSmoresDialogSpikeBrokenFileTest::RunTest(const FString& Parameters)
 {
-	const FString Directory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("DialogSpike"), TEXT("BrokenFileTest"), Language);
+	const FString Directory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("DialogSpike"), TEXT("BrokenFileTest"));
 	IFileManager::Get().DeleteDirectory(*Directory, /*RequireExists*/ false, /*Tree*/ true);
 
 	FString Error;
-	TestFalse(TEXT("a missing file doesn't load"), static_cast<bool>(LoadSpikeScene(Language, Directory, Error)));
+	TestFalse(TEXT("a missing file doesn't load"), SmoresDialogSpike::LoadYarnScript(Directory, TEXT("shakedown"), Error).IsValid());
 	TestFalse(TEXT("...and says why"), Error.IsEmpty());
-	AddInfo(FString::Printf(TEXT("missing: %s"), *Error));
 
-	const FString Garbage = TEXT("{ this is \"not\" a compiled script, just a writer's typo [");
-	if (Language == TEXT("Yarn"))
-	{
-		FFileHelper::SaveStringToFile(Garbage, *FPaths::Combine(Directory, TEXT("shakedown.yarnc")));
-		FFileHelper::SaveStringToFile(TEXT("id,text\n"), *FPaths::Combine(Directory, TEXT("shakedown-Lines.csv")));
-	}
-	else
-	{
-		FFileHelper::SaveStringToFile(Garbage, *FPaths::Combine(Directory, TEXT("shakedown.ink.json")));
-	}
+	FFileHelper::SaveStringToFile(TEXT("{ this is \"not\" a compiled script, just a writer's typo ["), *FPaths::Combine(Directory, TEXT("shakedown.yarnc")));
+	FFileHelper::SaveStringToFile(TEXT("id,text\n"), *FPaths::Combine(Directory, TEXT("shakedown-Lines.csv")));
 
 	Error.Reset();
-	TestFalse(TEXT("a garbage file doesn't load"), static_cast<bool>(LoadSpikeScene(Language, Directory, Error)));
+	TestFalse(TEXT("a garbage file doesn't load"), SmoresDialogSpike::LoadYarnScript(Directory, TEXT("shakedown"), Error).IsValid());
 	TestFalse(TEXT("...and says why"), Error.IsEmpty());
-	AddInfo(FString::Printf(TEXT("garbage: %s"), *Error));
 
 	IFileManager::Get().DeleteDirectory(*Directory, /*RequireExists*/ false, /*Tree*/ true);
 	return true;

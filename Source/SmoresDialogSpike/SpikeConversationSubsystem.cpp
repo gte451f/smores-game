@@ -13,7 +13,7 @@ bool USpikeConversationSubsystem::DoesSupportWorldType(const EWorldType::Type Wo
 	return WorldType == EWorldType::Game || WorldType == EWorldType::PIE;
 }
 
-void USpikeConversationSubsystem::StartTalk(const FString& Language, int32 StartingGold)
+void USpikeConversationSubsystem::StartTalk(int32 StartingGold)
 {
 	Gold = StartingGold;
 	Conversation.Reset();
@@ -32,31 +32,13 @@ void USpikeConversationSubsystem::StartTalk(const FString& Language, int32 Start
 	const FString Directory = SmoresDialogSpike::GetSceneDirectory();
 	FString Error;
 
-	if (Language.Equals(TEXT("yarn"), ESearchCase::IgnoreCase))
+	if (!YarnScript)
 	{
-		if (!YarnScript)
-		{
-			YarnScript = SmoresDialogSpike::LoadYarnScript(Directory, SmoresDialogSpike::GetSceneName(), Error);
-		}
-		if (YarnScript)
-		{
-			Conversation = SmoresDialogSpike::MakeYarnConversation(YarnScript.ToSharedRef(), TEXT("Shakedown"), MoveTemp(Hooks));
-		}
+		YarnScript = SmoresDialogSpike::LoadYarnScript(Directory, SmoresDialogSpike::GetSceneName(), Error);
 	}
-	else if (Language.Equals(TEXT("ink"), ESearchCase::IgnoreCase))
+	if (YarnScript)
 	{
-		if (!InkScript)
-		{
-			InkScript = SmoresDialogSpike::LoadInkScript(Directory, SmoresDialogSpike::GetSceneName(), Error);
-		}
-		if (InkScript)
-		{
-			Conversation = SmoresDialogSpike::MakeInkConversation(InkScript.ToSharedRef(), MoveTemp(Hooks));
-		}
-	}
-	else
-	{
-		Error = TEXT("usage: SmoresSpikeTalk <yarn|ink> [gold]");
+		Conversation = SmoresDialogSpike::MakeYarnConversation(YarnScript.ToSharedRef(), TEXT("Shakedown"), MoveTemp(Hooks));
 	}
 
 	if (!Conversation)
@@ -80,7 +62,7 @@ void USpikeConversationSubsystem::Choose(int32 OneBasedChoice)
 {
 	if (!Conversation || Conversation->GetState() != ESpikeState::Choices)
 	{
-		Post(TEXT("Nothing to choose - start with SmoresSpikeTalk <yarn|ink>"), TEXT("spike"));
+		Post(TEXT("Nothing to choose - start with SmoresSpikeTalk"), TEXT("spike"));
 		return;
 	}
 
@@ -92,13 +74,15 @@ void USpikeConversationSubsystem::Choose(int32 OneBasedChoice)
 	}
 
 	const FSpikeChoice Picked = Conversation->GetChoices()[Index];
-	if (!Conversation->Choose(Index))
+	if (!Picked.bAvailable)
 	{
 		Post(FString::Printf(TEXT("\"%s\" isn't available"), *Picked.Text), TEXT("spike"));
 		return;
 	}
 
+	// Echo the pick before choosing, so a command the choice runs posts after it, not before.
 	Post(FString::Printf(TEXT("> %s"), *Picked.Text), TEXT("you"));
+	Conversation->Choose(Index);
 	ShowUntilChoice();
 }
 
@@ -170,12 +154,12 @@ namespace
 
 	FAutoConsoleCommandWithWorldAndArgs GSmoresSpikeTalk(
 		TEXT("SmoresSpikeTalk"),
-		TEXT("Dialog spike: plays the bandit shakedown. SmoresSpikeTalk <yarn|ink> [gold, default 50]"),
+		TEXT("Dialog spike: plays the bandit shakedown in Yarn. SmoresSpikeTalk [gold, default 50]"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 		{
 			if (USpikeConversationSubsystem* Subsystem = FindSpikeSubsystem(World))
 			{
-				Subsystem->StartTalk(Args.Num() > 0 ? Args[0] : FString(), Args.Num() > 1 ? FCString::Atoi(*Args[1]) : 50);
+				Subsystem->StartTalk(Args.Num() > 0 ? FCString::Atoi(*Args[0]) : 50);
 			}
 		}));
 
