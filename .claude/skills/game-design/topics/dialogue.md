@@ -26,6 +26,11 @@ stark tone in `narrative-and-lore.md` and keeps every line translatable.
   combat log (`player-interface.md`), so it can't be missed. The floating line is an event that
   fades; the feed is the record that doesn't. A bark never changes anything; it only tells the
   player something.
+
+  People also **speak up when a squad comes near** - a shopkeeper calling out to customers, a
+  guard challenging someone loitering (`ai-and-behavior.md`) - once as the squad arrives, not over
+  and over while it stands there. Until characters can genuinely perceive the world, "near" is
+  plain distance and doesn't respect walls; that is an accepted cost of not waiting for perception.
 - **Conversations** are authored exchanges with choices, played in **their own panel** - never as
   floating text, which is for single one-way lines only. They're how
   the player deals with a faction's representative, hears a character's history, or (later) takes
@@ -94,9 +99,6 @@ edits a file and sees the change without restarting the game.
 ## Open Design Questions Worth Tracking
 
 - **How often barks fire.** Too often and the feed is noise; too rarely and the world is mute.
-- **Do people speak up when a squad simply comes near** - a shopkeeper hawking, a guard challenging
-  (`ai-and-behavior.md`) - or only when something happens to them or someone talks to them? Real
-  noticing waits on perception; a distance-based stand-in would notice through walls.
 - **Hearing range, and whether it respects awareness** (walls, distance, noise) once perception
   exists (`ai-and-behavior.md`).
 - **Does a single-player conversation pause the game?** Co-op can't, which argues for consistency.

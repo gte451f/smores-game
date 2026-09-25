@@ -358,7 +358,8 @@ from a map (`Tests/SmoresDialogTestFactory.h`), so a writer retuning a bark can'
   that two people talking at once don't overlap.
 - **Nothing barks on approach.** All five events are something happening to or with the speaker,
   so outside a fight NPCs speak only when spoken to - which is how Slice 1's PIE pass read. An
-  `Approached` event is proposed in the roadmap's Slice 2, pending Jim's call.
+  `Approached` event (distance-based, so it will notice through walls until perception exists) is
+  planned in the roadmap's Slice 2 - Jim's call.
 - **Only the trader greetings are translated.** The six French lines were the localization proof's
   whole scope, so after `SmoresSetCulture fr` the bandits and everyone else still speak English.
   Translating the rest is content work.

@@ -8,9 +8,9 @@ skill's `dialog.md` topic, created by Slice 1 and extended by each slice after i
 trimmed as each slice ships. Sections marked **SHIPPED** have moved there and keep only a pointer.
 
 > **Status: Slice 1 is DONE** - built, committed and PIE-checked by Jim 2026-09-24. **Slice 2
-> (floating bark text) is next**, and was added after that look; it needs one decision from Jim
-> before it starts (a proximity bark - see its entry). **Slice 3 (conversations)** waits on the
-> Ink-or-Yarn decision. The game-data roadmap this one depended on closed 2026-09-24.
+> (floating bark text and proximity barks) is next**, added after that look, and ready to start.
+> **Slice 3 (conversations)** waits on the Ink-or-Yarn decision. The game-data roadmap this one
+> depended on closed 2026-09-24.
 
 Dialog is a deliberate **area of improvement over Kenshi**, which is the reference game in most
 other respects. Barks matter, but so do NPC and recruit backstories, faction dealings, in-squad
@@ -178,7 +178,7 @@ the pak.
 - **No bark fires on proximity.** Expected, and worth knowing why: Slice 1's five events are all
   something happening *to* or *with* the speaker (a hit, a knockdown, a death, a shop opened, being
   talked to). None fires because a squad simply came near, so outside a fight NPCs speak only when
-  spoken to. Whether to add one is the decision at the top of Slice 2.
+  spoken to. Jim chose to add one: Slice 2's `Approached` event.
 - **Floating text: yes** - barks should also appear over the speaker. And **a back-and-forth
   conversation goes in its own panel**, which is Slice 3's window as already planned. Written into
   `game-design`'s `dialogue.md`; Slice 2 builds the floating text.
@@ -217,30 +217,15 @@ Notes worth carrying into the later slices:
   (`InternationalizationPreset=English`), so it can't switch to French yet; every package's source
   text is assumed English.
 
-### Slice 2 — Floating bark text
+### Slice 2 — Floating bark text and proximity barks
 
-Added after Jim's Slice 1 PIE pass. **Barks only**: anything with back-and-forth is a conversation
-and gets Slice 3's window, never floating text (Jim's call, same pass).
-
-**Decision before starting - Jim's: add a proximity bark?** As things stand NPCs only speak when
-something happens to them or someone talks to them, so floating text would mostly decorate
-interactions the player started. The design names two barks that fire on approach - "a shopkeeper
-hawking goods, a guard challenging a loiterer" (`ai-and-behavior.md`) - and floating text is where
-they would read best. An **`Approached`** event would be the first:
-
-- raised by the director when one of a player's squad comes within `ApproachRange` (say 8 m) of an
-  NPC who is on their feet, having been outside it - on the way in, not every moment they stand
-  there - and no more than once per NPC per player per cooldown;
-- carrying Speaker (the NPC), Listener (the squad member who came near) and Player, like
-  `TradeOpened`;
-- checked on a slow timer (straight-line distance between each NPC and each squad member), which is
-  the seam real perception replaces later. **The honest limit**: it notices through walls, exactly
-  as `HearingRange` already does, until perception exists;
-- with core content for it - a generic line plus a trader's hawk and a bandit's challenge, since
-  the content sweep wants a generic and a specific line for every event.
-
-**Recommendation: include it.** Without it the slice is right but quiet. If Jim says no, the event
-waits for the AI roadmap's perception, and Slice 2 is floating text alone.
+Added after Jim's Slice 1 PIE pass, and both halves are his calls from it. **Barks only float**:
+anything with back-and-forth is a conversation and gets Slice 3's window, never floating text. And
+**NPCs should speak up when a squad comes near**, not only when something happens to them or someone
+talks to them - the design's "a shopkeeper hawking goods, a guard challenging a loiterer"
+(`ai-and-behavior.md`), which is also what gives the floating text something to show outside a
+fight. The two are one slice because they are judged in one PIE look: how often people pipe up is
+only answerable once you can see them do it.
 
 **Builds:**
 
@@ -274,17 +259,41 @@ waits for the AI roadmap's perception, and Slice 2 is floating text alone.
     the styling pass.
 - **Slice 3's ambient banter should use the same layer**, each line floating over whoever says it.
   Noted there.
+- **An `Approached` bark event** - the first bark that fires on proximity:
+  - raised by the director when one of a player's squad comes within `ApproachRange` (8 m to start)
+    of an NPC who is on their feet, having been outside it - **on the way in, not every moment they
+    stand there** - and then not again for that NPC and that player until `ApproachCooldownSeconds`
+    (a minute to start) has passed and the squad has left and come back. Squad members never raise
+    it at each other;
+  - carrying Speaker (the NPC), Listener (the squad member who came near) and Player, like
+    `TradeOpened`, so a line can depend on who walked up and on standing;
+  - subject to the speaker's quiet time and each line's cooldown like every other bark, so an NPC
+    who just spoke doesn't also greet;
+  - checked on a slow world-time timer on the director - straight-line distance between each NPC
+    and each squad member - with the inside/outside and last-fired state per NPC per player held in
+    the director's transient memory, never saved. **The honest limit**: it notices through walls,
+    exactly as `HearingRange` already does. The timer is the seam real perception replaces
+    (`ai-and-behavior.md`'s Awareness), with nothing else needing to change;
+  - a value on `EBarkEvent` and a row in `GetEventSubjects`, so the loader, the condition checks,
+    `SmoresTestBark Approached <Name>` and the writers' reference all pick it up;
+  - with core content: a generic line, plus at least a trader's hawk and a bandit's challenge -
+    the content sweep wants a generic and a more specific line for every event.
 
-**Tests:** whatever is pulled into a plain helper - the lifetime formula, one bubble per speaker, a
-replaced bubble's timer restarting, expiry. Placement and look are PIE. If `Approached` is in:
-entering fires once, standing inside doesn't fire again, leaving and coming back after the
-cooldown does, an incapacitated NPC never does, and one player's approach doesn't use up another's.
+**Tests:** whatever of the bubbles is pulled into a plain helper - the lifetime formula, one bubble
+per speaker, a replaced bubble's timer restarting, expiry; placement and look are PIE. For
+`Approached`, the edge-trigger as a plain helper too: entering fires once, standing inside doesn't
+fire again, leaving and coming back fires only after the cooldown, an incapacitated NPC never fires,
+a squad member never does, and one player's approach doesn't use up another's. The core content
+sweep picks up the new event on its own and fails until its lines exist.
 
 **Verification:** Jim in PIE judges the bubble's height and size, how long it stays, what a fight
-with several people talking looks like, whether it reads at 4x and 8x, and - if `Approached` is in -
-how often people pipe up. The bark-frequency question Slice 1's look left open is answered here.
+with several people talking looks like, whether it reads at 4x and 8x, and how often people pipe up
+as the squad walks through - the bark-frequency question Slice 1's look left open. The knobs:
+`ApproachRange`, `ApproachCooldownSeconds`, `SpeakerQuietSeconds`, `HearingRange` and each row's
+cooldown.
 
-**Ships into:** `dialog.md`; `hud-and-panels.md` (the new layer, and its click exception).
+**Ships into:** `dialog.md` (the bubble layer, the new event in the event and subjects tables);
+`hud-and-panels.md` (the new layer, and its click exception).
 
 ### Decision needed before Slice 3: Ink or Yarn
 
@@ -428,12 +437,12 @@ Settled during the conversation that produced this file. Don't reopen them witho
 - **Barks float over the speaker as well as going to the feed; a back-and-forth conversation gets
   its own panel.** Jim's call after Slice 1's PIE pass, 2026-09-24. The floating text is an event
   that fades; the feed is the record that doesn't.
+- **NPCs bark on proximity** (`Approached`), from straight-line distance until perception exists.
+  Jim's call, 2026-09-24. Noticing through walls is the known, accepted cost of not waiting.
 
 ## Open Questions Worth Tracking
 
 - **Ink or Yarn.** Jim is reading up. See the criteria above. Blocks Slice 3 only.
-- **A proximity bark (`Approached`) in Slice 2, or wait for perception?** Jim's call before
-  Slice 2 starts; see its entry.
 - **How often barks fire.** Slice 1's look only saw interaction barks; Slice 2's look answers it.
 - **Text-loaded definitions.** Should mods be able to add character (and item, faction) definitions
   from text? This decides whether "a mod adds an NPC with dialog" is possible at all. It probably
