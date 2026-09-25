@@ -1,0 +1,31 @@
+// A bandit shakedown - the example conversation, in Yarn. Written for the Ink-vs-Yarn spike and
+// kept for dialog Slice 3 to put on a Bandit in game.
+//
+// gold() is a question the game answers. <<TakeMoney>> and <<ChangeStanding>> are actions the game
+// carries out (Raiders is the Bandit's faction id). $asked_about_road is Yarn's own memory, local
+// to this conversation. Each #line: tag is the line's id - what crosses the network, what a
+// translation keys on, and what a voice recording would be filed under.
+//
+// Compile with: ysc compile shakedown.yarn -o . -n shakedown
+// which writes shakedown.yarnc (the program) and shakedown-Lines.csv (every line's text by id).
+
+title: Shakedown
+---
+<<declare $asked_about_road = false>>
+Bandit: Toll road. Twenty gold, or you walk back the way you came. #line:shakedown_toll
+<<jump Choices>>
+===
+
+title: Choices
+---
+-> Pay the toll. <<if gold() >= 20>> #line:shakedown_pay
+    <<TakeMoney 20>>
+    Bandit: Pleasure doing business. Road's yours. #line:shakedown_paid
+-> Who says it's your road? <<if not $asked_about_road>> #line:shakedown_ask
+    <<set $asked_about_road to true>>
+    Bandit: The twelve of us in those rocks say so. #line:shakedown_twelve
+    <<jump Choices>>
+-> Get out of my way. #line:shakedown_refuse
+    <<ChangeStanding Raiders -10>>
+    Bandit: Wrong answer. #line:shakedown_wrong
+===

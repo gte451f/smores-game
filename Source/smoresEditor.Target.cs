@@ -18,5 +18,7 @@ public class smoresEditorTarget : TargetRules
 		ExtraModuleNames.Add("SmoresUI");
 		ExtraModuleNames.Add("SmoresEconomy");
 		ExtraModuleNames.Add("SmoresDialog");
+		// THROWAWAY: the conversation-player spike, removed once Jim picks Ink or Yarn
+		ExtraModuleNames.Add("SmoresDialogSpike");
 	}
 }

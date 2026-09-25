@@ -94,9 +94,10 @@ before writing or changing gameplay state.** The short version:
 
 Eight runtime modules, each a sibling folder directly under `Source/`: the primary `smores`
 module plus `SmoresCore`, `SmoresCombat`, `SmoresItems`, `SmoresCharacters`, `SmoresUI`,
-`SmoresEconomy`, and `SmoresDialog`. `smores` holds only the Strategy game framework (game mode,
-player controller, player state, camera pawn), the main menu, and the unused template base
-classes — every gameplay domain lives in a feature module.
+`SmoresEconomy`, and `SmoresDialog` (plus a temporary ninth, `SmoresDialogSpike` - the Yarn
+conversation-player spike, which dialog Slice 3 folds into `SmoresDialog`). `smores` holds only
+the Strategy game framework (game mode, player controller, player state, camera pawn), the main
+menu, and the unused template base classes — every gameplay domain lives in a feature module.
 
 Dependency direction runs `smores` → {`SmoresUI`, `SmoresDialog`} → {`SmoresCharacters`,
 `SmoresEconomy`} → {`SmoresItems`, `SmoresCombat`} → `SmoresCore`, and never back. (`SmoresUI`
@@ -147,6 +148,7 @@ the add-a-binding checklist.
 | ModelContextProtocol | Hosts the in-editor `unreal-mcp` HTTP server |
 | AllToolsets | Registers all Epic AI toolsets (Blueprint, scene, assets, Sequencer, …) with `unreal-mcp` |
 | StateTree / GameplayStateTree | No longer used by game code; kept only as an `AllToolsets` dependency |
+| YarnSpinner (project plugin) | Conversation player for dialog - Yarn Spinner for Unreal, pre-release, locally patched. **Local-only:** `Plugins/YarnSpinner/` is gitignored while the repo is public, so a fresh clone won't build without it. `game-systems`' `dialog.md` has how to restore it, the patch list and the licence duties |
 
 ## Content layout
 

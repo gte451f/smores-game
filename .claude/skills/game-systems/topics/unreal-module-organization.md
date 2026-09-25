@@ -34,7 +34,11 @@ record store on the GameState; see `game-data.md`), `SmoresUI`
 `UTraderComponent`), and `SmoresDialog` (the dialog loader and library `USmoresDialogSubsystem`,
 the condition language and fact registry, bark selection, `UBarkDirectorComponent`, the
 localized text source, and `IDialogHost`; see `dialog.md`) — see "Migrating Today's Prototype
-Code" below. One game `Target.cs` and one Editor `Target.cs`, both referencing all eight modules.
+Code" below. One game `Target.cs` and one Editor `Target.cs`, both referencing all eight modules —
+plus a ninth, temporary one: `SmoresDialogSpike`, the Yarn conversation-player spike, which dialog
+Slice 3 folds into `SmoresDialog` and deletes. It is the first module to depend on a project plugin
+(`YarnSpinner`, in `Plugins/YarnSpinner/`, which is gitignored for now - see `dialog.md`'s "The
+Yarn plugin - how we carry it").
 
 `SmoresEconomy` is the **first module cut for an ownership reason rather than as part of the
 original migration**, and it is worth reading as the worked example of "When to Actually
@@ -151,6 +155,8 @@ Source/
     BarkSelection.* BarkDirectorComponent.*           # "most specific wins"; the server's director
     DialogText.* SmoresDialogSubsystem.* DialogHost.*  # string tables + translations; the library;
                                    # IDialogHost, implemented by AStrategyPlayerController
+  SmoresDialogSpike/               # TEMPORARY: the Yarn player proven on one scene; Slice 3 moves
+                                   # it into SmoresDialog and deletes this module
   SmoresMarkets/                   # market simulation, much later - see the target map
   SmoresSaveGame/
   SmoresOnlineSession/
@@ -316,7 +322,7 @@ better answer than a fourth interface.
 | `SmoresCombat` | Health/damage, melee resolution, disposition/aggro, incapacitation/capture | `SmoresCore`, `SmoresCharacters` | `combat.md` (both skills) |
 | `SmoresFactions` | Faction simulation, standing, territory, assault intelligence, military progression, and faction-level decision-making (relationships, settlement investment, raid/assault decisions) on its own slow clock | `SmoresCore`, `SmoresCharacters` | `factions-and-world-state.md` |
 | `SmoresAI` | Individual character behavior: roles/archetypes, perception, drives, goal selection, and the per-character job queue | `SmoresCore`, `SmoresCharacters`, `SmoresCombat`, `SmoresItems`, `SmoresFactions`, `SmoresWorld` | `ai-and-behavior.md`, `orders-and-jobs.md` |
-| `SmoresDialog` **(EXISTS)** | Dialog: the text-file loader (base game and mods through one path), the condition language and facts, barks, and (Slices 2-3) floating bark text, conversations, topics, banter and effects. Confines the Ink/Yarn runtime to one module | `SmoresCore`, `SmoresCombat`, `SmoresCharacters` today; `SmoresEconomy` with the first wallet effect | `dialogue.md`; `dialog.md` (current) |
+| `SmoresDialog` **(EXISTS)** | Dialog: the text-file loader (base game and mods through one path), the condition language and facts, barks, and (Slices 2-3) floating bark text, conversations, topics, banter and effects. Confines the Yarn Spinner plugin to one module (it joins with Slice 3; the spike module holds it until then) | `SmoresCore`, `SmoresCombat`, `SmoresCharacters` today; `SmoresEconomy` with the first wallet effect | `dialogue.md`; `dialog.md` (current) |
 | `SmoresEconomy` **(EXISTS)** | **Value primitives only**: currency/wallet, pricing interface, traders and their stock | `SmoresCore`, `SmoresItems` | `economy.md` |
 | `SmoresMarkets` | Market simulation proper: supply/demand, emergent regional pricing, trade routes, caravans | `SmoresCore`, `SmoresItems`, `SmoresEconomy`, `SmoresFactions`, `SmoresWorld` | `economy.md` |
 | `SmoresWorld` | Map data, regions/biomes, POIs, fog of war/travel, wildlife, environmental events | `SmoresCore`, `SmoresFactions` (territory overlay) | `open-world.md`, `world-map-and-travel.md` |

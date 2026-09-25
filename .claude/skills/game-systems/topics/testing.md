@@ -7,11 +7,11 @@ the standing rule for when a piece of work should add to it. The forward-looking
 still needs building, in what order, and the decisions behind it — lives in
 `Docs/roadmaps/testing-roadmap.md`.
 
-> **Status: the harness is built and Slices 1 and 2 have shipped.** 163 tests run green (one with a
+> **Status: the harness is built and Slices 1 and 2 have shipped.** 167 tests run green (one with a
 > warning - see the content sweeps below), covering `SmoresItems`, `SmoresEconomy`,
 > `UHealthComponent`, the content smoke tests, and (added by later roadmaps) the time-pace ladder,
 > the target panel's action assembly, the activity log, the definition layer, faction standing,
-> character records, loot tables and dialog.
+> character records, loot tables, dialog and the Yarn conversation-player spike.
 > Only Slice 3 of
 > `Docs/roadmaps/testing-roadmap.md` remains. Everything below has been executed against this
 > project rather than written in advance.
@@ -61,10 +61,11 @@ them test smores.
 | Dialog translations reaching the localization manager (culture fallback, every line supplied every time) | `SmoresDialog` | ✅ 1 test | dialog 1 |
 | Built-in dialog facts answered by real units | `smores` | ✅ 1 test | dialog 1 |
 | `Content/Dialog/core` and `Mods/example` (zero errors *and* warnings, a generic and a specific line per event, encoding, the example still outranks core) | `SmoresDialog` | ✅ 2 tests | dialog 1 |
+| Yarn conversation player on `Mods/example/conversations/shakedown` (whole path, gold-gated choice, two conversations over one script, broken files) - THROWAWAY, Slice 3 ports it | `SmoresDialogSpike` | ✅ 4 tests | dialog spike |
 | Attack range / out-of-range branch | `SmoresCombat` | — | unclaimed |
 | Trade transaction ordering | `smores` | — | 3 |
 
-**163 tests.** Several rows came from the HUD, game-data and dialog rounds, not from the testing roadmap — a
+**167 tests.** Several rows came from the HUD, game-data and dialog rounds, not from the testing roadmap — a
 slice that ships numbers-and-state-machine code writes its own tests, whichever roadmap it came from.
 Update this table as slices ship; it is the quick answer to "is this already covered?"
 

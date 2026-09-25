@@ -7,7 +7,8 @@ What characters say, and the machinery that picks it. Built by Slice 1 of
 loaded exactly like a mod), a small condition language over a registered list of **facts**, and
 **barks** - one-way lines picked by "most specific match wins" and delivered to the activity feed.
 Floating bark text is the roadmap's Slice 2, and conversations, topics and banter its Slice 3; both
-reuse everything here.
+reuse everything here. Conversations are written in Yarn, and the player they will run on already
+exists - see "Conversations: the Yarn player".
 
 The design intent is `game-design`'s `dialogue.md`. This topic is how it is built.
 
@@ -310,7 +311,7 @@ None to wire. `UBarkDirectorComponent` is a native default subobject of `AStrate
 
 ## Testing
 
-23 tests (`testing.md` has the run commands):
+27 tests - 23 dialog plus the spike's 4 (`testing.md` has the run commands):
 
 - `Smores.Dialog.Condition.*` (5) - parse and evaluate; each kind of mistake rejected with its
   reason; subjects an event lacks; unknown content ids as warnings; errors carrying their line.
@@ -329,7 +330,13 @@ None to wire. `UBarkDirectorComponent` is a native default subobject of `AStrate
   by a wrong encoding, at least one translation. `Smores.Content.Dialog.ExampleModLoadsCleanly`
   checks the example mod loads and still outranks core.
 
-Every dialog test except the two content sweeps builds its packages from strings and answers facts
+- `Smores.DialogSpike.*` (4, THROWAWAY with the spike module; Slice 3 ports what they prove) -
+  play `Mods/example/conversations/shakedown` from its real files: the whole ask-then-refuse path
+  (ids, speakers, text, the used-up question, the command before its line); the pay choice
+  unavailable when poor and `TakeMoney` when not; two conversations over one loaded script keeping
+  separate places, memory and commands; a missing and a garbage file each refused with a message.
+
+Every dialog test except the two content sweeps and the spike's builds its packages from strings and answers facts
 from a map (`Tests/SmoresDialogTestFactory.h`), so a writer retuning a bark can't break one.
 
 ## Extension Points
@@ -342,11 +349,135 @@ from a map (`Tests/SmoresDialogTestFactory.h`), so a writer retuning a bark can'
 - **New lines, a new translation, a new mod**: content only - see Writing Dialog.
 - **Something else the director needs from a controller**: a method on `IDialogHost`.
 
+## Conversations: the Yarn player (built ahead of Slice 3)
+
+Conversations are written in **Yarn** (Yarn Spinner). Jim chose it over Ink on 2026-09-25, after a
+spike that played the same scene in both; the reasons are in the roadmap's Resolved Design
+Decisions, and the plan for everything built on top is its Slice 3. What exists today is the
+**player, proven on one scene, in a throwaway module**. Nothing in the game offers a conversation
+yet; `InteractWithNPC` is unchanged.
+
+### What exists
+
+- **`Mods/example/conversations/shakedown.yarn`** - the example conversation, kept for Slice 3 to
+  put on a Bandit. It exercises a question the game answers (`gold()`), two actions the game
+  carries out (`<<TakeMoney 20>>`, `<<ChangeStanding Raiders -10>>`), Yarn's own memory
+  (`$asked_about_road`), a conditional choice, a loop back to the choices, and an explicit
+  `#line:` id on every line. Beside it are the three files `ysc` writes from it, all read as plain
+  files at runtime:
+  - `shakedown.yarnc` - the compiled program, which holds **only line ids, never text**;
+  - `shakedown-Lines.csv` - `id,text,file,node,lineNumber`, the text of every line;
+  - `shakedown-Metadata.csv` - each line's tags other than `#line:` (empty here).
+
+  The bark loader ignores the `conversations/` folder.
+- **`Source/SmoresDialogSpike/`** - THROWAWAY. Slice 3 moves the player into `SmoresDialog`, then
+  deletes this module and its three registrations (`smores.uproject`, both `Target.cs` files).
+  - `YarnConversation.cpp`:
+    - `SmoresDialogSpike::LoadYarnScript` reads the `.yarnc` through the plugin's
+      `FYarnProtobufParser` and the lines table through `SmoresDialog::ParseCsv`, the bark
+      loader's own CSV reader.
+    - `FSpikeYarnConversation` drives the plugin's `FYarnVirtualMachine` directly.
+  - `SpikeConversation.h` - the shape the tests and commands see. A line is an id, a speaker and
+    text; the choices are id, text and "available". `Advance()` and `Choose()` move it on, and two
+    hooks (`GetGold`, `RunCommand`) stand in for the game.
+  - `USpikeConversationSubsystem` - the PIE commands `SmoresSpikeTalk [gold]` (default 50) and
+    `SmoresSpikeChoose <n>` (from 1). Lines, choices and commands go to the COMMS feed. It is local
+    and single-player by design; it exists only so the scene could be played.
+  - `Tests/SpikeConversationTest.cpp` - four tests (see Testing).
+
+### How the player is driven - what the spike learned
+
+- **Only the plugin's player is used:**
+  - `FYarnVirtualMachine`;
+  - `FYarnProtobufParser`, which reads a `.yarnc`;
+  - `UYarnInMemoryVariableStorage`, one per conversation, made with `NewObject` as a plain object
+    (it is a component, but needs no actor).
+
+  None of the plugin's dialogue runner, presenters, widgets or asset import is used. They assume
+  the script runs on the machine that shows it, and ours runs on the server and sends ids.
+- **The operators are ours.** Compiled Yarn calls its operators as functions: `gold() >= 20` calls
+  `Number.GreaterThanOrEqualTo`, and `not` calls `Bool.Not`. The plugin registers those in
+  `UYarnDialogueInstance`, its runner layer, not in the player, so the spike supplies its own
+  (`MakeYarnOperators`: the Number, Bool and String families). Not yet supplied: `Enum.*`,
+  `visited()`, `visited_count()`, `random()`, `dice()` and the rest of the plugin's built-in
+  library.
+- **The game's questions are functions** (`gold()`), answered through the VM's
+  `CallFunctionHandler`, `FunctionExistsHandler` and `FunctionParamCountHandler`. **The game's
+  actions are commands**: `<<TakeMoney 20>>` arrives as an `FYarnCommand` whose `CommandName` and
+  `Parameters` are plain strings.
+- **`ysc` accepts any function or command name without a declaration.** It inferred `gold()`'s
+  type and never asked what `TakeMoney` is. A misspelled name therefore only surfaces when that
+  line runs, so the loader has to check the names itself.
+- **The VM pauses after every line *and* every command** until `Continue()`. A command that
+  finishes at once is continued straight through (`FSpikeYarnConversation::Run`). The pause is what
+  lets a `<<wait 2>>` take two seconds.
+- **A choice whose condition fails is never hidden.** It arrives with `bIsAvailable` false, and
+  this is all-or-nothing: the script can't mark one choice "hide me" and another "grey me out". It
+  applies to the used-up question as much as to the toll you can't afford. `SetSelectedOption`
+  takes the position in the option set, counting unavailable choices too.
+- **Line ids arrive as the whole tag**, `line:shakedown_toll`. The spike strips the `line:` part.
+- **Initial values:** a `<<declare>>` value comes from the program whenever the variable store
+  doesn't have that variable yet.
+- **Custom node headers survive compiling.** Checked with `attach:`, `priority:` and `kind:`
+  headers on a node: `ysc` keeps them, and the plugin's reader puts them in `FYarnNode::Headers`.
+  Our conversation metadata can therefore live on the node itself.
+- **The Lines CSV's `file` column** is an absolute path on the writer's machine; ignore it.
+- **Log noise:** the VM logs "Yarn VM: Running node ..." at Log level. It is harmless.
+
+### The Yarn plugin - how we carry it
+
+- **Where:** `Plugins/YarnSpinner/`. This is Yarn Spinner for Unreal **3.2.8-alpha9**, a
+  "pre-release", from `github.com/YarnSpinnerTool/YarnSpinner-UnrealEngine` at commit `a2c24dc`
+  (2026-09-21).
+  - It has two modules: `YarnSpinner` (runtime) and `YarnSpinnerEditor`.
+  - It is a project plugin, so it is enabled without a `.uproject` entry.
+  - Only `SmoresDialogSpike` depends on it today; `SmoresDialog` will from Slice 3.
+- **It is not in git.** `.gitignore` lists `Plugins/YarnSpinner/` while this repo is public. When
+  Jim makes the repo private, delete that line and commit the plugin like any other code.
+  - Until then, **a fresh clone won't build**. To put the plugin back: clone the repo above at that
+  commit into `Plugins/YarnSpinner/`, then apply the patch list.
+- **Our patch list.** Each change is marked in the source with a `smores` comment. Re-apply the
+  list after updating the plugin, and re-check it after every engine upgrade:
+  1. `YarnProtobufParser.h/.cpp` moved from `YarnSpinnerEditor` into the `YarnSpinner` runtime
+     module (`Public/` and `Private/`), with the export macro changed from
+     `YARNSPINNEREDITOR_API` to `YARNSPINNER_API`. The plugin only reads compiled programs during
+     editor import, so without this a shipped game can't read a `.yarnc`.
+  2. `YarnProjectFactory.cpp` now reads `FString CultureCode(CulturePair.Key);`, because 5.8's
+     JSON keys no longer convert to `FString` implicitly.
+  3. `YarnLocalization.cpp`: `SetSourceString` takes a third argument in editor builds. It is the
+     same 5.8 change dialog Slice 1 hit.
+  4. `YarnOptionsPresenter.cpp`: a local variable renamed to `CharacterMarkup`, because
+     `CharacterAttribute` clashed with a global in `YarnMarkup.cpp` under a unity build.
+
+  Two deprecation warnings remain (`FCoreDelegates::OnPostEngineInit` in
+  `YarnSpinnerEditorModule.cpp`). They are warnings, not errors, for now.
+- **Licence** (YSPL, `LICENSE.md` in the plugin folder). These apply however the repo is set up:
+  - Credit Yarn Spinner visibly in the shipped game, next to the other middleware credits (s.3.1).
+    Jim has agreed to.
+  - Keep the plugin's copyright notice and licence file.
+  - Anyone outside Jim's own company who works on the code, such as a contractor, must agree in
+    writing to terms no less strict (s.4).
+  - AI tools must not send the plugin's source for training (s.3.3). The Team plan's commercial
+    terms cover that.
+  - A private repo shared with your own team is explicitly allowed (s.3.4(b)). A *modified* copy
+    may also be publishable as a "public fork" (s.3.4(c)), whose own examples are bug fixes and
+    engine-compatibility updates. That is our reading, not legal advice. The plugin stays out of
+    git until the repo is private, unless Jim decides otherwise.
+- **The compiler:** `ysc` **3.2.2**, the version the plugin names, a self-contained Windows `.exe`.
+  - On this machine it is at `Saved/DialogSpike/tools/ysc/ysc.exe`, which is not in git. To
+    re-download it: `github.com/YarnSpinnerTool/YarnSpinner-Console/releases`,
+    `ysc-win-3.2.2-*.zip`.
+  - `ysc compile <file>.yarn -o <dir> -n <name>` writes the three files.
+  - `ysc tag <file>.yarn` stamps a `#line:` id on every untagged line, so writers never type ids.
+  - Writers write in Yarn Spinner's own tools (such as its VS Code extension). The compiled files
+    are what a mod ships.
+
 ## Known Gaps
 
-- **Conversations, topics, banter, dialog memory and effects are Slice 3** - see the roadmap. So is
-  the Ink-or-Yarn decision, which blocks only them. A conversation plays in its own panel, never as
-  floating text (Jim, after Slice 1's PIE pass).
+- **Conversations, topics, banter, dialog memory and effects are Slice 3** - see the roadmap. The
+  language is decided (Yarn) and its player works (above), but nothing in the game offers a
+  conversation yet. A conversation plays in its own panel, never as floating text (Jim, after
+  Slice 1's PIE pass).
 - **A packaged build can't switch to French yet.** `InternationalizationPreset=English` in
   `DefaultGame.ini` stages English culture data only, so `SmoresSetCulture fr` answers "this build
   doesn't know the culture". The proof is in PIE; a packaged build wants the preset (and
