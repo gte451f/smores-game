@@ -7,6 +7,7 @@
 #include "InventoryComponent.h"
 #include "ItemModifierDefinition.h"
 #include "Tests/SmoresItemTestFactory.h"
+#include "Tests/SmoresTestDelegateListener.h"
 #include "Tests/SmoresTestWorld.h"
 
 /**
@@ -355,6 +356,121 @@ bool FSmoresInventoryAddItemAtClampsTest::RunTest(const FString& Parameters)
 	{
 		TestEqual(TEXT("Its quantity was clamped to the effective cap"), Inventory->GetEntries()[0].Item.Quantity, 5);
 	}
+
+	TestWorld.ForwardErrors(this);
+
+	return true;
+}
+
+//~ Adding a set all-or-nothing
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSmoresInventoryAddAllBiggestFirstTest,
+	"Smores.Items.Inventory.AddItemsAllOrNothingPlacesBiggestFirst",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FSmoresInventoryAddAllBiggestFirstTest::RunTest(const FString& Parameters)
+{
+	FSmoresTestWorld TestWorld;
+
+	UItemDefinition* SmallA = MakeTestItemDefinition(TestWorld, FIntPoint(1, 1));
+	UItemDefinition* SmallB = MakeTestItemDefinition(TestWorld, FIntPoint(1, 1));
+	UItemDefinition* Big = MakeTestItemDefinition(TestWorld, FIntPoint(2, 2));
+
+	const TArray<FInventoryItem> Set = { MakeTestItem(SmallA), MakeTestItem(SmallB), MakeTestItem(Big) };
+
+	// the shape that strands a big item: in a 3x2 grid, two 1x1s placed first take the top-left
+	// corner the 2x2 needed, and there is nowhere else for it to go
+	UInventoryComponent* OneAtATime = MakeTestInventory(TestWorld, 3, 2);
+
+	if (!TestNotNull(TEXT("Inventory created"), OneAtATime))
+	{
+		return true;
+	}
+
+	AddExpectedMessagePlain(TEXT("has no room for"), ELogVerbosity::Warning, EAutomationExpectedMessageFlags::Contains, 1);
+
+	for (const FInventoryItem& Item : Set)
+	{
+		OneAtATime->AddItem(Item);
+	}
+
+	TestEqual(TEXT("Added one at a time in that order, the big item is stranded"), OneAtATime->GetEntries().Num(), 2);
+
+	// the same set, the same grid, all at once - biggest first, so everything fits
+	UInventoryComponent* AllAtOnce = MakeTestInventory(TestWorld, 3, 2);
+	USmoresTestDelegateListener* Listener = TestWorld.NewKeptObject<USmoresTestDelegateListener>();
+
+	if (!TestNotNull(TEXT("Inventory created"), AllAtOnce) || !TestNotNull(TEXT("Listener created"), Listener))
+	{
+		return true;
+	}
+
+	AllAtOnce->OnInventoryChanged.AddDynamic(Listener, &USmoresTestDelegateListener::OnChanged);
+
+	TestTrue(TEXT("The whole set was added"), AllAtOnce->AddItemsAllOrNothing(Set));
+	TestEqual(TEXT("...all three of it"), AllAtOnce->GetEntries().Num(), 3);
+	TestEqual(TEXT("...with the big item placed first, in the corner"), AllAtOnce->GetEntryIdAtCell(FIntPoint(0, 0)), AllAtOnce->GetEntryIdAtCell(FIntPoint(1, 1)));
+	TestEqual(TEXT("...and one broadcast for the whole set, not one per item"), Listener->CallCount, 1);
+
+	// nothing to add is trivially everything added, and changes nothing
+	Listener->Reset();
+
+	TestTrue(TEXT("An empty set is added in full"), AllAtOnce->AddItemsAllOrNothing(TArray<FInventoryItem>()));
+	TestEqual(TEXT("...and broadcasts nothing"), Listener->CallCount, 0);
+
+	TestWorld.ForwardErrors(this);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSmoresInventoryAddAllRefusesWholeTest,
+	"Smores.Items.Inventory.AddItemsAllOrNothingRefusesWhole",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FSmoresInventoryAddAllRefusesWholeTest::RunTest(const FString& Parameters)
+{
+	FSmoresTestWorld TestWorld;
+
+	UInventoryComponent* Inventory = MakeTestInventory(TestWorld, 2, 2);
+	USmoresTestDelegateListener* Listener = TestWorld.NewKeptObject<USmoresTestDelegateListener>();
+
+	if (!TestNotNull(TEXT("Inventory created"), Inventory) || !TestNotNull(TEXT("Listener created"), Listener))
+	{
+		return true;
+	}
+
+	UItemDefinition* Coin = MakeTestItemDefinition(TestWorld, FIntPoint(1, 1), 5);
+	UItemDefinition* Small = MakeTestItemDefinition(TestWorld, FIntPoint(1, 1));
+	UItemDefinition* Big = MakeTestItemDefinition(TestWorld, FIntPoint(2, 2));
+
+	TestTrue(TEXT("A part stack of coins is placed"), Inventory->AddItemAt(MakeTestItem(Coin, 3), FIntPoint(0, 0), false));
+
+	Inventory->OnInventoryChanged.AddDynamic(Listener, &USmoresTestDelegateListener::OnChanged);
+
+	const FInventorySnapshot Before(Inventory);
+
+	// the coins would merge and the small item would fit - but the big one can't, so none of it lands
+	AddExpectedMessagePlain(TEXT("none of them were added"), ELogVerbosity::Warning, EAutomationExpectedMessageFlags::Contains, 1);
+
+	const TArray<FInventoryItem> TooMuch = { MakeTestItem(Coin, 2), MakeTestItem(Small), MakeTestItem(Big) };
+
+	TestFalse(TEXT("A set that doesn't fit is refused"), Inventory->AddItemsAllOrNothing(TooMuch));
+
+	const FInventorySnapshot After(Inventory);
+
+	TestTrue(FString::Printf(TEXT("...and changes nothing at all - not even the merge (before %s, after %s)"), *Before.ToString(), *After.ToString()),
+		Before == After);
+	TestEqual(TEXT("...and broadcasts nothing"), Listener->CallCount, 0);
+
+	// without the big item the same set fits, merge included
+	const TArray<FInventoryItem> Fits = { MakeTestItem(Coin, 2), MakeTestItem(Small) };
+
+	TestTrue(TEXT("A set that fits is added"), Inventory->AddItemsAllOrNothing(Fits));
+	TestEqual(TEXT("The coins merged into the stack already there"), Inventory->GetEntry(Inventory->GetEntryIdAtCell(FIntPoint(0, 0))).Item.Quantity, 5);
+	TestEqual(TEXT("...so only one new entry was needed"), Inventory->GetEntries().Num(), 2);
+	TestEqual(TEXT("Every unit is accounted for"), GetTotalQuantity(Inventory), 6);
 
 	TestWorld.ForwardErrors(this);
 

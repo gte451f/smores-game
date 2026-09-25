@@ -991,6 +991,17 @@ public:
 	UFUNCTION(Exec)
 	void SmoresDumpRecord();
 
+	/**
+	 *  Debug exec: rolls the loot table whose id is TableId Count times, from seeds Seed, Seed + 1,
+	 *  ..., and prints each roll - every item with the table it came from - followed by a tally
+	 *  across all of them. Touches nothing: no container, no inventory, not even the world seed,
+	 *  so it is the way to judge a table's spread without opening a single chest. Not a server hop,
+	 *  for the same reason as SmoresDumpDefinitions - tables are authored content, identical on
+	 *  every machine. SmoresDumpDefinitions lists the table ids.
+	 */
+	UFUNCTION(Exec)
+	void SmoresRollTable(FName TableId, int32 Seed = 0, int32 Count = 1);
+
 protected:
 
 	/**

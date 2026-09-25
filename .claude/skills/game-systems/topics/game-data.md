@@ -4,7 +4,9 @@
 
 Where the game keeps its stuff. Not how the stuff behaves — where it lives, how it's authored,
 and what will survive a save. This is the storage layer underneath items, characters, factions
-and loot, and it deliberately stops at the point where behavior begins.
+and loot, and it deliberately stops at the point where behavior begins. Loot tables are the one
+piece that *rolls* anything, and the rolling is seeded so that what it produces is as repeatable
+as any other stored fact.
 
 **All three layers now exist.** Factions have records (`FFactionRecord`, see `factions.md`), and
 every unit in the level stands in for an `FCharacterRecord` under the *soft split* described below:
@@ -35,8 +37,13 @@ than an actor has to be able to kill them.
 
 ### Every definition derives from `USmoresDefinition`
 
-It carries **exactly three fields** — `DefinitionId`, `DisplayName`, `Description` — because
-those are the only three every definition type genuinely shares.
+It carries **four fields** — `DefinitionId`, `DisplayName`, `Description` and `Tags` — because
+those are the only four every definition type genuinely shares. `Tags` (an
+`FGameplayTagContainer`) arrived in Slice 5 with its first reader, a loot table's "any item with
+this tag" entry; it passes the test `Icon` fails below, because an empty tag container is a
+legitimate state for *every* type, so nothing ever has to require one. The tag vocabulary lives in
+`Config/DefaultGameplayTags.ini`, which holds exactly one tag today (`Item.Mineral`) — add one only
+when something reads it.
 
 **Presentation deliberately stays on the subclasses.** It is tempting to hoist `Icon` up too,
 but the types disagree about what a picture even is: an item has a small transparent sprite
@@ -53,11 +60,18 @@ and notes.
 ### Definitions are referenced by id in saved data, by asset pointer in content
 
 - A **record** references its definition by id.
-- A **loot table** entry names an item by id.
 - A **save** stores ids.
 - But a **definition referencing another definition** (a recipe naming its output, a character
-  naming its loadout) uses an ordinary asset pointer — that is normal content linking, it cooks
-  correctly, and the editor shows the reference.
+  naming its loadout, a loot table naming an item or a sub-table) uses an ordinary asset pointer —
+  that is normal content linking, it cooks correctly, and the editor shows the reference.
+
+This topic used to list loot-table entries under "by id". Slice 5 built them with asset pointers
+instead, per the roadmap's settled decision that the id rule "applies only to data that gets
+saved": a table is authored content and nothing about it is saved. What *does* get saved - the
+items a roll put in a container - are ordinary `FInventoryItem`s, and inherit that struct's
+pointer-not-id gap (see Known Gaps). The mod case the id rule was reaching for is served by tags
+instead: a mod's new ore tagged `Item.Mineral` joins every "any mineral" entry without editing a
+table.
 
 The id rule exists for one reason: a save written with a mod installed should load without it,
 stripping that mod's content rather than refusing to open. That only works if saved data holds
@@ -73,7 +87,7 @@ not globally.
 
 ### `USmoresDefinition` — `Source/SmoresCore/SmoresDefinition.h`
 
-`UCLASS(Abstract, BlueprintType)`, deriving `UPrimaryDataAsset`. Holds the three shared fields
+`UCLASS(Abstract, BlueprintType)`, deriving `UPrimaryDataAsset`. Holds the four shared fields
 and two virtuals:
 
 - `GetDefinitionType()` — pure virtual. Each concrete type returns its own Asset Manager type
@@ -123,6 +137,10 @@ is the test that catches it — it exists for exactly this failure.
 | `UItemModifierDefinition` | `SmoresItems` | `ItemModifierDefinition` | five `DA_Modifier_*` under `Content/Items/Modifiers/` |
 | `UFactionDefinition` | `SmoresCore` | `FactionDefinition` | four `DA_Faction_*` under `Content/Factions/` — see `factions.md` |
 | `UCharacterDefinition` | `SmoresCharacters` | `CharacterDefinition` | three `DA_Character_*` under `Content/Characters/Definitions/` — see "Character Records" below |
+| `ULootTableDefinition` | `SmoresItems` | `LootTableDefinition` | five `DA_Loot_*` under `Content/Items/LootTables/` — see "Weighted Tables and Seeded Rolls" below |
+
+`UWeightedTableDefinition` (`SmoresCore`) is abstract and has no config line of its own: an
+abstract base is never an asset, and each concrete table type registers under its own name.
 
 Each type's `DefinitionType` is a `static const FPrimaryAssetType` holding the literal type
 string, spelled out rather than derived from the class name so it and the config line are visibly
@@ -268,6 +286,112 @@ legitimately disagrees while a unit is walking.
 
 All placeholders for a setting that isn't chosen. No unique character is authored yet.
 
+## Weighted Tables and Seeded Rolls
+
+Built by Slice 5 of `Docs/roadmaps/game-data-roadmap.md`. A chest opened in the desert yields
+different things from one opened in a faction town, because each names a different **table** -
+and the two tables share their common filler by both naming the same smaller one.
+
+### Two classes, split by what they know
+
+| Class | Module | Knows |
+|---|---|---|
+| `UWeightedTableDefinition` | `SmoresCore` | weights, how many picks a roll makes (`MinRolls`/`MaxRolls`), nesting and where it gives up, and how a roll is seeded. **Nothing about what a table yields** |
+| `ULootTableDefinition` | `SmoresItems` | what a landed pick turns into: an item, a sub-table, "any item with this tag", or nothing - plus a quantity range and modifier pools |
+
+The base asks its subclass three questions about its entries - `GetNumEntries`, `GetEntryWeight`,
+`GetEntrySubTable` - and hands back each pick that landed on a payload through a callback. That is
+the whole seam: the world-activity roadmap's spawn table is a second subclass with characters where
+the items are, and none of the rolling logic moves.
+
+The base is in `SmoresCore` rather than beside the loot table (where the roadmap's placement table
+put it) because nothing in it is about items; a spawn table should not have to depend on
+`SmoresItems` for its base class.
+
+### How a roll works - `UWeightedTableDefinition::RollEntries`
+
+1. Draw a pick count from `[MinRolls, MaxRolls]`, inclusive. A `MaxRolls` below `MinRolls` reads as
+   `MinRolls`; zero picks is legitimate ("sometimes nothing at all").
+2. For each pick, one draw across the total weight, walked entry by entry. **Weights are integers**,
+   so `60 / 30 / 10` means exactly that. An entry of weight zero is never picked; a table with no
+   weight at all picks nothing.
+3. A pick landing on a **sub-table rolls that table in full** - its own pick count, its own weights.
+   `DesertChest` rolling 2-4 times and landing on `CommonJunk` twice is two complete rolls of
+   `CommonJunk`.
+4. Anything else is handed to the subclass, which turns it into an item.
+
+**Nesting is bounded at `MaxNestingDepth` (8).** A table that names itself, directly or through
+another, would otherwise never finish. Hitting the limit abandons the *whole* roll - not just the
+branch - logs one error, and returns false; abandoning only the branch would still cost
+picks^depth before stopping. The content sweep refuses such a table outright
+(`ContainsNestingLoop`, which tells a real loop from a diamond - two branches sharing one table is
+fine).
+
+### What a loot entry yields - `ULootTableDefinition`
+
+| `Kind` | Yields |
+|---|---|
+| `Item` | `[MinQuantity, MaxQuantity]` of one item |
+| `Table` | a full roll of another `ULootTableDefinition` |
+| `Tag` | one item carrying the tag (`HasTag`, so a child tag counts), chosen **evenly** among the candidates |
+| `Nothing` | an empty pick - weight given to "nothing this time" |
+
+- **Tag candidates are sorted by `DefinitionId` before the pick.** The Asset Manager hands items
+  back in scan order, which isn't stable; without the sort, "any mineral" could land on a different
+  mineral on a different machine from the same seed.
+- **Modifier pools.** An `Item` or `Tag` entry carries `ModifierPools`; each pool is rolled once and
+  lands on one choice, which may be "none". Landings apply through `FInventoryItem::AddModifier`,
+  which refuses a second modifier in a filled slot - so the table only chooses, and a later pool is
+  a **fallback** for an earlier one that came up empty ("steel one time in ten, otherwise bronze or
+  iron" is `[Steel 1, none 9]` then `[Bronze 1, Iron 1]`). This is what first makes modifier-aware
+  stacking visible in bulk: a chest rolling bronze *and* iron knives holds two piles.
+- **Rolling is pure.** `RollLoot(Stream, TagCandidates, OutItems, OutSourceTableIds)` turns a stream
+  into item instances and touches nothing else. The overload without candidates gathers every
+  registered item (`GatherRegisteredItems`). `OutSourceTableIds` names, per item, the innermost table
+  that produced it - it is how the debug exec says "from CommonJunk".
+- An entry naming nothing usable (an `Item` entry with no item, a tag nothing carries) yields
+  nothing and warns. The content sweep is where that is meant to be caught.
+
+### Seeded, never random - `MakeRollStream` and the world seed
+
+`characters-and-squads.md` requires a retry under identical conditions to produce an identical
+result, so no roll ever touches a global random number generator. Every roll draws from an
+`FRandomStream` its caller made, and a real roll's stream comes from
+`UWeightedTableDefinition::MakeRollStream(WorldSeed, StableId)`:
+
+- **`WorldSeed`** is `UWorldSeedComponent` (`SmoresCore`) on `AStrategyGameState` - one number per
+  campaign, authored on the GameState Blueprint for now (default 0), with `SetWorldSeed` as the seam
+  a new-campaign screen will call. **Server-only and not replicated**: every roll that reads it is
+  authority-only, and a client holding it could compute every chest before opening one. A world
+  with no seed component (a bare test world, the main menu) rolls from 0 - still deterministic.
+- **`StableId`** is the rolling thing's own authored key - for a container, `PlacedContainerId`
+  (see `inventory.md`).
+- **The mixing is a CRC-32 of five little-endian words** (the seed and the four parts of the GUID),
+  spelled out rather than `HashCombine`, because an engine upgrade is free to change `HashCombine`
+  and doing so would re-roll every container in every save.
+  `Smores.Items.LootTable.RollStreamIsPinned` asserts two known outputs (computed independently with
+  Python's `zlib.crc32`), so changing the formula means deleting a test that says not to.
+
+The consequence is the design point: reloading and reopening the same chest in the same campaign
+finds the same contents, so there is nothing to save-scum. A different chest, or the same chest in a
+different campaign, rolls differently.
+
+### Content
+
+| Asset | Id | Rolls | Entries (weight, quantity) |
+|---|---|---|---|
+| `DA_Loot_CommonJunk` | `CommonJunk` | 1 | Apple 5 (1-3), Torch 4 (1-2), Rope 3, Pocket Knife 2 (iron 3 / bronze 2), Nothing 2 |
+| `DA_Loot_DesertMinerals` | `DesertMinerals` | 1 | any `Item.Mineral` 3 (1-4), Rock Salt 2 (2-5) |
+| `DA_Loot_IronclanGoods` | `IronclanGoods` | 1 | Sword 2 (iron 3 / steel 1, then well-made 1 / none 4), Trap Kit 1, Health Potion 2 (1-2), Gold Coin 3 (5-20) |
+| `DA_Loot_DesertChest` | `DesertChest` | 2-4 | CommonJunk 60, DesertMinerals 30, Health Potion 10 |
+| `DA_Loot_FactionTownChest` | `FactionTownChest` | 2-4 | CommonJunk 60, IronclanGoods 30, Gold Coin 10 (10-30) |
+
+The two situation tables are the roadmap's worked example made real: both name the *same*
+`CommonJunk` asset, authored once. Three mineral items arrived with them so `DesertMinerals` has
+something to find - `DA_Item_CopperOre`, `DA_Item_RockSalt`, `DA_Item_Sulfur`, all tagged
+`Item.Mineral` (see `inventory.md`). All placeholders for a setting that isn't chosen; "Ironclan" is
+the faction the name borrows, and nothing reads that link.
+
 ## The Content Sweeps
 
 Two layers, matching the class hierarchy. Both run against **real assets under `/Game/`**, which
@@ -293,7 +417,11 @@ a future faction or character type should copy, and
 `Source/SmoresCharacters/Tests/CharacterDefinitionAssetTest.cpp` for characters: a
 `DefaultFactionId` must resolve - the one rule the runtime deliberately *doesn't* enforce - a
 non-unique character needs a `NamePool`, no pool entry may be blank, no loadout entry may name
-nothing, and no attribute may be negative). The
+nothing, and no attribute may be negative; and
+`Source/SmoresItems/Tests/LootTableDefinitionAssetTest.cpp` for loot tables: rolls and quantities
+in order, no zero weight on an entry or a modifier choice, every entry naming something, every
+`Tag` entry's tag carried by at least one real item, and no nesting loop - nearly all of which fail
+*silently* in play, as "this chest seems a bit empty"). The
 modifier one is worth reading for *why* a per-type file earns its place: a modifier's numbers are
 multipliers, and a multiplier fails differently from a weight or a price. An unfilled field
 defaults to 1.0 and is invisible; a field authored to **0** silently erases whatever it
@@ -325,9 +453,11 @@ The one visible surface is a debug exec on `AStrategyPlayerController`:
 |---|---|
 | `SmoresDumpDefinitions` | lists every definition the Asset Manager found, grouped by type, with its id and display name |
 | `SmoresDumpRecord` | prints a unit's character record beside its live component state, flagging mismatches - see "The debug exec" above. Hops to the server |
+| `SmoresRollTable <TableId> [Seed] [Count]` | rolls a loot table `Count` times from seeds `Seed`, `Seed+1`, ... and prints each roll (every item, with the table it came from) and, for more than one roll, a tally. Touches nothing - no container, no world seed - so it is how to judge a table's spread without opening chests. Detail is printed for up to 10 rolls; beyond that only the tally |
 
-Unlike the other `Smores*` execs, `SmoresDumpDefinitions` does **not** hop to the server — the definition registry is
-authored content and is identical on every machine.
+Unlike the other `Smores*` execs, `SmoresDumpDefinitions` and `SmoresRollTable` do **not** hop to
+the server — the definition registry and the tables in it are authored content, identical on every
+machine.
 
 ## Extension Points
 
@@ -343,6 +473,20 @@ authored content and is identical on every machine.
    "has an id, has a name". The base sweeps pick it up with no change.
 
 `SmoresDumpDefinitions` needs no update — it reads whatever types the Asset Manager reports.
+
+**Adding a new kind of weighted table** (the spawn table is the expected first): subclass
+`UWeightedTableDefinition` in the module that owns the payload, hold its own entry struct array,
+answer `GetNumEntries` / `GetEntryWeight` / `GetEntrySubTable`, and turn each pick handed back by
+`RollEntries` into the payload - `ULootTableDefinition::RollLoot` is the worked example, about
+forty lines. Then the five steps above. Seed it with `MakeRollStream` from the world seed and the
+rolling thing's own authored key; never a fresh `FRandomStream` from the clock.
+
+**Adding a new loot table** is content only: a `DA_Loot_*` asset under `Content/Items/LootTables/`,
+then point a container's `LootTable` at it. `SmoresRollTable <Id> 0 100` shows its spread; the
+per-type sweep catches the silent mistakes.
+
+**Adding a gameplay tag**: a `+GameplayTagList` line in `Config/DefaultGameplayTags.ini`, then tag
+the definitions. Add one only when a table (or something else) reads it.
 
 **Renaming or moving a definition property** needs a `CoreRedirect` in `DefaultEngine.ini` or the
 authored values are silently lost. Moving a property to a base class *without* renaming needs
@@ -369,17 +513,36 @@ none (Unreal serializes by name); doing both at once does. See
   needs record data on a client, send only what it needs - copy the field onto the unit like
   `FactionId`, or a per-player component carrying just that player's squad records
   (`COND_OwnerOnly`, the `UPlayerStandingComponent` pattern). Don't replicate the whole store.
-- **Nothing calls `FindDefinition` in anger yet.** The lookup is built and tested; its real
-  consumers (loot tables, recipes, saves) are later slices. The live callers are
-  `SmoresDumpDefinitions`, the `SmoresAddItem` modifier look-up, `UWorldFactionComponent`'s
-  `BeginPlay`, which resolves every faction id to seed the records, and
-  `UCharacterRecordComponent::IsFactionKnown`'s fallback. Character units still hold their
-  definition by asset pointer (it's content linking); only the *record* holds the id.
+- **`FindDefinition`'s callers are still few.** The live ones are `SmoresDumpDefinitions`,
+  `SmoresRollTable`, the `SmoresAddItem` modifier look-up, `UWorldFactionComponent`'s `BeginPlay`
+  (which resolves every faction id to seed the records), `UCharacterRecordComponent::IsFactionKnown`'s
+  fallback, and `ULootTableDefinition::GatherRegisteredItems` (the tag candidates for every container
+  roll). Loot tables themselves hold items by asset pointer - content linking - so a save loading
+  without a mod is still a save-system question, not a table one. Character units still hold their
+  definition by asset pointer too; only the *record* holds the id.
 - **`FInventoryItem` still holds a definition by `TObjectPtr`, not by id** — and now holds its
   modifiers the same way. That is correct for a carried item under the current design, but the
   roadmap notes the carried item and the record must hold ids once saving is real, and that
   applies to the `Modifiers` array as much as to `Definition`. **`FCharacterRecord::Carried` and
   `Equipped` inherit this** - a character record is id-clean except for the items it holds.
-- **No `Tags` on the base.** `FGameplayTagContainer` is planned for Slice 5, when loot-table
-  entries first give something a reason to consume it. Adding it earlier would be dead data.
+- **Only items are read for tags.** `Tags` is on every definition, but the one reader is a loot
+  table's `Tag` entry, which looks only at items. A faction or character tag means nothing yet.
+- **The world seed is authored, not chosen, and not saved.** Every campaign today has the seed on
+  `BP_StrategyGameState` (0 unless someone changes it). A new-campaign screen should pick one and
+  call `SetWorldSeed` *before* anything rolls; the save system must store it, or a reload re-rolls
+  every container.
+- **A container has no record, so "already looted" is not remembered.** The roll is deterministic,
+  so a new session rebuilds each chest with exactly what it first held - which is the save-scumming
+  guarantee - but it also means a chest emptied last session is full again. Container contents
+  becoming a record (or the container remembering it rolled) is a save-system job; under the soft
+  split nothing persists across sessions anyway.
+- **Tag entries choose evenly.** "Any mineral" gives every tagged item the same chance. A rare
+  mineral that should be rarer needs its own weighted entry beside the tag, which is how
+  `DesertMinerals` makes rock salt common. Per-item weights under a tag would be a new field on the
+  item, and nothing has needed it.
+- **No context filtering, deliberately.** A table can't ask "which region am I in?" - composition is
+  the only tool, per the roadmap's settled decision. Add context parameters only if authoring
+  genuinely becomes painful.
+- **The spawn-table sibling isn't built.** `UWeightedTableDefinition` is ready for it; the
+  world-activity roadmap owns it.
 - **Synchronous loading.** See above — deliberate, and the seam is `USmoresDefinitionLibrary`.

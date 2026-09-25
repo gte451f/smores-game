@@ -7,11 +7,11 @@ the standing rule for when a piece of work should add to it. The forward-looking
 still needs building, in what order, and the decisions behind it — lives in
 `Docs/roadmaps/testing-roadmap.md`.
 
-> **Status: the harness is built and Slices 1 and 2 have shipped.** 126 tests run green (one with a
+> **Status: the harness is built and Slices 1 and 2 have shipped.** 140 tests run green (one with a
 > warning - see the content sweeps below), covering `SmoresItems`, `SmoresEconomy`,
 > `UHealthComponent`, the content smoke tests, and (added by later roadmaps) the time-pace ladder,
-> the target panel's action assembly, the activity log, the definition layer, faction standing and
-> character records.
+> the target panel's action assembly, the activity log, the definition layer, faction standing,
+> character records and loot tables.
 > Only Slice 3 of
 > `Docs/roadmaps/testing-roadmap.md` remains. Everything below has been executed against this
 > project rather than written in advance.
@@ -33,6 +33,10 @@ them test smores.
 | Inventory sort repack (determinism, all-or-nothing) | `SmoresItems` | ✅ 8 tests | 1 |
 | Refusal reasons (`*WithReason` vs. their forwarders) | `SmoresItems` | ✅ in sort + equipment | 1 |
 | Equipment slots and the all-or-nothing swap | `SmoresItems` | ✅ 6 tests | 1 |
+| Adding a set of items all-or-nothing (biggest-first placement, whole refusal, one broadcast) | `SmoresItems` | ✅ 2 tests | data 5 |
+| Loot tables (weight distribution, roll counts and quantities, nesting, the depth limit, tag resolution, modifier pools, determinism, the pinned seed mixing) | `SmoresItems` | ✅ 8 tests | data 5 |
+| Container loot roll (same key rolls the same, keys and campaigns differ, coexists with `StartingItems`, refused whole when it won't fit, unkeyed fallback) | `smores` | ✅ 2 tests | data 5 |
+| `ULootTableDefinition` assets under `Content/` (per-type rules, nesting loops, tags that no item carries) | `SmoresItems` | ✅ 2 tests | data 5 |
 | Wallet balance, refusals and broadcasts | `SmoresEconomy` | ✅ 8 tests | 2 |
 | Pricing (markup, markdown, totals, margin) | `SmoresEconomy` | ✅ 6 tests | 2 |
 | Health state machine (Alive/Downed/Dead) and its timer | `SmoresCombat` | ✅ 9 tests | 2 |
@@ -54,7 +58,7 @@ them test smores.
 | Attack range / out-of-range branch | `SmoresCombat` | — | unclaimed |
 | Trade transaction ordering | `smores` | — | 3 |
 
-**126 tests.** Several rows came from the HUD and game-data rounds, not from the testing roadmap — a
+**140 tests.** Several rows came from the HUD and game-data rounds, not from the testing roadmap — a
 slice that ships numbers-and-state-machine code writes its own tests, whichever roadmap it came from.
 Update this table as slices ship; it is the quick answer to "is this already covered?"
 
@@ -328,7 +332,7 @@ Three support files, written in Slice 1. None of them needed a `Build.cs` or `.u
 |---|---|
 | `Source/SmoresCore/Tests/SmoresTestWorld.h` | `FSmoresTestWorld` — the throwaway world, `SpawnOwner()`, `SpawnComponent<T>()`, `AddComponent<T>()`, `NewKeptObject<T>()`, `BeginPlay()`, `Tick()`, `TickFor()`, `ForwardErrors()` |
 | `Source/SmoresCore/Tests/SmoresTestDelegateListener.h` | `USmoresTestDelegateListener` — counts broadcasts and records the payload |
-| `Source/SmoresItems/Tests/SmoresItemTestFactory.h` | `MakeTestItemDefinition`, `MakeTestItem`, `MakeTestInventory`, `FInventorySnapshot`, and the small print helpers |
+| `Source/SmoresItems/Tests/SmoresItemTestFactory.h` | `MakeTestItemDefinition`, `MakeTestModifier`, `MakeTestItem`, `MakeTestInventory`, `FInventorySnapshot`, the loot-table builders (`MakeTestLootTable`, `AddTestLootItem`/`AddTestLootSubTable`/`AddTestLootEntry`, `AddTestModifierChoice`, `GetTestMineralTag`, `DescribeRolledItems`), and the small print helpers |
 
 **The listener has three handlers, one per delegate shape.** Bind `OnChanged` to a delegate with
 no parameters (`OnInventoryChanged`, `OnEquipmentChanged`, `OnDowned`, `OnRecovered`, `OnDied`),
@@ -500,10 +504,27 @@ add, the abandoned repack, and the entries a grid resize drops.
 ### Item definitions are built in memory
 
 Tests construct their own `UItemDefinition` with `NewObject<UItemDefinition>()` and direct field
-assignment. **Never load one out of `Content/`** — a test that loads a real asset is testing that
+assignment - and the same goes for modifiers, character definitions and loot tables. **Never load
+one out of `Content/`** — a test that loads a real asset is testing that
 asset too, so a designer retuning a sword's weight breaks an unrelated inventory test and the
 failure points at the wrong place. It also keeps the test's inputs visible next to the assertion
 instead of inside a `.uasset`.
+
+### Gameplay tags come from config, and that is not an exception to the rule above
+
+A loot table's `Tag` entry needs a real `FGameplayTag`, and one can't be minted in memory for a
+name the tag manager doesn't know. So the loot tests ask for `Item.Mineral`, which
+`Config/DefaultGameplayTags.ini` defines (`GetTestMineralTag()`), and **fail loudly rather than
+pass vacuously** if it has gone - a missing tag comes back invalid and the test asserts on that
+first. This is config, not content: no designer retuning an asset can change it.
+
+### Anything rolled draws from a fixed seed, so a distribution check is one fixed outcome
+
+`LootTableTest.cpp` asserts things like "a weight of 3 against 1 lands about three times in four".
+That isn't flaky: every roll draws from an `FRandomStream` the test seeded, so each check is a
+single deterministic result, and the tolerance only needs to be wide enough that a *correct* change
+to how the stream is consumed doesn't break it (±200 on 3000, about seven standard deviations).
+If one of these fails, the weights are being read wrongly - it is never bad luck.
 
 ### The content smoke tests are the one exception, and run in editor context
 

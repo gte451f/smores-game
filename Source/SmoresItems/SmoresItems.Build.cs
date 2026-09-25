@@ -12,6 +12,7 @@ public class SmoresItems : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
+			"GameplayTags",
 			"SmoresCore"
 		});
 

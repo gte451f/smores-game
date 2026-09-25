@@ -448,15 +448,39 @@ bool UInventoryComponent::AddItemCounted(const FInventoryItem& Item, int32& OutQ
 		return false;
 	}
 
+	const int32 Requested = FMath::Max(Item.Quantity, 1);
+
+	OutQuantityAdded = AddItemAgainst(Entries, NextEntryId, Item);
+
+	if (OutQuantityAdded < Requested)
+	{
+		UE_LOG(LogSmoresItems, Warning, TEXT("InventoryComponent on %s has no room for %d x '%s' (%d/%d cells free)."),
+			*GetNameSafe(GetOwner()), Requested - OutQuantityAdded, *GetNameSafe(Item.Definition), GetFreeCellCount(), GridWidth * GridHeight);
+	}
+
+	if (OutQuantityAdded > 0)
+	{
+		OnInventoryChanged.Broadcast();
+	}
+
+	return OutQuantityAdded >= Requested;
+}
+
+int32 UInventoryComponent::AddItemAgainst(TArray<FInventoryEntry>& Placements, int32& InOutNextEntryId, const FInventoryItem& Item) const
+{
+	if (Item.IsEmpty())
+	{
+		return 0;
+	}
+
 	const int32 MaxStack = GetEffectiveMaxStackForItem(Item);
 
 	const int32 Requested = FMath::Max(Item.Quantity, 1);
 
 	int32 Remaining = Requested;
-	bool bChanged = false;
 
 	// merge into existing stacks of the same type before consuming any new grid space
-	for (FInventoryEntry& Entry : Entries)
+	for (FInventoryEntry& Entry : Placements)
 	{
 		if (Remaining <= 0)
 		{
@@ -479,7 +503,6 @@ bool UInventoryComponent::AddItemCounted(const FInventoryItem& Item, int32& OutQ
 
 		Entry.Item.Quantity += Merged;
 		Remaining -= Merged;
-		bChanged = true;
 	}
 
 	// place whatever's left, splitting into as many entries as the stack cap requires
@@ -491,27 +514,77 @@ bool UInventoryComponent::AddItemCounted(const FInventoryItem& Item, int32& OutQ
 		FIntPoint Cell = FIntPoint::ZeroValue;
 		bool bRotated = false;
 
-		if (!FindFreePlacement(Chunk, Cell, bRotated))
+		if (!FindFreePlacementAgainst(Placements, Chunk, Cell, bRotated, INDEX_NONE))
 		{
-			UE_LOG(LogSmoresItems, Warning, TEXT("InventoryComponent on %s has no room for %d x '%s' (%d/%d cells free)."),
-				*GetNameSafe(GetOwner()), Remaining, *GetNameSafe(Item.Definition), GetFreeCellCount(), GridWidth * GridHeight);
-
 			break;
 		}
 
-		Entries.Emplace(NextEntryId++, Chunk, Cell, bRotated);
+		Placements.Emplace(InOutNextEntryId++, Chunk, Cell, bRotated);
 		Remaining -= Chunk.Quantity;
-		bChanged = true;
 	}
 
-	OutQuantityAdded = Requested - Remaining;
+	return Requested - Remaining;
+}
 
-	if (bChanged)
+bool UInventoryComponent::AddItemsAllOrNothing(const TArray<FInventoryItem>& Items)
+{
+	// shared gameplay state - only the server may mutate it
+	if (!HasOwnerAuthority())
 	{
-		OnInventoryChanged.Broadcast();
+		return false;
 	}
 
-	return Remaining <= 0;
+	TArray<FInventoryItem> Ordered;
+	Ordered.Reserve(Items.Num());
+
+	for (const FInventoryItem& Item : Items)
+	{
+		if (!Item.IsEmpty())
+		{
+			Ordered.Add(Item);
+		}
+	}
+
+	if (Ordered.IsEmpty())
+	{
+		return true;
+	}
+
+	// biggest footprint first, stable so equal-sized items keep the order they arrived in - which
+	// keeps the result a pure function of the input, and a seeded roll's placement as repeatable
+	// as the roll itself
+	Ordered.StableSort([](const FInventoryItem& A, const FInventoryItem& B)
+	{
+		const FIntPoint SizeA = A.GetFootprint(false);
+		const FIntPoint SizeB = B.GetFootprint(false);
+
+		return SizeA.X * SizeA.Y > SizeB.X * SizeB.Y;
+	});
+
+	// built against a scratch copy and committed only when every unit has landed - the same shape
+	// as SortEntries, for the same reason
+	TArray<FInventoryEntry> Working = Entries;
+	int32 WorkingNextEntryId = NextEntryId;
+
+	for (const FInventoryItem& Item : Ordered)
+	{
+		const int32 Requested = FMath::Max(Item.Quantity, 1);
+
+		if (AddItemAgainst(Working, WorkingNextEntryId, Item) < Requested)
+		{
+			UE_LOG(LogSmoresItems, Warning, TEXT("InventoryComponent on %s has no room for all %d item(s) - %d x '%s' didn't fit, so none of them were added."),
+				*GetNameSafe(GetOwner()), Ordered.Num(), Requested, *Item.GetDisplayName().ToString());
+
+			return false;
+		}
+	}
+
+	Entries = MoveTemp(Working);
+	NextEntryId = WorkingNextEntryId;
+
+	OnInventoryChanged.Broadcast();
+
+	return true;
 }
 
 bool UInventoryComponent::AddItemAt(const FInventoryItem& Item, FIntPoint Cell, bool bRotated)

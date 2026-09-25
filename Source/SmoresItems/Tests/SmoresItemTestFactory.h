@@ -6,9 +6,11 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "GameplayTagContainer.h"
 #include "InventoryComponent.h"
 #include "ItemDefinition.h"
 #include "ItemModifierDefinition.h"
+#include "LootTableDefinition.h"
 #include "Tests/SmoresTestWorld.h"
 
 /**
@@ -101,6 +103,99 @@ inline UItemModifierDefinition* MakeTestModifier(
 	Modifier->NamePattern = FText::FromString(NamePattern);
 
 	return Modifier;
+}
+
+/**
+ *  A loot table with the roll count the assertion cares about and no entries yet - add them with
+ *  the AddTestLoot* helpers below.
+ *
+ *  Same rule again: **tests never load a ULootTableDefinition out of Content/**, so rebalancing
+ *  DA_Loot_CommonJunk can't break a test about how weights pick.
+ */
+inline ULootTableDefinition* MakeTestLootTable(FSmoresTestWorld& TestWorld, int32 MinRolls = 1, int32 MaxRolls = 1)
+{
+	ULootTableDefinition* Table = TestWorld.NewKeptObject<ULootTableDefinition>();
+
+	if (!Table)
+	{
+		return nullptr;
+	}
+
+	Table->DefinitionId = FName(*FString::Printf(TEXT("TestLootTable_%03d"), SmoresTestItemCounter()++));
+	Table->DisplayName = FText::FromName(Table->DefinitionId);
+	Table->MinRolls = MinRolls;
+	Table->MaxRolls = MaxRolls;
+
+	return Table;
+}
+
+/** Appends an entry of the given kind with default fields and returns it. Don't hold the reference across another append. */
+inline FLootTableEntry& AddTestLootEntry(ULootTableDefinition* Table, ELootEntryKind Kind, int32 Weight = 1)
+{
+	FLootTableEntry& Entry = Table->Entries.AddDefaulted_GetRef();
+	Entry.Kind = Kind;
+	Entry.Weight = Weight;
+
+	return Entry;
+}
+
+/** Appends an Item entry yielding [MinQuantity, MaxQuantity] of Item */
+inline FLootTableEntry& AddTestLootItem(ULootTableDefinition* Table, UItemDefinition* Item, int32 Weight = 1, int32 MinQuantity = 1, int32 MaxQuantity = 1)
+{
+	FLootTableEntry& Entry = AddTestLootEntry(Table, ELootEntryKind::Item, Weight);
+	Entry.Item = Item;
+	Entry.MinQuantity = MinQuantity;
+	Entry.MaxQuantity = MaxQuantity;
+
+	return Entry;
+}
+
+/** Appends a Sub-table entry rolling SubTable in full */
+inline FLootTableEntry& AddTestLootSubTable(ULootTableDefinition* Table, ULootTableDefinition* SubTable, int32 Weight = 1)
+{
+	FLootTableEntry& Entry = AddTestLootEntry(Table, ELootEntryKind::Table, Weight);
+	Entry.Table = SubTable;
+
+	return Entry;
+}
+
+/** Appends one choice to a modifier pool. A null Modifier is the "leave it bare" choice. */
+inline void AddTestModifierChoice(FLootModifierPool& Pool, UItemModifierDefinition* Modifier, int32 Weight = 1)
+{
+	FLootModifierChoice& Choice = Pool.Choices.AddDefaulted_GetRef();
+	Choice.Modifier = Modifier;
+	Choice.Weight = Weight;
+}
+
+/**
+ *  Item.Mineral, from Config/DefaultGameplayTags.ini. Tags are the one input these tests take from
+ *  the project rather than building in memory: an FGameplayTag can't be minted for a name the tag
+ *  manager doesn't know. That is config, not content - no designer retuning an asset can change it.
+ *  Invalid (and the test should fail on it) if the ini entry has gone.
+ */
+inline FGameplayTag GetTestMineralTag()
+{
+	return FGameplayTag::RequestGameplayTag(FName(TEXT("Item.Mineral")), /*ErrorIfNotFound*/ false);
+}
+
+/** Every item in a rolled list, as "Id xN" lines, so two rolls can be compared as strings */
+inline FString DescribeRolledItems(const TArray<FInventoryItem>& Items)
+{
+	FString Result;
+
+	for (const FInventoryItem& Item : Items)
+	{
+		Result += FString::Printf(TEXT("%s x%d"), *Item.GetItemId().ToString(), Item.Quantity);
+
+		for (const TObjectPtr<UItemModifierDefinition>& Modifier : Item.Modifiers)
+		{
+			Result += FString::Printf(TEXT(" +%s"), Modifier ? *Modifier->DefinitionId.ToString() : TEXT("None"));
+		}
+
+		Result += TEXT("; ");
+	}
+
+	return Result;
 }
 
 /** An instance of a test definition, ready to hand to AddItem/AddItemAt */

@@ -9,6 +9,7 @@
 class UTimePaceComponent;
 class UWorldFactionComponent;
 class UCharacterRecordComponent;
+class UWorldSeedComponent;
 
 /**
  *  Per-session state for the strategy variant. Like AStrategyPlayerState it owns no gameplay
@@ -39,6 +40,9 @@ public:
 	/** Every character record in the session. Never null - it's a default subobject. */
 	UCharacterRecordComponent* GetCharacterRecords() const { return CharacterRecords; }
 
+	/** The campaign's seed, which every seeded roll starts from. Never null - it's a default subobject. */
+	UWorldSeedComponent* GetWorldSeed() const { return WorldSeed; }
+
 private:
 
 	/** How fast the simulation is running, in SmoresCore. See the class comment for why it isn't
@@ -55,4 +59,9 @@ private:
 	 *  SmoresCharacters. Session-wide and server-only; see UCharacterRecordComponent. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UCharacterRecordComponent> CharacterRecords;
+
+	/** The number every seeded roll in the campaign starts from - loot containers today - in
+	 *  SmoresCore. Server-only, like the records; see UWorldSeedComponent. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UWorldSeedComponent> WorldSeed;
 };

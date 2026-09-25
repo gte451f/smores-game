@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+#include "GameplayTagContainer.h"
 #include "SmoresDefinition.generated.h"
 
 /**
@@ -23,13 +24,15 @@
  *  copy of the record. All three exist for characters (UCharacterDefinition, FCharacterRecord,
  *  AStrategyUnit) and the first two for factions - see game-data.md.
  *
- *  Exactly three fields live here, because they are the only three every definition type
- *  genuinely shares. **Presentation deliberately stays on the subclasses**: an item's Icon is a
+ *  Four fields live here, because they are the only four every definition type genuinely
+ *  shares. **Presentation deliberately stays on the subclasses**: an item's Icon is a
  *  small transparent sprite sized to a grid cell, a character's Portrait is a framed face, a
  *  faction's is a crest, and a loot table has no picture at all. One hoisted Icon field would be
  *  permanently null on some types and - the practical cost - impossible to require, because the
  *  content sweep could never assert "this is set" without failing the types that legitimately
- *  have none. Left on the subclass, each type can make its own picture mandatory.
+ *  have none. Left on the subclass, each type can make its own picture mandatory. Tags passes
+ *  the test Icon fails: an empty tag container is a legitimate state for *every* type, so nothing
+ *  ever has to require one and hoisting it costs no type a rule.
  *
  *  For types the player never sees (a loot table, say) DisplayName and Description are the
  *  designer's own label and notes rather than anything that reaches the screen.
@@ -61,6 +64,17 @@ public:
 	/** Player-facing description, or the designer's own notes on a type the player never sees */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Definition|Identity", meta = (MultiLine = "true"))
 	FText Description;
+
+	/**
+	 *  What kind of thing this is, beyond its type - an item tagged Item.Mineral is "a mineral".
+	 *  A loot table's Tag entry picks among every item carrying one, which is how a mod's new ore
+	 *  joins every "any mineral" drop without anybody editing a table. The vocabulary lives in
+	 *  Config/DefaultGameplayTags.ini.
+	 *
+	 *  Empty is the ordinary case, and only items are read by anything yet.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Definition|Identity")
+	FGameplayTagContainer Tags;
 
 	/**
 	 *  The Asset Manager type this definition is registered under - the "ItemDefinition" half of

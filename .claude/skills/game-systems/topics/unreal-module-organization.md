@@ -16,13 +16,15 @@ see "When to Actually Split" below.
 Seven runtime modules: `smores` (`Source/smores/smores.Build.cs`, the primary/game
 module), `SmoresCore` (stood up as an empty proving module alongside the first real split, now
 holding `ESmoresRefusalReason`, `UTimePaceComponent`, `USmoresActivityLog`, the
-`USmoresDefinition` base plus its look-up library, and the faction storage layer —
-`UFactionDefinition`, `UWorldFactionComponent`, `UPlayerStandingComponent`; see `factions.md`),
+`USmoresDefinition` base plus its look-up library, the payload-agnostic
+`UWeightedTableDefinition` and `UWorldSeedComponent` (see `game-data.md`), and the faction storage
+layer — `UFactionDefinition`, `UWorldFactionComponent`, `UPlayerStandingComponent`; see
+`factions.md`),
 `SmoresCombat` (`HealthComponent`, `CombatComponent`, `DamageNumberActor`/
 `DamageNumberWidget`, `AnimNotify_AttackHit`, plus a small `IAttackDamageDealer` interface),
-`SmoresItems` (`UItemDefinition`, `FInventoryItem`/`FInventoryEntry`/`UInventoryComponent`,
-`UEquipmentComponent`, `AStrategyContainer`, `AStrategyChest`, `AWorldItem`,
-`IInventoryHolder`), `SmoresCharacters` (`AStrategyUnit`, `AStrategyPlayerUnit`,
+`SmoresItems` (`UItemDefinition`, `UItemModifierDefinition`, `ULootTableDefinition`,
+`FInventoryItem`/`FInventoryEntry`/`UInventoryComponent`, `UEquipmentComponent`,
+`AStrategyContainer`, `AStrategyChest`, `AWorldItem`, `IInventoryHolder`), `SmoresCharacters` (`AStrategyUnit`, `AStrategyPlayerUnit`,
 `UCharacterDefinition`, `FCharacterRecord`/`FCharacterAttributes`, `UCharacterRecordComponent` - the
 record store on the GameState; see `game-data.md`), `SmoresUI`
 (`AStrategyHUD`, `UStrategyUI`, `UStrategyTouchControls`, `UWindowWidget`, `UInventoryWidget`,
@@ -85,12 +87,18 @@ Source/
                                    # and every module may want to read it
     SmoresDefinition.*            # the base every authored definition asset derives from
     SmoresDefinitionLibrary.*     # look up a definition by id - see game-data.md
+    WeightedTableDefinition.*     # weights, roll counts, nesting, seeding - game-data Slice 5.
+                                   # Here, not beside the loot table, because nothing in it is
+                                   # about items and a spawn table shouldn't need SmoresItems
+    WorldSeedComponent.*          # the campaign's seed, on the GameState, server-only
   SmoresItems/
     SmoresItems.Build.cs
     SmoresItems.cpp / SmoresItems.h
     InventoryComponent.*          # moved from smores/Variant_Strategy/Inventory/
     EquipmentComponent.*          # the paperdoll; born here, never lived in smores/
     ItemDefinition.*              # the shared per-item-type data asset
+    ItemModifierDefinition.*      # materials and qualities - game-data Slice 2
+    LootTableDefinition.*         # the weighted table's item payload - game-data Slice 5
     StrategyChest.* StrategyContainer.*   # moved from smores/Variant_Strategy/
     WorldItem.*                   # a single loose item lying in the world
     InventoryHolder.*             # IInventoryHolder - display name + proximity, implemented
@@ -228,8 +236,10 @@ corrected into it — the HUD roadmap's Slice 2 added it and the pace component 
 
 ```
 AStrategyGameState                 <- thin host; ~10 lines
-  +-- UTimePaceComponent       (SmoresCore)
-  +-- UWorldFactionComponent   (SmoresCore)   <- game-data Slice 3
+  +-- UTimePaceComponent         (SmoresCore)
+  +-- UWorldFactionComponent     (SmoresCore)         <- game-data Slice 3
+  +-- UCharacterRecordComponent  (SmoresCharacters)   <- game-data Slice 4
+  +-- UWorldSeedComponent        (SmoresCore)         <- game-data Slice 5
 ```
 
 That is the point of writing the rule down: the cheap moment to apply it is the first piece of

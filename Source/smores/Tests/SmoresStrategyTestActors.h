@@ -7,6 +7,7 @@
 #include "StrategyPlayerUnit.h"
 #include "StrategyContainer.h"
 #include "CharacterDefinition.h"
+#include "LootTableDefinition.h"
 #include "SmoresStrategyTestActors.generated.h"
 
 /**
@@ -83,4 +84,18 @@ UCLASS(NotPlaceable, Hidden)
 class ATestStrategyContainer : public AStrategyContainer
 {
 	GENERATED_BODY()
+
+public:
+
+	/**
+	 *  Authors what a placed chest would carry in the level - a loot table, a roll key and any
+	 *  hand-placed items - onto a container that hasn't begun play yet. Call between
+	 *  SpawnActorDeferred and FinishSpawning, since the container stocks itself at BeginPlay.
+	 */
+	void SetContentsForTest(ULootTableDefinition* Table, const FGuid& Key, const TArray<FInventoryItem>& Items = TArray<FInventoryItem>())
+	{
+		LootTable = Table;
+		PlacedContainerId = Key;
+		StartingItems = Items;
+	}
 };

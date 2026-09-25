@@ -33,6 +33,11 @@ Alongside the carried grid, every unit has a **paperdoll**: `UEquipmentComponent
 of named worn slots that is deliberately *not* a region of the grid. An item goes in only if
 its definition says that's its slot; nothing else gates an equip.
 
+A container's contents come from two places that coexist: items authored one by one on that
+chest, and an optional **loot table** rolled on top of them when the level starts. The roll is
+seeded from the campaign's world seed plus the chest's own authored key, so the same chest always
+holds the same thing - see `game-data.md`'s "Weighted Tables and Seeded Rolls" for the table side.
+
 Items also exist *outside* any grid: an `AWorldItem` is a single item instance lying on the
 ground, drawn with its definition's 3D mesh and collected by double-clicking it with a pawn in
 range. It is the one holder shape with no grid and no window behind it. This system does
@@ -55,6 +60,11 @@ documents what's actually built.
   opens it immediately if **any** player-controlled pawn (not just the current selection) is
   within interaction range. This rides on the same gesture as the normal select-all
   double-click, not a separate input.
+- **A chest can hold rolled contents** - junk, minerals, a sword that may be iron or steel -
+  rather than only what a designer placed in it by hand. The same chest holds the same thing every
+  time the level starts in the same campaign, so there's nothing to gain by reloading to "re-roll"
+  it; two chests using the same table hold different things. A chest can mix both: the two chests
+  in `LVL_Strategy` each keep their hand-placed items and roll a table on top.
 - Opening a container or loot target also opens the nearest player pawn's own inventory
   window alongside it, so both panels are visible at once for drag-and-drop transfer between
   them.
@@ -440,6 +450,28 @@ documents what's actually built.
   as many entries as the cap requires. It returns `true` only if the *entire* quantity was
   taken — a partial add keeps what fit and warns about the rest. It rejects an item with no
   `Definition`, so a blank `StartingItems` entry places nothing.
+- **A set of items goes in whole or not at all, through `AddItemsAllOrNothing`.** Each item merges
+  and auto-places exactly as `AddItem` would, but against a scratch copy of the grid committed only
+  once every unit has landed, with one broadcast for the lot. It exists for loot: `AddItem` per
+  rolled item would keep whatever fit first and silently drop the rest, leaving a chest short by an
+  amount that depends on the order the roll came out in. Refusing the whole set turns that into a
+  visible failure - a warning, and a chest holding only its authored items. The items are placed
+  **biggest footprint first** whatever order they arrive in (stable, so a seeded roll places the
+  same way every time), for the repack's reason: first-fit strands a large item far more easily
+  than a small one. The bool is honest here in a way `AddItem`'s isn't - there is no partial outcome
+  for it to hide.
+- **A container's contents are `StartingItems` plus an optional `LootTable`, and the table is not a
+  replacement for authoring a chest.** `AStrategyContainer::BeginPlay` (authority only) adds each
+  `StartingItems` entry with `AddItem`, as before, then `RollLootTable` rolls the table and adds the
+  result all-or-nothing on top. A roll that doesn't fit leaves the chest with its `StartingItems` and
+  logs why.
+- **The roll is keyed off an authored `PlacedContainerId`, never the actor's name.** Same reasoning
+  as `AStrategyUnit::PlacedRecordId`: the runtime name isn't stable across level edits, and a key
+  that changed whenever somebody moved a rock would re-roll the chest. Generated in
+  `PostActorCreated` when a container is placed in an editor world and regenerated in
+  `PostEditImport` when one is pasted or alt-dragged (two chests sharing a key would roll identical
+  contents). A container with a table and no key still rolls - from a CRC of its actor name - and
+  warns.
 - `FindFreePlacement` sweeps the whole grid in the item's natural orientation **before** trying
   the rotated one, so nothing gets turned sideways that didn't need to be; a square footprint
   skips the second pass entirely.
@@ -569,7 +601,10 @@ documents what's actually built.
 
 - **Primary classes:**
   - `SmoresItems`: `UItemDefinition` (+ `EItemCategory` / `EEquipSlot`),
-    `UItemModifierDefinition` (+ the `EItemModifierSlot` enum), `FInventoryItem`,
+    `UItemModifierDefinition` (+ the `EItemModifierSlot` enum), `ULootTableDefinition` (+
+    `FLootTableEntry`, `FLootModifierPool`, `FLootModifierChoice`, `ELootEntryKind`; its base
+    `UWeightedTableDefinition` and the `UWorldSeedComponent` it seeds from are in `SmoresCore` -
+    see `game-data.md`), `FInventoryItem`,
     `UInventoryComponent` (+ the `EInventorySortCriterion` enum),
     `FEquippedItem` + `UEquipmentComponent` (the paperdoll),
     `AStrategyContainer` (abstract base for world containers),
@@ -702,6 +737,17 @@ documents what's actually built.
     `Server_DebugInventory`, since the local replicated copy isn't the authoritative one — and
     the modifier crosses as an **id**, resolved server-side through `USmoresDefinitionLibrary`,
     which is the same look-up records and loot tables will use
+  - `UInventoryComponent::AddItemsAllOrNothing` — every item of a set, or none of them (see Core
+    Rules). `AddItemCounted`'s body now lives in the protected `AddItemAgainst`, which merges and
+    places against any placement array and id counter without broadcasting or logging - which is
+    what lets the batch run it against a scratch copy and throw the copy away
+  - `AStrategyContainer::RollLootTable` — authority-only, called once from `BeginPlay` after the
+    `StartingItems`: builds the stream with `UWeightedTableDefinition::MakeRollStream` from
+    `UWorldSeedComponent::GetWorldSeedFor(this)` and `PlacedContainerId`, calls
+    `ULootTableDefinition::RollLoot`, and hands the result to `AddItemsAllOrNothing`.
+    `GetLootTable` / `GetPlacedContainerId` are the read side
+  - `AStrategyPlayerController::SmoresRollTable <TableId> [Seed] [Count]` (console exec) — prints
+    sample rolls of a table without touching any container. See `game-data.md`
   - `UInventoryComponent::AddItemCounted` — `AddItem` plus the quantity that actually landed.
     `AddItem` is now a one-line forwarder that discards the count. Any caller still holding the
     source copy (a world pickup) needs the count rather than the bool, since a partial add keeps
@@ -948,7 +994,9 @@ documents what's actually built.
 - **`DA_Item_*`** (`Content/Items/`) — `UItemDefinition` assets, one per item type.
   Footprints and stack sizes are authored: `Apple` 1×1 stack 10, `GoldCoin` 1×1 stack 100,
   `HealthPotion` 1×1 stack 5, `PocketKnife` 1×1, `Torch` 1×2, `Rope` 2×2, `TrapKit` 2×2,
-  `Sword` 1×3. `Icon` is unassigned on all of them — no 2D item art exists yet. `WorldMesh`
+  `Sword` 1×3, and three minerals added with the loot tables - `CopperOre`, `RockSalt`, `Sulfur`,
+  each 1×1 stack 20, category Material, and the only items carrying a tag (`Item.Mineral`, which
+  `DA_Loot_DesertMinerals` picks among). `Icon` is unassigned on all of them — no 2D item art exists yet. `WorldMesh`
   is assigned on all of them, but to the *same* placeholder (`/Engine/BasicShapes/Sphere`) rather
   than to real art: a uniform shape with a predictable centre pivot, which is what lets one ground
   offset serve every item. Because a definition is the only thing a carried item references, **deleting one
@@ -1020,7 +1068,10 @@ documents what's actually built.
   `StartingItems`. `StartingItems` is authored **entirely in Blueprint** (and per placed
   instance, as the "Chest 2" actor in `LVL_Strategy` does) — no C++ constructor seeds it,
   since C++ shouldn't hard-code content paths. `BP_Chest` sets its `Inventory` subobject to an
-  8×6 grid.
+  8×6 grid. `LootTable` is left empty on `BP_Chest` and set **per placed instance**: "Chest 1"
+  (hand-placed Gold Coin, Health Potion, Bronze Sword) rolls `DA_Loot_DesertChest` on top, and
+  "Chest 2" (Rope, Torch, Trap Kit) rolls `DA_Loot_FactionTownChest`. Both had their `PlacedContainerId` authored by hand, since
+  they predate its auto-generation; any chest placed from now on gets one automatically.
 - **Unit Blueprints** — a unit's starting pack is its character definition's `DefaultLoadout`,
   not a property on the unit: `BP_PlayerUnit` points at `DA_Character_Settler`, which seeds an
   Apple and a Pocket Knife (this was `AStrategyPlayerUnit::StartingItems` until game-data Slice 4
@@ -1068,7 +1119,7 @@ documents what's actually built.
   pair. Placeholder colouring only; real item art would drop the override.
 - **`DA_Item_*` weights and values are authored** (Apple 0.2/2g, GoldCoin 0.01/1g,
   HealthPotion 0.5/25g, PocketKnife 0.3/15g, Torch 0.8/5g, Rope 2.0/12g, Sword 3.5/90g,
-  TrapKit 4.0/60g) — a definition with a zero `Weight` contributes nothing to the readout, so
+  TrapKit 4.0/60g, CopperOre 1.5/4g, RockSalt 0.5/3g, Sulfur 0.4/6g) — a definition with a zero `Weight` contributes nothing to the readout, so
   a new item type that forgets to set one looks weightless rather than broken. **These are the
   figures for a bare item**; what a copy actually weighs and is worth depends on its modifiers.
 
@@ -1087,6 +1138,13 @@ documents what's actually built.
   A *new slot* (an enchantment, say) is a code change: add it to `EItemModifierSlot` **at the end
   of the composition order you want**, since the enum's declaration order is the order names
   compose in, and add it to `UItemModifierDefinition::GetAllModifierSlots()`.
+- **Rolled contents for a container** — set its `LootTable` (per instance, or on a Blueprint
+  subclass for a whole kind of container); the key is already there if it was placed after Slice 5.
+  A new table is a `DA_Loot_*` asset - see `game-data.md`. Size the grid for the table's worst case:
+  a roll that doesn't fit is refused whole.
+- **Anything else that receives a set of items at once** (a quest reward, a crafted batch, a
+  caravan's restock) — `AddItemsAllOrNothing` rather than a loop of `AddItem`, for the same reason
+  the loot roll uses it.
 - **New holder types** — anything with a `UInventoryComponent` gets the grid for free; size
   it with `GridWidth`/`GridHeight` and set `StackMultiplier` above 1.0 for a holder meant to
   stack deeper than a pawn's pack (a storefront shelf, a warehouse chest). Nothing else needs
@@ -1176,10 +1234,17 @@ documents what's actually built.
 - **`ConditionMultiplier` is authored and read by nothing.** `FInventoryItem::GetConditionScale()`
   computes it correctly and no caller exists — `Condition` itself is still the placeholder it
   always was, and the durability/upkeep pass that consumes both owns that.
-- **Nothing puts a modifier on an item except the debug exec and hand-authored content.** Loot
-  tables gain a per-entry modifier pool in Slice 5 of `Docs/roadmaps/game-data-roadmap.md`, and
-  crafting is what makes them systematic; until then a modified item has to be authored or added
-  from the console.
+- **Loot tables are the only systematic source of modified items.** A table entry's modifier pools
+  roll a material and a quality onto what it yields; otherwise a modified item is hand-authored or
+  added from the console. Crafting is what will make modifiers a consequence of play rather than of
+  a dice roll.
+- **A looted chest is full again next session.** The roll is deterministic and containers have no
+  record, so each session rebuilds a chest with exactly what it first rolled - the save-scumming
+  guarantee - including a chest the player emptied last time. Remembering "already looted" is a
+  save-system question; see `game-data.md`.
+- **A container's roll happens at `BeginPlay`, on every chest in the level.** Fine for a handful;
+  a world of hundreds would want to roll on first open instead. The roll is pure, so moving it is a
+  change to *when*, not to *what*.
 - **A hand-authored `Modifiers` array can hold two of the same slot.** `AddModifier` refuses it,
   but the array is `EditAnywhere`, so a designer *can* put two materials in a `StartingItems`
   entry by hand. Nothing crashes — the accessors just multiply through everything they find and

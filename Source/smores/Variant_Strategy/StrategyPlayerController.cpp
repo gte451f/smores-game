@@ -39,6 +39,7 @@
 #include "TraderComponent.h"
 #include "ItemDefinition.h"
 #include "ItemModifierDefinition.h"
+#include "LootTableDefinition.h"
 #include "SmoresDefinition.h"
 #include "SmoresDefinitionLibrary.h"
 #include "Components/CapsuleComponent.h"
@@ -2567,6 +2568,78 @@ void AStrategyPlayerController::SmoresDumpDefinitions()
 			UE_LOG(Logsmores, Warning, TEXT("[DefDebug]   %s \"%s\" (%s)"),
 				*DefinitionId.ToString(), *Definition->DisplayName.ToString(), *Definition->GetName());
 		}
+	}
+}
+
+void AStrategyPlayerController::SmoresRollTable(FName TableId, int32 Seed, int32 Count)
+{
+	const ULootTableDefinition* Table = Cast<ULootTableDefinition>(
+		USmoresDefinitionLibrary::FindDefinition(ULootTableDefinition::DefinitionType, TableId));
+
+	if (!Table)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[LootDebug] No loot table with id '%s' - run SmoresDumpDefinitions for the list."), *TableId.ToString());
+		return;
+	}
+
+	// gathered once for every roll rather than once per roll - the same candidates either way
+	const TArray<UItemDefinition*> TagCandidates = ULootTableDefinition::GatherRegisteredItems();
+
+	// the tally is keyed by composed name, so a bronze and an iron knife count separately - which
+	// is also how they stack
+	TMap<FString, int32> Tally;
+	int32 TotalItems = 0;
+
+	Count = FMath::Clamp(Count, 1, 1000);
+
+	for (int32 RollIndex = 0; RollIndex < Count; ++RollIndex)
+	{
+		// a plain stream from the seed as typed, not MakeRollStream - this samples the table, not
+		// any one chest in the world
+		FRandomStream Stream(Seed + RollIndex);
+
+		TArray<FInventoryItem> Rolled;
+		TArray<FName> SourceTableIds;
+
+		Table->RollLoot(Stream, TagCandidates, Rolled, &SourceTableIds);
+
+		// one roll's detail is useful; a hundred rolls' detail buries the tally it's there to produce
+		const bool bPrintDetail = Count <= 10;
+
+		if (bPrintDetail)
+		{
+			UE_LOG(Logsmores, Warning, TEXT("[LootDebug] %s, seed %d: %d item(s)"), *TableId.ToString(), Seed + RollIndex, Rolled.Num());
+		}
+
+		for (int32 ItemIndex = 0; ItemIndex < Rolled.Num(); ++ItemIndex)
+		{
+			const FInventoryItem& Item = Rolled[ItemIndex];
+			const FString Name = Item.GetDisplayName().ToString();
+
+			Tally.FindOrAdd(Name) += Item.Quantity;
+			TotalItems += Item.Quantity;
+
+			if (bPrintDetail)
+			{
+				UE_LOG(Logsmores, Warning, TEXT("[LootDebug]   %s x%d  (from %s)  %.2f weight, %d gold each"),
+					*Name, Item.Quantity, *SourceTableIds[ItemIndex].ToString(), Item.GetUnitWeight(), Item.GetUnitBaseValue());
+			}
+		}
+	}
+
+	if (Count == 1)
+	{
+		return;
+	}
+
+	Tally.ValueSort([](int32 A, int32 B) { return A > B; });
+
+	UE_LOG(Logsmores, Warning, TEXT("[LootDebug] %s across %d rolls (seeds %d-%d): %d unit(s), %.1f per roll"),
+		*TableId.ToString(), Count, Seed, Seed + Count - 1, TotalItems, static_cast<float>(TotalItems) / Count);
+
+	for (const TPair<FString, int32>& Line : Tally)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[LootDebug]   %5d  %s"), Line.Value, *Line.Key);
 	}
 }
 

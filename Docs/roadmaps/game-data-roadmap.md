@@ -6,7 +6,11 @@ This is a **roadmap**, not a system reference: read it while implementing one of
 when Jim points at it. The permanent record of how this data layer works will live in the
 `game-systems` skill — in a new `game-data.md` topic created by Slice 1, with additions to
 `inventory.md` (Slice 2), a new `factions.md` (Slice 3, **written**), `game-data.md` again
-(Slice 4, **written**) and `inventory.md` again (Slice 5).
+(Slice 4, **written**) and `inventory.md` plus `game-data.md` again (Slice 5, **written**).
+
+**All five slices have shipped.** What remains here is the status of each, the notes worth carrying
+into whichever roadmap comes next (world activity, saves, crafting), the out-of-scope list, and the
+Resolved Design Decisions log.
 
 This roadmap answers one question: **where does the game keep its stuff?** Not how the stuff
 behaves — where it lives, how it's authored, and what survives a save. It is the storage layer
@@ -53,37 +57,15 @@ accessors that multiply and compose through it, modifier-aware stacking and the 
 `DA_Modifier_*` assets are all built and documented in `game-systems`' `inventory.md`, with the
 new definition type recorded in `game-data.md`.
 
-## Weighted Tables
+## Weighted Tables — SHIPPED (Slice 5)
 
-A chest opened in the desert should yield different things from one opened in a faction town.
-The mechanism is a weighted table whose entries can point at **another table**:
-
-```
-DesertChest          60% -> CommonJunk      (table)
-                     30% -> DesertMinerals  (table)
-                     10% -> Waterskin       (item)
-
-FactionTownChest     60% -> CommonJunk      (table)   <- same asset, authored once
-                     30% -> IronclanGoods   (table)
-                     10% -> Ledger          (item)
-```
-
-plus a per-entry quantity range and a roll count for the whole table ("roll 2–4 times"). An
-entry can name a specific item, a sub-table, or a tag ("any common desert mineral").
-
-Three decisions worth stating:
-
-- **Nesting, not context filtering.** A table that filters itself by region and faction at roll
-  time is more clever and much harder to debug than composing small tables by hand. `economy.md`
-  is explicit that a simpler model producing visible results beats a precise one running
-  invisibly. Add context parameters only if authoring actually becomes painful.
-- **The roll must be deterministic.** `characters-and-squads.md` requires that a retry under
-  identical conditions produces an identical result — only a genuine change (skill, elapsed
-  time, a different approach) yields a different outcome. So a container seeds its roll from the
-  world seed plus its own stable id, never from a global RNG. Cheap now, expensive later.
-- **Swap the payload type and the same structure is a spawn table.** That is deliberately *not*
-  in this roadmap (see Out of Scope) — but the weight/roll/nesting logic goes in a shared base
-  so the world-activity roadmap extends it rather than rewriting it.
+`UWeightedTableDefinition` (weights, roll counts, nesting, seeding), `ULootTableDefinition` (item,
+sub-table, tag and nothing entries with quantity ranges and modifier pools), the world seed and
+`MakeRollStream`, and the five authored `DA_Loot_*` tables are built and documented in
+`game-systems`' `game-data.md` ("Weighted Tables and Seeded Rolls"); what a container does with a
+roll is in `inventory.md`. The three decisions this section argued for - nesting over context
+filtering, seeded rolls, and a shared base a spawn table can extend - are all in the code and in
+Resolved Design Decisions below.
 
 ## Explicitly Out of Scope
 
@@ -128,7 +110,8 @@ No new module. Every piece lands in an existing one, and the dependency directio
 |---|---|---|
 | `USmoresDefinition`, the id look-up helper | `SmoresCore` | Every module authors definitions; the base must sit below all of them |
 | `UFactionDefinition`, `UWorldFactionComponent`, `UPlayerStandingComponent` | `SmoresCore` | Combat, characters and economy all need to read faction identity — see the deviation note below |
-| `UItemModifierDefinition`, `ULootTableDefinition`, `UWeightedTableDefinition` | `SmoresItems` | They reference `UItemDefinition`, which lives there |
+| `UItemModifierDefinition`, `ULootTableDefinition` | `SmoresItems` | They reference `UItemDefinition`, which lives there |
+| `UWeightedTableDefinition`, `UWorldSeedComponent` | `SmoresCore` | *(moved here by Slice 5 - see its notes)* the base knows nothing about items, and the seed is read by every module that rolls |
 | `UCharacterDefinition`, `FCharacterRecord`, `UCharacterRecordComponent` | `SmoresCharacters` | The record holds both inventory (`SmoresItems`) and health (`SmoresCombat`) data, and `SmoresCharacters` is the lowest module that can see both |
 
 **Deviation from the target module map, stated rather than silent:**
@@ -201,7 +184,8 @@ different file":
 - **2 → 3** and **3 → 4**: Jim has to look. Slice 2 changes item names, weights and prices; Slice
   4 rewires every unit's components. Both need a PIE pass that isn't "read a number."
 - **4 → 5**: Slice 5 is content authoring with a visible result (open a chest, see plausible
-  loot), and it depends on the item shape from 2 and the record store from 4.
+  loot), and it depends on the item shape from 2 and the record store from 4. (In the event it
+  needed neither record nor record store - a container has no record - only the item shape.)
 
 ### Slice 1 — The definition base and id look-up — **DONE**
 
@@ -321,37 +305,52 @@ Notes worth carrying into Slice 5:
 - **`FGuid` round-trips through `ObjectTools.set_properties` as a plain
   `"XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"` string.**
 
-### Slice 5 — Loot tables
+### Slice 5 — Loot tables — **DONE**
 
-**Builds:** `UWeightedTableDefinition` base and `ULootTableDefinition` in `SmoresItems`;
-`FGameplayTagContainer Tags` added to `USmoresDefinition` (now that something consumes it);
-`AStrategyContainer` rolling its contents instead of listing them.
+Shipped into `game-systems`' `game-data.md` (a new "Weighted Tables and Seeded Rolls" section, the
+fourth base field, the corrected id-vs-pointer rule) and `inventory.md` (container contents,
+`AddItemsAllOrNothing`, the mineral items), with counts in `testing.md`, the new classes in
+`unreal-module-organization.md`, a row in `multiplayer-discipline.md`, and the MCP shapes in the
+`mcp-workflow` skill. `UWeightedTableDefinition` and `UWorldSeedComponent` (on `AStrategyGameState`)
+live in `SmoresCore`; `ULootTableDefinition` in `SmoresItems`; `USmoresDefinition` gained `Tags`;
+`AStrategyContainer` gained `LootTable` and an authored `PlacedContainerId` and rolls all-or-nothing
+on top of `StartingItems` at `BeginPlay`. Five `DA_Loot_*` tables, three mineral items tagged
+`Item.Mineral`, and both placed chests pointed at a situation table. `SmoresRollTable` added.
+140 tests green.
 
-- Entries name an item, a sub-table or a tag, with a weight, a quantity range and an optional
-  modifier pool so a table can yield "a spear, bronze or iron, occasionally well-made." The
-  modifier half of that is built as of Slice 2 — a rolled entry applies its pick with
-  `FInventoryItem::AddModifier`, which already enforces one per slot, so the table only has to
-  choose. Note that a table rolling modifiers is what first makes the stacking change visible in
-  bulk: a chest yielding bronze *and* iron spears produces two piles, not one.
-- The base class owns weights, roll counts and nesting; `ULootTableDefinition` is the only
-  subclass today, and the world-activity roadmap adds the spawn-table sibling. One subclass now
-  is deliberate, per the reusable-base default.
-- **Deterministic seeding** from the world seed plus the container's stable id, per the
-  save-scumming constraint above. This is the piece that is genuinely awkward to add later.
-- `AStrategyContainer` keeps `StartingItems` for hand-authored one-offs and gains an optional
-  `LootTable` that fills it on `BeginPlay`, authority-only. Both paths coexist; the table is not
-  a replacement for authoring a specific chest.
-- Author a small table set via MCP — `CommonJunk`, `DesertMinerals`, one faction goods table, and
-  two situation tables composing them.
-- `SmoresRollTable <id>` prints a sample roll without touching the world.
+Notes worth carrying into later roadmaps:
 
-**Tests:** weight distribution over a fixed seed, nesting, roll counts, tag resolution,
-determinism (same seed and id yields the same result), and all-or-nothing behavior when the
-target grid can't fit the roll.
-
-**Verification:** Jim opens chests in PIE and judges whether the contents read plausibly.
-
-**Ships into:** `inventory.md` (container contents) and `game-data.md` (the weighted-table base).
+- **Deviations from the sketch above, all deliberate:**
+  - `UWeightedTableDefinition` lives in **`SmoresCore`, not `SmoresItems`** as the placement table
+    said. The table's reason ("they reference `UItemDefinition`") is true of the loot table and not
+    of the base, which knows nothing about items; a spawn table shouldn't need `SmoresItems`.
+  - **Loot entries name items and sub-tables by asset pointer, not by id.** `game-data.md` used to
+    list "a loot table entry names an item by id"; that contradicted the Resolved Design Decision
+    that the id rule "applies only to data that gets saved". A table is authored content. The mod
+    case is served by tags instead - a mod's item tagged `Item.Mineral` joins every "any mineral"
+    entry. The topic now says so.
+  - **There was no world seed**, so Slice 5 made one: `UWorldSeedComponent`, server-only and not
+    replicated (a client knowing it could compute every chest). Authored on the GameState Blueprint
+    for now; the new-campaign flow and the save system both need to own it next.
+  - **"All-or-nothing when the grid can't fit the roll"** was built as a general
+    `UInventoryComponent::AddItemsAllOrNothing` rather than a loot-specific path. It places biggest
+    footprint first, so it succeeds in cases where adding one at a time in roll order would strand
+    an item.
+  - **Three mineral items were added** (Copper Ore, Rock Salt, Sulfur) because `DesertMinerals` had
+    nothing to find otherwise. "Waterskin" and "Ledger" from the example above became Health Potion
+    and Gold Coin rather than two more new items.
+- **The seed mixing is a hand-written CRC-32, pinned by a test** (`RollStreamIsPinned`), because
+  `HashCombine` may change with the engine and would silently re-roll every save's containers.
+  Anything else seeded from `(world seed, stable id)` - the spawn table, a recipe's quality roll -
+  should call `MakeRollStream` rather than inventing its own mix.
+- **Tag candidates are sorted by id before a pick.** The Asset Manager's scan order isn't stable;
+  anything else that picks from `GetDefinitionIds` must sort first or lose determinism the same way.
+- **A container has no record, so "already looted" doesn't survive a new session** - the chest
+  rolls the same contents again. That is the save system's problem, and the reason determinism
+  mattered: whatever it saves, a reload can't be used to re-roll.
+- **An MCP write of a whole nested array onto an empty array landed in one call** (entries with
+  modifier pools with choices), and nested struct members read back in lowerCamelCase while writes
+  take C++ case - both now in `mcp-workflow`.
 
 ## Resolved Design Decisions
 

@@ -358,6 +358,16 @@ protected:
 	/** Body of FindFreePlacement, scanning against an arbitrary set of placements (see CanPlaceAgainst) */
 	bool FindFreePlacementAgainst(const TArray<FInventoryEntry>& Placements, const FInventoryItem& Item, FIntPoint& OutCell, bool& bOutRotated, int32 IgnoreEntryId) const;
 
+	/**
+	 *  Body of AddItemCounted, run against an arbitrary set of placements and handing out ids from
+	 *  InOutNextEntryId: merges into stacks already in Placements first, then places whatever is
+	 *  left. Returns the quantity that landed.
+	 *
+	 *  Touches nothing but its arguments - no broadcast, no log - so AddItemsAllOrNothing can run it
+	 *  against a scratch copy of the grid and throw the copy away when something doesn't fit.
+	 */
+	int32 AddItemAgainst(TArray<FInventoryEntry>& Placements, int32& InOutNextEntryId, const FInventoryItem& Item) const;
+
 public:
 
 	/** Fired when the grid size or the placed entries change */
@@ -472,6 +482,26 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool AddItemCounted(const FInventoryItem& Item, int32& OutQuantityAdded);
+
+	/**
+	 *  Adds every one of Items, or none of them. Each merges and auto-places exactly as AddItem
+	 *  would, but against a scratch copy of the grid that is committed only once everything has
+	 *  landed - so a set that doesn't fit changes nothing at all, and broadcasts nothing.
+	 *
+	 *  This is how a rolled loot table goes into a container. AddItem per item would keep whatever
+	 *  happened to fit first and silently drop the rest, leaving a chest that is short by an amount
+	 *  that depends on the order the roll came out in; refusing the whole set makes the failure a
+	 *  visible one (a warning, and a chest holding only what was authored).
+	 *
+	 *  The items are placed biggest footprint first, whatever order they arrive in - the repack's
+	 *  reason (see SortEntries): first-fit packing strands a large item far more easily than a small
+	 *  one. Empty items are skipped. Returns true when everything landed (trivially so for an empty
+	 *  set); false off-authority or when anything didn't fit.
+	 *
+	 *  The bool is honest here in a way AddItem's isn't: there is no partial outcome to hide.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	bool AddItemsAllOrNothing(const TArray<FInventoryItem>& Items);
 
 	/** Places an item at an explicit cell/rotation, without any stack merging. Returns false if it doesn't fit. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")

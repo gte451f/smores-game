@@ -127,6 +127,19 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   property-name grep in the stale-override bullets above works for `StartingItems`/`WeightCapacity`
   because those names are *not* carried by unrelated actors — it isn't a general rule, and
   `git status` on `Content/` is the cheaper first check either way.
+- **Nested struct members read back in lowerCamelCase but are written in C++ case.**
+  `get_properties` on a loot table returns `entries[0].kind`, `.weight`, `.modifierPools[0].choices`;
+  `set_properties` wants `Kind`, `Weight`, `ModifierPools`, `Choices`. Top-level asset properties
+  stay in C++ case both ways. So the "reuse the read shape as the write shape" advice further down
+  holds for widget style structs, **not** for arrays of project structs - rename the keys first.
+- **Shapes that work for the definition types** (game-data Slice 5): an `FGameplayTagContainer` is
+  `{"Tags": {"gameplayTags": [{"tagName": "Item.Mineral"}]}}` and a lone `FGameplayTag` is
+  `{"tagName": "Item.Mineral"}`; an enum is the bare value name (`"Kind": "Item"`); an object
+  reference is `{"refPath": "/Game/.../DA_X.DA_X"}` and a null one the bare string `"None"`. A full
+  loot entry: `{"Kind":"Item","Weight":2,"Item":{"refPath":"/Game/Items/DA_Item_Sword.DA_Item_Sword"},"MinQuantity":1,"MaxQuantity":1,"ModifierPools":[{"Choices":[{"Modifier":{"refPath":"/Game/Items/Modifiers/DA_Modifier_Iron.DA_Modifier_Iron"},"Weight":3},{"Modifier":"None","Weight":4}]}]}`.
+  `DataAssetTools.create` with `asset_type: {"refPath": "/Script/SmoresItems.LootTableDefinition"}`
+  makes a native data asset directly - no need to duplicate an existing one. `GameplayTags` tools
+  (`GetTagInfo`, `FindReferencersByTag`) confirm a config tag registered and who carries it.
 - **An `FGuid` property reads and writes as a plain string** -
   `{"PlacedRecordId": "61F1962C-0A5F-4C56-9EBC-ACD4B20B08CB"}` round-trips through
   `set_properties`/`get_properties` on a placed actor with no struct form needed. A soft class
@@ -174,8 +187,10 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   array back and repeat the same write until the length matches.** Seen while putting modifiers
   into `BP_Trader`'s `StartingStock` and `BP_Chest`'s `StartingItems`.
   **Onto an *empty* array it is not capped the same way** — two `StartingRelations` entries written
-  onto a fresh `DA_Faction_*` asset both landed in one call (game-data Slice 3). Same habit either
-  way: read the length back.
+  onto a fresh `DA_Faction_*` asset both landed in one call (game-data Slice 3), and so did a whole
+  loot table's `Entries` *with nested arrays inside them* (five entries, one carrying a
+  `ModifierPools` array of `Choices` arrays; game-data Slice 5). Same habit either way: read the
+  length back, at every nesting level.
 - **`reset_properties` walks past a compiled Blueprint default on an SCS *component* template
   too, not just on a placed actor.** It emptied `BP_Trader`'s `StartingStock` and returned
   `true`. Note this narrows the "a CDO write followed by `compile_blueprint` *is* durable" bullet

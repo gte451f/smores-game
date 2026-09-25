@@ -11,7 +11,10 @@ public class SmoresCore : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[] {
 			"Core",
 			"CoreUObject",
-			"Engine"
+			"Engine",
+			// public: USmoresDefinition::Tags puts an FGameplayTagContainer in a header every
+			// module that authors a definition includes
+			"GameplayTags"
 		});
 
 		// AssetRegistry is here only for Tests/SmoresDefinitionAssetTest.cpp, which sweeps every
