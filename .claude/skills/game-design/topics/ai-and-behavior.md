@@ -179,9 +179,10 @@ activity/chat panel (`player-interface.md`) alongside the combat log.
 
 Two things they are: flavor that makes a role legible without a UI label, and genuine
 information — a guard saying they've spotted something is the player's warning that
-awareness has shifted. One thing they are not: a conversation system. Written to the
-austere, stark tone in `narrative-and-lore.md`, and localized like all other strings
-(`localization.md`).
+awareness has shifted. Barks are one-way; anything the player can answer is a
+conversation, which is a separate layer. Both, and how they're chosen, are owned by
+`dialogue.md`. Written to the austere, stark tone in `narrative-and-lore.md`, and
+localized like all other strings (`localization.md`).
 
 ## Open Design Questions Worth Tracking
 

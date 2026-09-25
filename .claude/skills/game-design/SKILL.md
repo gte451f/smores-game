@@ -25,6 +25,7 @@ This topic covers intendent game designs that may not exist yet.
 | [`topics/economy.md`](topics/economy.md) | Emergent/marginal pricing, the trade hierarchy, player economic roles, the illicit economy, currency sinks, biome and advancement resources |
 | [`topics/combat.md`](topics/combat.md) | Automated real-time combat, why melee is primary and how ranged is kept supporting, injury/capture, retreat |
 | [`topics/ai-and-behavior.md`](topics/ai-and-behavior.md) | One behavior system for every inhabitant — roles, derived stance/hostility, awareness, drives, the deliberately narrow behavioral range, distance fidelity, barks |
+| [`topics/dialogue.md`](topics/dialogue.md) | All dialogue written ahead of time, barks vs. conversations (both chosen by "most specific wins"), topics and banter, squad-scoped dialogue memory, co-op conversations in real time, the base game loaded the way mods are |
 | [`topics/characters-and-squads.md`](topics/characters-and-squads.md) | Lineage, attributes vs. skills, recruitment/wages/morale, injuries, stealth and illicit operations |
 | [`topics/character-creation.md`](topics/character-creation.md) | What the player authors and when, fixed vs. adjustable appearance, mid-campaign cosmetic editing, readability-first art direction |
 | [`topics/base-building.md`](topics/base-building.md) | The outpost/town-building split, site selection, raids, supply chains, upkeep |
