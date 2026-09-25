@@ -1,0 +1,58 @@
+/* Copyright (c) 2024 Julian Benda
+ *
+ * This file is part of inkCPP which is released under MIT license.
+ * See file LICENSE.txt or go to
+ * https://github.com/JBenda/inkcpp for full license details.
+ */
+#include "emitter.h"
+
+namespace ink::compiler::internal
+{
+void emitter::start(uint16_t ink_version, compilation_results* results)
+{
+	// store
+	_ink_version = ink_version;
+	set_results(results);
+
+	// reset
+	_container_map.clear();
+	_max_container_index = 0;
+
+	// initialize
+	initialize();
+}
+
+void emitter::finish(container_t max_container_index)
+{
+	// store max index
+	_max_container_index = max_container_index;
+
+	// finalize
+	finalize();
+}
+
+void emitter::add_start_to_container_map(uint32_t offset, container_t index)
+{
+	if (_container_map.rbegin() != _container_map.rend()) {
+		if (_container_map.rbegin()->_offset > offset) {
+			warn() << "Container map written out of order. Wrote container at offset " << offset
+			       << " after container with offset " << _container_map.rbegin()->_offset << std::flush;
+		}
+	}
+
+	_container_map.push_back({offset, index});
+	setContainerIndex(index);
+}
+
+void emitter::add_end_to_container_map(uint32_t offset, container_t index)
+{
+	if (_container_map.rbegin() != _container_map.rend()) {
+		if (_container_map.rbegin()->_offset > offset) {
+			warn() << "Container map written out of order. Wrote container at offset " << offset
+			       << " after container with offset " << _container_map.rbegin()->_offset << std::flush;
+		}
+	}
+
+	_container_map.push_back({offset, index});
+}
+} // namespace ink::compiler::internal

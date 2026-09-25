@@ -1,0 +1,143 @@
+/* Copyright (c) 2024 Julian Benda
+ *
+ * This file is part of inkCPP which is released under MIT license.
+ * See file LICENSE.txt or go to
+ * https://github.com/JBenda/inkcpp for full license details.
+ */
+#pragma once
+
+#include "snapshot.h"
+#include "snapshot_interface.h"
+#include "array.h"
+#include "choice.h"
+
+namespace ink::runtime
+{
+class story;
+} // namespace ink::runtime
+
+namespace ink::runtime::internal
+{
+class snap_choice
+    : public snapshot_interface
+    , public choice
+{
+public:
+	using choice::choice;
+
+	snap_choice(const choice& c)
+	    : choice{c}
+	{
+	}
+
+	snap_choice(choice&& c)
+	    : choice{c}
+	{
+	}
+
+	size_t               snap(unsigned char* data, const snapper&) const;
+	const unsigned char* snap_load(const unsigned char* data, const loader&);
+};
+
+static_assert(sizeof(snap_choice) == sizeof(choice));
+
+class snap_tag : public snapshot_interface
+{
+public:
+	snap_tag() = default;
+
+	snap_tag(const char* str)
+	    : _str{str}
+	{
+	}
+
+	operator const char*() const { return _str; }
+
+	snap_tag& operator=(const char* str)
+	{
+		_str = str;
+		return *this;
+	}
+
+	size_t               snap(unsigned char*, const snapper&) const;
+	const unsigned char* snap_load(const unsigned char* data, const loader&);
+
+	const char* text() const { return _str; }
+
+	const char* const* ptr() const { return &_str; }
+
+private:
+	const char* _str = nullptr;
+};
+
+static_assert(sizeof(snap_tag) == sizeof(const char*));
+
+class snapshot_impl final : public snapshot
+{
+public:
+	~snapshot_impl() override;
+
+	managed_array<const char*, true, 5>& strings() const { return string_table; }
+
+	managed_array<int, true, 5, true>& list_old_new_map() const { return list_old_new_map_table; }
+
+	managed_array<int, true, 5, true>& list_list_matches() const { return list_list_matches_table; }
+
+	managed_array<int, true, 5, true>& list_value_matches() const { return list_value_matches_table; }
+
+	const unsigned char* get_data() const override;
+	size_t               get_data_len() const override;
+
+	snapshot_impl(const globals_impl&);
+	// write down all allocated strings
+	// replace pointer with idx
+	// reconsrtuct static strings index
+	// list_table _data & _entry_state
+	snapshot_impl(const unsigned char* data, size_t length, bool managed);
+
+	const unsigned char* get_globals_snap() const { return _file + get_offset(0); }
+
+	const unsigned char* get_runner_snap(size_t idx) const { return _file + get_offset(idx + 1); }
+
+	const unsigned char* get_list_metadata() const { return _file + get_offset(num_runners() + 1); }
+
+	size_t num_runners() const override { return _header.num_runners; }
+
+	bool can_be_migrated() const override { return _header.migratable; }
+
+	bool can_be_migrated(const story&) const;
+
+	hash_t hash() const { return _header.hash; }
+
+	mutable const list_table* old_ref_table = nullptr;
+
+private:
+	// file information
+	// only populated when loading snapshots
+	mutable managed_array<const char*, true, 5> string_table;
+	mutable managed_array<int, true, 5, true>   list_old_new_map_table;
+	mutable managed_array<int, true, 5, true>   list_list_matches_table;
+	mutable managed_array<int, true, 5, true>   list_value_matches_table;
+	const unsigned char*                        _file;
+	size_t                                      _length;
+	bool                                        _managed;
+	static size_t                               file_size(size_t, size_t, bool);
+
+	struct header {
+		size_t num_runners;
+		size_t length;
+		hash_t hash;
+		bool   migratable;
+		size_t version = 1;
+	} _header;
+
+	size_t get_offset(size_t idx) const
+	{
+		inkAssert(
+		    idx <= _header.num_runners + (can_be_migrated() ? 1 : 0),
+		    "Out of Bound access for runner in snapshot."
+		);
+		return reinterpret_cast<const size_t*>(_file + sizeof(header))[idx];
+	}
+};
+} // namespace ink::runtime::internal

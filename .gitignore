@@ -74,3 +74,7 @@ Plugins/**/Intermediate/*
 
 # Cache files for the editor to use
 DerivedDataCache/*
+
+# Yarn Spinner for Unreal (dialog spike). Its licence forbids republishing the unmodified source
+# and this repo is public, so the plugin stays local and is never committed.
+Plugins/YarnSpinner/
