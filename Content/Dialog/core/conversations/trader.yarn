@@ -1,0 +1,51 @@
+// The base game's trader conversations. Talk to a trader and TraderGreeting plays; when it ends, the
+// window offers every topic attached to that trader - these two, plus any a mod adds - and Goodbye.
+//
+// Headers: kind is Greeting, Topic or Ambient; attach says who it belongs to (asked of the Speaker,
+// in the condition language barks use); requires says what else must be true; a Topic's label is
+// the choice that offers it; once: true means never again for a squad that has seen it.
+// SmoresDialogReport facts lists every fact, function and effect a script may use.
+//
+// Compile with: ysc compile trader.yarn -o . -n trader
+
+title: TraderGreeting
+kind: Greeting
+attach: Speaker.Role == trader
+---
+Trader: Buying or selling? #line:trader_greet
+-> Show me what you've got. #line:trader_greet_trade
+    <<OpenTrade>>
+-> Just looking. #line:trader_greet_looking
+    Trader: Look with your eyes, then. #line:trader_greet_eyes
+===
+
+// Haggling-flavoured, with no haggling in it: prices stay flat. Asking the right way sets a flag
+// that unlocks the backstory below.
+title: TraderPrices
+kind: Topic
+attach: Speaker.Role == trader
+label: Any chance of a better price?
+---
+Trader: Prices are prices. The road doesn't haggle, and neither do I. #line:trader_prices
+-> Not even for a regular? #line:trader_prices_regular
+    Trader: Nine years I walked the salt road to learn what things cost. I don't sell that cheap. #line:trader_prices_salt_road
+    <<SetFlag trader_mentioned_salt_road>>
+-> Fair enough. #line:trader_prices_fair
+===
+
+// A backstory, standing in for recruit backstories until recruiting exists: it waits on a flag, and
+// is told once.
+title: TraderBackstory
+kind: Topic
+attach: Speaker.Definition == Trader
+requires: Flag(trader_mentioned_salt_road)
+once: true
+label: You walked the salt road?
+---
+Trader: Nine years, with a cart and a mule that hated me. #line:trader_story_mule
+Trader: The mule died at the dry wells. I didn't, which is the only reason I'm standing here. #line:trader_story_wells
+-> And the cart? #line:trader_story_cart
+    Trader: Sold it. The first thing I ever sold at a profit. #line:trader_story_profit
+-> I'm glad you made it. #line:trader_story_glad
+    Trader: So am I. Most days. #line:trader_story_most_days
+===

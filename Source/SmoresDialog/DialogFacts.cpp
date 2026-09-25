@@ -6,6 +6,8 @@
 #include "CharacterDefinition.h"
 #include "FactionDefinition.h"
 #include "PlayerStandingComponent.h"
+#include "DialogMemoryComponent.h"
+#include "WalletComponent.h"
 #include "SmoresDefinitionLibrary.h"
 #include "GameFramework/PlayerState.h"
 
@@ -285,6 +287,57 @@ FDialogFactRegistry FDialogFactRegistry::MakeBuiltIn()
 			}
 
 			return FDialogValue::MakeNumber(Standing->GetStanding(Speaker->GetFactionId()));
+		};
+
+		Registry.Register(MoveTemp(Fact));
+	}
+
+	{
+		FDialogFact Fact;
+		Fact.Name = FName(TEXT("Gold"));
+		Fact.Type = EDialogValueType::Number;
+		Fact.Reads = EDialogSubject::Player;
+		Fact.Description = TEXT("how much gold this player has");
+		Fact.Answer = [](const FDialogContext& Context, FName)
+		{
+			const APlayerState* Player = Context.Player.Get();
+			const UWalletComponent* Wallet = Player ? Player->FindComponentByClass<UWalletComponent>() : nullptr;
+
+			return Wallet ? FDialogValue::MakeNumber(Wallet->GetGold()) : FDialogValue::MakeUnset(EDialogValueType::Number);
+		};
+
+		Registry.Register(MoveTemp(Fact));
+	}
+
+	{
+		FDialogFact Fact;
+		Fact.Name = FName(TEXT("Flag"));
+		Fact.Type = EDialogValueType::Bool;
+		Fact.Reads = EDialogSubject::Player;
+		Fact.bTakesArgument = true;
+		Fact.Description = TEXT("Flag(name): true once this squad's conversations have set that flag (<<SetFlag name>>)");
+		Fact.Answer = [](const FDialogContext& Context, FName Argument)
+		{
+			const UDialogMemoryComponent* Memory = UDialogMemoryComponent::Get(Context.Player.Get());
+
+			return Memory ? FDialogValue::MakeBool(Memory->HasFlag(Argument)) : FDialogValue::MakeUnset(EDialogValueType::Bool);
+		};
+
+		Registry.Register(MoveTemp(Fact));
+	}
+
+	{
+		FDialogFact Fact;
+		Fact.Name = FName(TEXT("Seen"));
+		Fact.Type = EDialogValueType::Bool;
+		Fact.Reads = EDialogSubject::Player;
+		Fact.bTakesArgument = true;
+		Fact.Description = TEXT("Seen(conversation): true once this squad has had that conversation - its title, or package.title");
+		Fact.Answer = [](const FDialogContext& Context, FName Argument)
+		{
+			const UDialogMemoryComponent* Memory = UDialogMemoryComponent::Get(Context.Player.Get());
+
+			return Memory ? FDialogValue::MakeBool(Memory->HasSeen(Argument)) : FDialogValue::MakeUnset(EDialogValueType::Bool);
 		};
 
 		Registry.Register(MoveTemp(Fact));

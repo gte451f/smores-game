@@ -1,0 +1,3 @@
+id,node,lineNumber,tags
+line:bad_reason_well,BadReason,50,line:bad_reason_well lastline
+line:bad_reason_bribe,BadReason,51,line:bad_reason_bribe reason:too_poor

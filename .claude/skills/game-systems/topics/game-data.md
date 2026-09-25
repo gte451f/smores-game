@@ -142,12 +142,15 @@ is the test that catches it — it exists for exactly this failure.
 `UWeightedTableDefinition` (`SmoresCore`) is abstract and has no config line of its own: an
 abstract base is never an asset, and each concrete table type registers under its own name.
 
-**Not every definition is an asset.** Dialog - barks today, conversations next - is definition data
+**Not every definition is an asset.** Dialog - barks and conversations - is definition data
 in exactly this sense (authored, identical on every machine, never written in play), but it is read
 from plain text files at startup rather than authored as `.uasset`s, so that a writer or a modder
 needs no Unreal at all. It is therefore not a `USmoresDefinition`, isn't in the Asset Manager, and
-has its own loader and content sweep. It still follows the id rule: a bark names a faction or a
-character definition by id, and an id nothing resolves is a warning. See `dialog.md`.
+has its own loader and content sweep. It still follows the id rule: a bark or a conversation names
+a faction or a character definition by id, and an id nothing resolves is a warning. What a squad
+has said and heard - its dialog flags and the conversations it has seen - is a **record**, a plain
+reflected `FDialogMemoryRecord` on `UDialogMemoryComponent`, for the save system to serialize
+unchanged. See `dialog.md`.
 
 Each type's `DefinitionType` is a `static const FPrimaryAssetType` holding the literal type
 string, spelled out rather than derived from the class name so it and the config line are visibly

@@ -1,0 +1,15 @@
+id,text,file,node,lineNumber
+line:trader_greet,Trader: Buying or selling?,C:\dev\smores\Content\Dialog\core\conversations\trader.yarn,TraderGreeting,15
+line:trader_greet_trade,Show me what you've got.,C:\dev\smores\Content\Dialog\core\conversations\trader.yarn,TraderGreeting,16
+line:trader_greet_looking,Just looking.,C:\dev\smores\Content\Dialog\core\conversations\trader.yarn,TraderGreeting,18
+line:trader_greet_eyes,"Trader: Look with your eyes, then.",C:\dev\smores\Content\Dialog\core\conversations\trader.yarn,TraderGreeting,19
+line:trader_prices,"Trader: Prices are prices. The road doesn't haggle, and neither do I.",C:\dev\smores\Content\Dialog\core\conversations\trader.yarn,TraderPrices,29
+line:trader_prices_regular,Not even for a regular?,C:\dev\smores\Content\Dialog\core\conversations\trader.yarn,TraderPrices,30
+line:trader_prices_salt_road,Trader: Nine years I walked the salt road to learn what things cost. I don't sell that cheap.,C:\dev\smores\Content\Dialog\core\conversations\trader.yarn,TraderPrices,31
+line:trader_prices_fair,Fair enough.,C:\dev\smores\Content\Dialog\core\conversations\trader.yarn,TraderPrices,33
+line:trader_story_mule,"Trader: Nine years, with a cart and a mule that hated me.",C:\dev\smores\Content\Dialog\core\conversations\trader.yarn,TraderBackstory,45
+line:trader_story_wells,"Trader: The mule died at the dry wells. I didn't, which is the only reason I'm standing here.",C:\dev\smores\Content\Dialog\core\conversations\trader.yarn,TraderBackstory,46
+line:trader_story_cart,And the cart?,C:\dev\smores\Content\Dialog\core\conversations\trader.yarn,TraderBackstory,47
+line:trader_story_profit,Trader: Sold it. The first thing I ever sold at a profit.,C:\dev\smores\Content\Dialog\core\conversations\trader.yarn,TraderBackstory,48
+line:trader_story_glad,I'm glad you made it.,C:\dev\smores\Content\Dialog\core\conversations\trader.yarn,TraderBackstory,49
+line:trader_story_most_days,Trader: So am I. Most days.,C:\dev\smores\Content\Dialog\core\conversations\trader.yarn,TraderBackstory,50

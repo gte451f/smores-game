@@ -1,15 +1,22 @@
-// A bandit shakedown - the example conversation, in Yarn. Written for the Ink-vs-Yarn spike and
-// kept for dialog Slice 3 to put on a Bandit in game.
+// A bandit shakedown - the example mod gives one of the base game's characters a conversation,
+// without touching the base game's files. Talk to any Bandit and this is what they open with.
 //
-// gold() is a question the game answers. <<TakeMoney>> and <<ChangeStanding>> are actions the game
-// carries out (Raiders is the Bandit's faction id). $asked_about_road is Yarn's own memory, local
-// to this conversation. Each #line: tag is the line's id - what crosses the network, what a
-// translation keys on, and what a voice recording would be filed under.
+// The headers under each title are the conversation's metadata: kind (Greeting, Topic or Ambient),
+// attach (who it belongs to, in the same condition language barks use), requires, priority and
+// once. A node without them - Choices, below - is an ordinary Yarn node a conversation jumps into.
+//
+// gold() is a question the game answers; every fact is a function, with '.' written as '_'.
+// <<TakeMoney>>, <<SetFlag>> and <<ChangeStanding>> are effects the game carries out (Raiders is
+// the Bandit's faction id). $asked_about_road is Yarn's own memory, which lasts one conversation;
+// anything the squad should remember for longer is a flag. A choice tagged #reason: shows greyed
+// out, with that reason, when its condition fails; one without is left off. Each #line: tag is the
+// line's id - what crosses the network, what a translation keys on, what a recording is filed under.
 //
 // Compile with: ysc compile shakedown.yarn -o . -n shakedown
-// which writes shakedown.yarnc (the program) and shakedown-Lines.csv (every line's text by id).
 
 title: Shakedown
+kind: Greeting
+attach: Speaker.Definition == Bandit
 ---
 <<declare $asked_about_road = false>>
 Bandit: Toll road. Twenty gold, or you walk back the way you came. #line:shakedown_toll
@@ -18,8 +25,9 @@ Bandit: Toll road. Twenty gold, or you walk back the way you came. #line:shakedo
 
 title: Choices
 ---
--> Pay the toll. <<if gold() >= 20>> #line:shakedown_pay
+-> Pay the toll. <<if gold() >= 20>> #line:shakedown_pay #reason:not_enough_money
     <<TakeMoney 20>>
+    <<SetFlag example_paid_toll>>
     Bandit: Pleasure doing business. Road's yours. #line:shakedown_paid
 -> Who says it's your road? <<if not $asked_about_road>> #line:shakedown_ask
     <<set $asked_about_road to true>>
@@ -28,4 +36,14 @@ title: Choices
 -> Get out of my way. #line:shakedown_refuse
     <<ChangeStanding Raiders -10>>
     Bandit: Wrong answer. #line:shakedown_wrong
+===
+
+// Once a squad has paid, every Bandit knows it: the higher priority wins over the shakedown.
+title: ShakedownPaid
+kind: Greeting
+attach: Speaker.Definition == Bandit
+requires: Flag(example_paid_toll)
+priority: 10
+---
+Bandit: You paid. Keep walking before I forget that. #line:shakedown_already_paid
 ===

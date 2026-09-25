@@ -128,7 +128,9 @@ a method body in a `.cpp` (see `unreal-module-organization.md`).
   factions makes the linear search free; this is the class that grows an index if counts reach
   the hundreds.
 - A client changing standing would route through its own controller, like
-  `Server_RequestPace`. Nothing does yet — the debug exec is the only caller.
+  `Server_RequestPace`. Nothing does - the two callers are the debug exec and dialog's
+  `<<ChangeStanding>>` effect, which runs on the server in a conversation (`dialog.md`) and posts
+  the change to that player's feed. The shakedown's refusal is the one piece of content using it.
 - Each component broadcasts one delegate (`OnFactionsChanged`, `OnStandingChanged`) on the
   server from the mutator and on clients from `OnRep`. Only on a real change: re-setting a value
   to what it already was, or a refused write, is silent. Nothing binds them yet; they are there

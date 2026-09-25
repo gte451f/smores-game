@@ -1,0 +1,26 @@
+// Test fixture: the bandit shakedown the conversation-player spike proved the player on. The tests'
+// own copy, so a writer editing Mods/example can't break a test.
+// Compile with: ysc compile shakedown.yarn -o . -n shakedown
+
+title: Shakedown
+kind: Greeting
+attach: Speaker.Role == bandit
+---
+<<declare $asked_about_road = false>>
+Bandit: Toll road. Twenty gold, or you walk back the way you came. #line:shakedown_toll
+<<jump Choices>>
+===
+
+title: Choices
+---
+-> Pay the toll. <<if gold() >= 20>> #line:shakedown_pay #reason:not_enough_money
+    <<TakeMoney 20>>
+    Bandit: Pleasure doing business. Road's yours. #line:shakedown_paid
+-> Who says it's your road? <<if not $asked_about_road>> #line:shakedown_ask
+    <<set $asked_about_road to true>>
+    Bandit: The twelve of us in those rocks say so. #line:shakedown_twelve
+    <<jump Choices>>
+-> Get out of my way. #line:shakedown_refuse
+    <<ChangeStanding Raiders -10>>
+    Bandit: Wrong answer. #line:shakedown_wrong
+===

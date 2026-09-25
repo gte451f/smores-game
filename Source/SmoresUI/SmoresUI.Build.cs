@@ -23,7 +23,8 @@ public class SmoresUI : ModuleRules
 			// shouldn't be hidden behind another module's include
 			"SmoresCombat",
 			"SmoresCharacters",
-			"SmoresEconomy"
+			"SmoresEconomy",
+			"SmoresDialog"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });

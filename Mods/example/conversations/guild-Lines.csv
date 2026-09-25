@@ -1,0 +1,6 @@
+id,text,file,node,lineNumber
+line:guild_debt,"Trader: Whoever holds the most debt. This year, that isn't me.",C:\dev\smores\Mods\example\conversations\guild.yarn,GuildTopic,12
+line:guild_who,"Who, then?",C:\dev\smores\Mods\example\conversations\guild.yarn,GuildTopic,13
+line:guild_caravan,Trader: Ask the next caravan master you meet. Bring coin; they charge for answers.,C:\dev\smores\Mods\example\conversations\guild.yarn,GuildTopic,14
+line:guild_hard,Sounds like a hard way to live.,C:\dev\smores\Mods\example\conversations\guild.yarn,GuildTopic,15
+line:guild_road,Trader: It's a living. The hard part is the road.,C:\dev\smores\Mods\example\conversations\guild.yarn,GuildTopic,16

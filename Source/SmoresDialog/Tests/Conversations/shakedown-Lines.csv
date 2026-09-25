@@ -1,0 +1,8 @@
+id,text,file,node,lineNumber
+line:shakedown_toll,"Bandit: Toll road. Twenty gold, or you walk back the way you came.",C:\dev\smores\Source\SmoresDialog\Tests\Conversations\shakedown.yarn,Shakedown,10
+line:shakedown_pay,Pay the toll.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\shakedown.yarn,Choices,16
+line:shakedown_paid,Bandit: Pleasure doing business. Road's yours.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\shakedown.yarn,Choices,18
+line:shakedown_ask,Who says it's your road?,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\shakedown.yarn,Choices,19
+line:shakedown_twelve,Bandit: The twelve of us in those rocks say so.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\shakedown.yarn,Choices,21
+line:shakedown_refuse,Get out of my way.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\shakedown.yarn,Choices,23
+line:shakedown_wrong,Bandit: Wrong answer.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\shakedown.yarn,Choices,25

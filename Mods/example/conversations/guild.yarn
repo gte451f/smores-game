@@ -1,0 +1,17 @@
+// A topic attached to a whole faction: every Traders Guild member offers it, whoever they are,
+// once their greeting ends. This is how a mod - and later a quest - gives the base game's people
+// something new to talk about without editing them.
+//
+// Compile with: ysc compile guild.yarn -o . -n guild
+
+title: GuildTopic
+kind: Topic
+attach: Speaker.Faction == TradersGuild
+label: Who runs the Traders Guild?
+---
+Trader: Whoever holds the most debt. This year, that isn't me. #line:guild_debt
+-> Who, then? #line:guild_who
+    Trader: Ask the next caravan master you meet. Bring coin; they charge for answers. #line:guild_caravan
+-> Sounds like a hard way to live. #line:guild_hard
+    Trader: It's a living. The hard part is the road. #line:guild_road
+===

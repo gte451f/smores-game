@@ -47,11 +47,6 @@
 			"Name": "SmoresDialog",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
-		},
-		{
-			"Name": "SmoresDialogSpike",
-			"Type": "Runtime",
-			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [

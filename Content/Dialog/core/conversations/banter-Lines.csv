@@ -1,0 +1,8 @@
+id,text,file,node,lineNumber
+line:banter_water_ask,First: How much water's left?,C:\dev\smores\Content\Dialog\core\conversations\banter.yarn,SettlerBanterWater,16
+line:banter_water_answer,"Second: Enough, if nobody asks again.",C:\dev\smores\Content\Dialog\core\conversations\banter.yarn,SettlerBanterWater,17
+line:banter_water_only,First: I'm only asking.,C:\dev\smores\Content\Dialog\core\conversations\banter.yarn,SettlerBanterWater,18
+line:banter_water_twice,Second: That's twice now.,C:\dev\smores\Content\Dialog\core\conversations\banter.yarn,SettlerBanterWater,19
+line:banter_fight_last,First: Tell me that was the last of them.,C:\dev\smores\Content\Dialog\core\conversations\banter.yarn,SettlerBanterAfterFight,29
+line:banter_fight_lie,Second: That was the last of them.,C:\dev\smores\Content\Dialog\core\conversations\banter.yarn,SettlerBanterAfterFight,30
+line:banter_fight_liar,First: You're a bad liar.,C:\dev\smores\Content\Dialog\core\conversations\banter.yarn,SettlerBanterAfterFight,31

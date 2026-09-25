@@ -1,0 +1,32 @@
+// Squad banter: Ambient conversations, played among a player's own squad members with no window.
+// Each line goes to the feed and floats over whoever says it, like a bark. A squad banters after a
+// fight ends and now and then while idle - rarely, on purpose.
+//
+// participants names who says each line: the squad members are cast when it plays, and every line
+// starts with one of those names. In requires, the first participant is the Speaker and the second
+// the Listener. An Ambient conversation can't offer choices - nobody is at a window to pick one.
+//
+// Compile with: ysc compile banter.yarn -o . -n banter
+
+title: SettlerBanterWater
+kind: Ambient
+participants: First, Second
+requires: Speaker.Definition == Settler; Listener.Definition == Settler
+---
+First: How much water's left? #line:banter_water_ask
+Second: Enough, if nobody asks again. #line:banter_water_answer
+First: I'm only asking. #line:banter_water_only
+Second: That's twice now. #line:banter_water_twice
+===
+
+// Wins over the water whenever the first speaker is hurt - which, after a fight, is most of the time.
+title: SettlerBanterAfterFight
+kind: Ambient
+participants: First, Second
+requires: Speaker.Definition == Settler; Listener.Definition == Settler; Speaker.Health < 0.7
+priority: 5
+---
+First: Tell me that was the last of them. #line:banter_fight_last
+Second: That was the last of them. #line:banter_fight_lie
+First: You're a bad liar. #line:banter_fight_liar
+===

@@ -101,6 +101,27 @@ bool FSmoresDialogCoreContentTest::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("The base game ships at least one translation - the localization proof's content"), Library.Translations.Num() > 0);
 
+	// conversations: one of each shape, every line with text, nothing mangled - and a stale compile
+	// is a load error, so it fails the problems check above too
+	for (const EConversationKind Kind : { EConversationKind::Greeting, EConversationKind::Topic, EConversationKind::Ambient })
+	{
+		TestTrue(FString::Printf(TEXT("The base game has a %s conversation"), *StaticEnum<EConversationKind>()->GetNameStringByValue(static_cast<int64>(Kind))),
+			Library.GetConversationsOfKind(Kind).Num() > 0);
+	}
+
+	for (const FConversationDefinition& Conversation : Library.Conversations)
+	{
+		if (Conversation.Kind == EConversationKind::Topic)
+		{
+			TestNotNull(FString::Printf(TEXT("Topic %s's label has text"), *Conversation.Id.ToString()), Library.FindText(Conversation.LabelId));
+		}
+	}
+
+	for (const FDialogText& Text : Library.Texts)
+	{
+		TestFalse(FString::Printf(TEXT("%s (%s:%d) decoded cleanly - save the file as UTF-8"), *Text.Id.ToString(), *Text.File, Text.Line), Text.SourceText.Contains(TEXT("\uFFFD")));
+	}
+
 	return true;
 }
 
@@ -131,6 +152,13 @@ bool FSmoresDialogExampleModTest::RunTest(const FString& Parameters)
 	}
 
 	TestTrue(TEXT("It adds at least one bark"), Example->NumBarks > 0);
+
+	// and gives the base game's characters conversations: the Bandits their shakedown, and every
+	// Traders Guild member a topic
+	for (const TCHAR* Id : { TEXT("example.Shakedown"), TEXT("example.ShakedownPaid"), TEXT("example.GuildTopic") })
+	{
+		TestNotNull(FString::Printf(TEXT("It adds the conversation %s"), Id), Library.FindConversation(Id));
+	}
 
 	// its whole point: every bark it adds outranks every base-game line for the same event, so it wins
 	// in play without touching core's files

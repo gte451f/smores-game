@@ -7,14 +7,25 @@
 #include "DialogLibrary.h"
 
 class FDialogFactRegistry;
+class FDialogEffectRegistry;
 struct FDialogKnownIds;
 
-/** One text file of a package, already read. Path is relative to the package folder, with forward slashes - "barks/core.csv". */
+/**
+ *  One file of a package, already read. Path is relative to the package folder, with forward
+ *  slashes - "barks/core.csv".
+ */
 struct SMORESDIALOG_API FDialogSourceFile
 {
 	FString Path;
 
+	/** The text, for every file but a compiled conversation */
 	FString Contents;
+
+	/** The bytes, for a compiled conversation (conversations/<name>.yarnc) - it isn't text */
+	TArray<uint8> Bytes;
+
+	/** When the file was last written, where the disk says (zero when built in memory). Only the stale-compile check reads it. */
+	FDateTime Timestamp;
 };
 
 /**
@@ -66,8 +77,9 @@ namespace SmoresDialog
 
 	/**
 	 *  Reads every package folder: core first, then each folder under ModsDirectory in name order.
-	 *  Only the files the loader understands are read (mod.json, barks/, localization/). A missing
-	 *  Mods folder is normal; a missing core folder is an error.
+	 *  Only the files the loader understands are read: mod.json, barks/*.csv, localization/, and
+	 *  conversations/ (each .yarn with the .yarnc, -Lines.csv and -Metadata.csv ysc writes beside
+	 *  it). A missing Mods folder is normal; a missing core folder is an error.
 	 */
 	SMORESDIALOG_API void GatherPackagesFromDisk(const FString& CoreDirectory, const FString& ModsDirectory, TArray<FDialogPackageSource>& OutSources, TArray<FDialogProblem>& OutProblems);
 
@@ -84,6 +96,9 @@ namespace SmoresDialog
 	 *  the library holds core.trader_greet. Two packages may use the same local id - they never
 	 *  collide. KnownIds, when given, turns a condition naming a faction or definition nobody loaded
 	 *  into a warning.
+	 *
+	 *  Conversations are checked against Facts (every function a script calls) and Effects (every
+	 *  command it runs, with its arguments) - the game's own effects when Effects is null.
 	 */
-	SMORESDIALOG_API FDialogLibrary LoadPackages(const TArray<FDialogPackageSource>& Sources, const FDialogFactRegistry& Facts, const FDialogKnownIds* KnownIds);
+	SMORESDIALOG_API FDialogLibrary LoadPackages(const TArray<FDialogPackageSource>& Sources, const FDialogFactRegistry& Facts, const FDialogKnownIds* KnownIds, const FDialogEffectRegistry* Effects = nullptr);
 }

@@ -2,49 +2,25 @@
 
 #include "DialogLoader.h"
 #include "DialogFacts.h"
+#include "DialogEffects.h"
+#include "ConversationPlayer.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "DialogLoaderInternal.h"
+
+using namespace SmoresDialogLoading;
 
 namespace
 {
 	const TCHAR* const DialogManifestFileName = TEXT("mod.json");
 	const TCHAR* const DialogBarksFolder = TEXT("barks/");
 	const TCHAR* const DialogLocalizationFolder = TEXT("localization/");
+	const TCHAR* const DialogConversationsFolder = TEXT("conversations/");
 
-	/** Collects problems for one package, so each call site only says what went wrong and where */
-	struct FDialogProblemSink
-	{
-		TArray<FDialogProblem>& Problems;
-		FString Package;
-
-		void Add(EDialogProblemSeverity Severity, const FString& File, int32 Line, const FString& Message) const
-		{
-			FDialogProblem Problem;
-			Problem.Severity = Severity;
-			Problem.Package = Package;
-			Problem.File = File;
-			Problem.Line = Line;
-			Problem.Message = Message;
-
-			Problems.Add(MoveTemp(Problem));
-		}
-
-		void Error(const FString& File, int32 Line, const FString& Message) const
-		{
-			Add(EDialogProblemSeverity::Error, File, Line, Message);
-		}
-
-		void Warning(const FString& File, int32 Line, const FString& Message) const
-		{
-			Add(EDialogProblemSeverity::Warning, File, Line, Message);
-		}
-	};
-
-	/** a-z, 0-9 and _, starting with a letter. Lower case so "Lanterns" and "lanterns" can't be two packages. */
 	bool IsValidDialogPackageId(const FString& Id)
 	{
 		if (Id.IsEmpty() || !FChar::IsLower(Id[0]))
@@ -55,25 +31,6 @@ namespace
 		for (const TCHAR Character : Id)
 		{
 			if (!FChar::IsLower(Character) && !FChar::IsDigit(Character) && Character != TEXT('_'))
-			{
-				return false;
-			}
-		}
-
-		return true;
-	}
-
-	/** Letters, digits and _. No dot - the dot is what the loader adds when it qualifies the id. */
-	bool IsValidDialogLocalId(const FString& Id)
-	{
-		if (Id.IsEmpty())
-		{
-			return false;
-		}
-
-		for (const TCHAR Character : Id)
-		{
-			if (!FChar::IsAlnum(Character) && Character != TEXT('_'))
 			{
 				return false;
 			}
@@ -100,33 +57,10 @@ namespace
 		return true;
 	}
 
-	const FDialogSourceFile* FindDialogSourceFile(const FDialogPackageSource& Source, const TCHAR* Path)
-	{
-		return Source.Files.FindByPredicate([Path](const FDialogSourceFile& File)
-		{
-			return File.Path.Equals(Path, ESearchCase::IgnoreCase);
-		});
-	}
-
-	/** Every file under Folder ("barks/") ending in .csv, sorted so the load order never depends on the file system's */
+	/** Every .csv under Folder ("barks/"), sorted so the load order never depends on the file system's */
 	TArray<const FDialogSourceFile*> GetDialogCsvFiles(const FDialogPackageSource& Source, const TCHAR* Folder)
 	{
-		TArray<const FDialogSourceFile*> Found;
-
-		for (const FDialogSourceFile& File : Source.Files)
-		{
-			if (File.Path.StartsWith(Folder, ESearchCase::IgnoreCase) && File.Path.EndsWith(TEXT(".csv"), ESearchCase::IgnoreCase))
-			{
-				Found.Add(&File);
-			}
-		}
-
-		Found.Sort([](const FDialogSourceFile& A, const FDialogSourceFile& B)
-		{
-			return A.Path < B.Path;
-		});
-
-		return Found;
+		return GetDialogFilesIn(Source, Folder, TEXT(".csv"));
 	}
 
 	/** Reads mod.json into Info. False, with a reason, if it can't be used at all. */
@@ -197,63 +131,6 @@ namespace
 		int32 Cooldown = INDEX_NONE;
 		int32 NumColumns = 0;
 	};
-
-	FString GetDialogField(const FDialogCsvRow& Row, int32 Column)
-	{
-		return Row.Fields.IsValidIndex(Column) ? Row.Fields[Column] : FString();
-	}
-
-	bool IsBlankDialogRow(const FDialogCsvRow& Row)
-	{
-		for (const FString& Field : Row.Fields)
-		{
-			if (!Field.TrimStartAndEnd().IsEmpty())
-			{
-				return false;
-			}
-		}
-
-		return true;
-	}
-
-	/** Maps each header cell to its lower-cased name. Unknown columns - a writer's Notes column, say - are simply never read. */
-	TMap<FString, int32> ReadDialogHeader(const FDialogCsvRow& Header)
-	{
-		TMap<FString, int32> Columns;
-
-		for (int32 Index = 0; Index < Header.Fields.Num(); ++Index)
-		{
-			const FString Name = Header.Fields[Index].TrimStartAndEnd().ToLower();
-
-			if (!Name.IsEmpty() && !Columns.Contains(Name))
-			{
-				Columns.Add(Name, Index);
-			}
-		}
-
-		return Columns;
-	}
-
-	/** The column a header named, or INDEX_NONE */
-	int32 FindDialogColumn(const TMap<FString, int32>& Header, const TCHAR* Name)
-	{
-		const int32* Column = Header.Find(Name);
-		return Column ? *Column : INDEX_NONE;
-	}
-
-	/** A strictly-formatted whole number - "2" yes, "2.5" and "two" no */
-	bool ParseDialogInteger(const FString& Text, int32& OutValue)
-	{
-		const FString Trimmed = Text.TrimStartAndEnd();
-
-		if (Trimmed.IsEmpty() || !Trimmed.IsNumeric() || Trimmed.Contains(TEXT(".")))
-		{
-			return false;
-		}
-
-		OutValue = FCString::Atoi(*Trimmed);
-		return true;
-	}
 
 	bool ParseDialogNumber(const FString& Text, double& OutValue)
 	{
@@ -561,9 +438,19 @@ namespace
 
 				// kept, but flagged: a translation for a line that no longer exists is harmless and
 				// almost always means the line was renamed and the translation wasn't
-				if (!Library.FindBark(LineId))
+				if (!Library.FindBark(LineId) && !Library.FindText(LineId))
 				{
 					Sink.Warning(File->Path, Row.Line, FString::Printf(TEXT("translates '%s', which this package has no loaded line for"), *LocalId));
+				}
+
+				// a conversation line's speaker is decided by the source; a translator may keep the
+				// "Bandit: " in front or leave it off, and either way it isn't shown as words
+				if (Library.FindText(LineId))
+				{
+					FString Cue;
+					FString Words;
+					SmoresDialog::SplitSpeaker(Translation.Text, Cue, Words);
+					Translation.Text = Words;
 				}
 
 				Seen.Add(Key);
@@ -798,13 +685,16 @@ namespace SmoresDialog
 					continue;
 				}
 
-				// only what the loader understands; anything else (a README, Slice 3's scripts
-				// before Slice 3 exists) is left alone rather than reported
+				// only what the loader understands; anything else (a README, notes) is left alone
+				// rather than reported
 				const bool bIsManifest = RelativePath.Equals(DialogManifestFileName, ESearchCase::IgnoreCase);
 				const bool bIsCsv = RelativePath.EndsWith(TEXT(".csv"), ESearchCase::IgnoreCase)
-					&& (RelativePath.StartsWith(DialogBarksFolder, ESearchCase::IgnoreCase) || RelativePath.StartsWith(DialogLocalizationFolder, ESearchCase::IgnoreCase));
+					&& (RelativePath.StartsWith(DialogBarksFolder, ESearchCase::IgnoreCase) || RelativePath.StartsWith(DialogLocalizationFolder, ESearchCase::IgnoreCase)
+						|| RelativePath.StartsWith(DialogConversationsFolder, ESearchCase::IgnoreCase));
+				const bool bIsConversation = RelativePath.StartsWith(DialogConversationsFolder, ESearchCase::IgnoreCase)
+					&& (RelativePath.EndsWith(TEXT(".yarn"), ESearchCase::IgnoreCase) || RelativePath.EndsWith(TEXT(".yarnc"), ESearchCase::IgnoreCase));
 
-				if (!bIsManifest && !bIsCsv)
+				if (!bIsManifest && !bIsCsv && !bIsConversation)
 				{
 					continue;
 				}
@@ -812,7 +702,14 @@ namespace SmoresDialog
 				FDialogSourceFile File;
 				File.Path = RelativePath;
 
-				if (!FFileHelper::LoadFileToString(File.Contents, *FullPath))
+				// the stale-compile check compares a .yarn's time with its .yarnc's
+				File.Timestamp = FileManager.GetTimeStamp(*FullPath);
+
+				// a compiled conversation is bytes, not text
+				const bool bIsBinary = RelativePath.EndsWith(TEXT(".yarnc"), ESearchCase::IgnoreCase);
+				const bool bRead = bIsBinary ? FFileHelper::LoadFileToArray(File.Bytes, *FullPath) : FFileHelper::LoadFileToString(File.Contents, *FullPath);
+
+				if (!bRead)
 				{
 					FDialogProblem Problem;
 					Problem.Package = FolderName;
@@ -853,9 +750,13 @@ namespace SmoresDialog
 		}
 	}
 
-	FDialogLibrary LoadPackages(const TArray<FDialogPackageSource>& Sources, const FDialogFactRegistry& Facts, const FDialogKnownIds* KnownIds)
+	FDialogLibrary LoadPackages(const TArray<FDialogPackageSource>& Sources, const FDialogFactRegistry& Facts, const FDialogKnownIds* KnownIds, const FDialogEffectRegistry* Effects)
 	{
 		FDialogLibrary Library;
+
+		// the game's own effects unless a caller (a test) brings its own
+		const FDialogEffectRegistry BuiltInEffects = Effects ? FDialogEffectRegistry() : FDialogEffectRegistry::MakeBuiltIn();
+		const FDialogEffectRegistry& UsedEffects = Effects ? *Effects : BuiltInEffects;
 
 		// 1. Manifests. Every source becomes a package entry, loaded or not, so the report can name it.
 		TArray<const FDialogPackageSource*> SourceByPackage;
@@ -1046,7 +947,8 @@ namespace SmoresDialog
 			}
 		}
 
-		// 4. Contents, in load order. Barks first, so translations can be checked against them.
+		// 4. Contents, in load order. Barks and conversations first, so translations can be checked
+		// against them.
 		for (const int32 Index : Order)
 		{
 			FDialogPackageInfo& Info = Library.Packages[Index];
@@ -1054,6 +956,10 @@ namespace SmoresDialog
 
 			Info.bLoaded = true;
 			Info.NumBarks = LoadDialogBarks(*SourceByPackage[Index], Info, Facts, KnownIds, Sink, Library);
+
+			Library.RebuildIndex();
+
+			Info.NumConversations = LoadDialogConversations(*SourceByPackage[Index], Info, Facts, UsedEffects, KnownIds, Sink, Library);
 
 			Library.RebuildIndex();
 

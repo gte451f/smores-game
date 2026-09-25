@@ -205,6 +205,13 @@ tell apart. In each case the plain version is now a one-line forwarder.
 | `TryTradeItem` — out of reach | `TooFar` | RPC |
 | `TryTradeItem` — insufficient gold | `CannotAfford` | RPC |
 | `TryTradeItem` — goods wouldn't fit | `NoRoom` | RPC |
+| A conversation's `<<TakeMoney>>` with too little gold (a script that forgot its guard) | `CannotAfford` | RPC (`IDialogHost::NotifyDialogRefusal`) |
+
+**A conversation choice that can't be taken is the preventing kind.** A writer tags it
+`#reason:<key>`, each key naming one of these reasons (`not_enough_money` is `CannotAfford`), and
+the window shows it greyed with `GetRefusalText`'s own words beside it - the target panel's
+"disabled action still shows, with its reason" rule. Only a script that left the guard off ever
+reaches the refusal above (`dialog.md`).
 
 `TryTradeItem`'s range and hostility checks were one combined `if` before this and are now two,
 purely so the two can be told apart on screen — "they won't deal with you" and "walk closer" ask

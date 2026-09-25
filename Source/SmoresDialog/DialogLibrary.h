@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "DialogTypes.h"
 #include "DialogCondition.h"
+#include "DialogConversationTypes.h"
 
 /**
  *  One bark as loaded: a row of a package's barks/<file>.csv, checked and ready to select.
@@ -38,6 +39,24 @@ struct SMORESDIALOG_API FBarkLine
 	float CooldownSeconds = 0.0f;
 
 	/** Where it was written, for every message that mentions it */
+	FString File;
+	int32 Line = 0;
+};
+
+/**
+ *  One piece of conversation text: a Yarn line, or a topic's label. Barks keep their text on
+ *  FBarkLine; everything else a player reads goes here, into the same string table.
+ */
+struct SMORESDIALOG_API FDialogText
+{
+	/** The qualified id, "example.shakedown_toll" */
+	FName Id;
+
+	FName PackageId;
+
+	/** The source-language text, a speaker cue ("Bandit: ") taken off */
+	FString SourceText;
+
 	FString File;
 	int32 Line = 0;
 };
@@ -80,6 +99,8 @@ struct SMORESDIALOG_API FDialogPackageInfo
 
 	int32 NumBarks = 0;
 
+	int32 NumConversations = 0;
+
 	int32 NumTranslations = 0;
 };
 
@@ -97,6 +118,12 @@ struct SMORESDIALOG_API FDialogLibrary
 
 	TArray<FBarkLine> Barks;
 
+	/** Every conversation - greetings, topics and banter - in load order */
+	TArray<FConversationDefinition> Conversations;
+
+	/** The text of every conversation line and topic label */
+	TArray<FDialogText> Texts;
+
 	TArray<FDialogTranslation> Translations;
 
 	TArray<FDialogProblem> Problems;
@@ -107,16 +134,28 @@ struct SMORESDIALOG_API FDialogLibrary
 	/** Every bark for one event, in load order */
 	TArray<const FBarkLine*> GetBarksForEvent(EBarkEvent Event) const;
 
+	/** The conversation with this qualified id, or null */
+	const FConversationDefinition* FindConversation(FName ConversationId) const;
+
+	/** Every conversation of one kind, in load order */
+	TArray<const FConversationDefinition*> GetConversationsOfKind(EConversationKind Kind) const;
+
+	/** The conversation text with this qualified id, or null */
+	const FDialogText* FindText(FName TextId) const;
+
+	/** The source text of any line - a bark or a conversation's - or null */
+	const FString* FindSourceText(FName LineId) const;
+
 	/** The package with this id, or null */
 	const FDialogPackageInfo* FindPackage(FName PackageId) const;
 
 	/** How many problems of one severity, in one package or (None) in all of them */
 	int32 CountProblems(EDialogProblemSeverity Severity, FName PackageId = NAME_None) const;
 
-	/** One line per package, "mod lanterns: loaded, 12 barks, 3 errors" - what the log gets at every load */
+	/** One line per package, "mod lanterns: loaded, 12 barks, 2 conversations, 3 errors" - what the log gets at every load */
 	TArray<FString> BuildSummaryLines() const;
 
-	/** Rebuilds the look-ups below from Barks. The loader calls it; nothing else needs to. */
+	/** Rebuilds the look-ups below from Barks, Conversations and Texts. The loader calls it; nothing else needs to. */
 	void RebuildIndex();
 
 private:
@@ -124,4 +163,8 @@ private:
 	TMap<FName, int32> BarkIndexById;
 
 	TMap<EBarkEvent, TArray<int32>> BarkIndicesByEvent;
+
+	TMap<FName, int32> ConversationIndexById;
+
+	TMap<FName, int32> TextIndexById;
 };

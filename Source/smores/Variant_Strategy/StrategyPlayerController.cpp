@@ -55,6 +55,11 @@
 #include "SmoresDialogSubsystem.h"
 #include "BarkDirectorComponent.h"
 #include "DialogText.h"
+#include "ConversationComponent.h"
+#include "ConversationWidget.h"
+#include "BanterDirectorComponent.h"
+#include "DialogMemoryComponent.h"
+#include "DialogEffects.h"
 #include "EngineUtils.h"
 #include "smores.h"
 
@@ -64,6 +69,8 @@ AStrategyPlayerController::AStrategyPlayerController()
 {
 	// mouse cursor should always be shown
 	bShowMouseCursor = true;
+
+	Conversation = CreateDefaultSubobject<UConversationComponent>(TEXT("Conversation"));
 }
 
 void AStrategyPlayerController::BeginPlay()
@@ -114,6 +121,13 @@ void AStrategyPlayerController::BeginPlay()
 
 	// and start listening for anything worth a line in the feed
 	RefreshActivityWatchers();
+
+	// the conversation window opens and closes with this player's conversation; only the owning
+	// client's view ever changes, so this is harmless anywhere else
+	if (Conversation)
+	{
+		Conversation->OnViewChanged.AddUObject(this, &AStrategyPlayerController::HandleConversationViewChanged);
+	}
 
 }
 
@@ -697,6 +711,18 @@ void AStrategyPlayerController::CloseEquipment()
 
 void AStrategyPlayerController::HandleWindowClosed(UWindowWidget* Window)
 {
+	// the conversation window's X is Goodbye. Like a panel it brings nothing with it and never
+	// touches the inventory input context; the window closes itself once the server says it's over.
+	if (Window && Window == ConversationWidget)
+	{
+		if (Conversation)
+		{
+			Conversation->RequestLeave();
+		}
+
+		return;
+	}
+
 	// A nav-rail panel closes alone and brings nothing with it. It returns before the inventory
 	// bookkeeping below on purpose: the inventory input context is the inventory's business, and
 	// a research window that re-scoped it would quietly give `R` a second meaning. The entry stays
@@ -1335,39 +1361,148 @@ void AStrategyPlayerController::InteractWithNPC(AStrategyUnit* NPC)
 		return;
 	}
 
-	// they say something either way: a trader greets the customer, and anyone else has nothing to
-	// say - which is now an authored line rather than a silence (the old comment here refused to
-	// fake one with a refusal, rightly). The server picks both the event and the line.
-	Server_RaiseInteractionBark(NPC);
-
-	if (UTraderComponent* Stock = GetTraderStock(NPC))
-	{
-		OpenTrade(NPC, Stock);
-	}
+	// what talking means is the server's call: whether a conversation is eligible reads standing
+	// and the squad's dialog memory, which only the server holds
+	Server_InteractWithNPC(NPC);
 }
 
-void AStrategyPlayerController::Server_RaiseInteractionBark_Implementation(AStrategyUnit* NPC)
+void AStrategyPlayerController::Server_InteractWithNPC_Implementation(AStrategyUnit* NPC)
 {
-	// the client's own checks, re-run - a bark changes nothing, but a client shouldn't be able to
-	// make someone across the map talk
+	// the client's own checks, re-run - a client shouldn't be able to start a conversation, or make
+	// someone talk, across the map
 	if (!IsInteractableNPC(NPC))
 	{
 		return;
 	}
 
 	AStrategyPlayerUnit* Listener = FindPlayerPawnInRangeOfHolder(NPC);
-	UBarkDirectorComponent* Director = UBarkDirectorComponent::Get(this);
 
-	if (!Listener || !Director)
+	if (!Listener)
 	{
 		return;
 	}
 
-	const EBarkEvent Event = GetTraderStock(NPC) ? EBarkEvent::TradeOpened : EBarkEvent::NothingToSay;
+	// talking to the one already being talked to changes nothing
+	if (Conversation && Conversation->IsInConversation() && Conversation->GetConversationNpc() == NPC)
+	{
+		return;
+	}
+
+	// 1. an eligible conversation opens its window - replacing any other one this player had
+	if (Conversation && Conversation->TryStartGreeting(NPC, Listener))
+	{
+		return;
+	}
+
+	// talking to somebody else ends the last conversation, even when this one has none to offer
+	if (Conversation && Conversation->IsInConversation())
+	{
+		Conversation->EndConversation(EConversationEndReason::Replaced);
+	}
+
+	UBarkDirectorComponent* Director = UBarkDirectorComponent::Get(this);
+
+	// 2. a trader with no conversation still trades - so a stripped-down mod that removed the
+	// greeting can't cost the player the shop. 3. anyone else has nothing to say.
+	const bool bTrader = GetTraderStock(NPC) != nullptr;
+
+	if (bTrader)
+	{
+		Client_OpenTrade(NPC);
+	}
 
 	// quiet time is for things that happen *to* a speaker; being spoken to always gets an answer
 	// if a line is free, or talking to someone who just barked at somebody else would go silent
-	Director->RaiseEvent(Event, NPC, Listener, PlayerState, /*OutExplanation*/ nullptr, /*bIgnoreQuietTime*/ true);
+	if (Director)
+	{
+		Director->RaiseEvent(bTrader ? EBarkEvent::TradeOpened : EBarkEvent::NothingToSay, NPC, Listener, PlayerState,
+			/*OutExplanation*/ nullptr, /*bIgnoreQuietTime*/ true);
+	}
+}
+
+void AStrategyPlayerController::Client_OpenTrade_Implementation(AStrategyUnit* TraderUnit)
+{
+	if (UTraderComponent* Stock = GetTraderStock(TraderUnit))
+	{
+		OpenTrade(TraderUnit, Stock);
+	}
+}
+
+bool AStrategyPlayerController::OpenTradeWith(AActor* Trader)
+{
+	AStrategyUnit* TraderUnit = Cast<AStrategyUnit>(Trader);
+
+	// the same gate Talk uses: someone on their feet, not hostile, who keeps a shop
+	if (!HasAuthority() || !GetTraderStock(TraderUnit))
+	{
+		return false;
+	}
+
+	Client_OpenTrade(TraderUnit);
+
+	// the shop opening is still the TradeOpened moment it always was, so a trader's quip as the
+	// counter opens plays here too - addressed to whoever was doing the talking
+	AStrategyUnit* Listener = Conversation ? Conversation->GetConversationSquadMember() : nullptr;
+
+	if (!Listener)
+	{
+		Listener = FindPlayerPawnInRangeOfHolder(TraderUnit);
+	}
+
+	if (UBarkDirectorComponent* Director = UBarkDirectorComponent::Get(this))
+	{
+		Director->RaiseEvent(EBarkEvent::TradeOpened, TraderUnit, Listener, PlayerState, /*OutExplanation*/ nullptr, /*bIgnoreQuietTime*/ true);
+	}
+
+	return true;
+}
+
+void AStrategyPlayerController::NotifyDialogRefusal(ESmoresRefusalReason Reason)
+{
+	Client_NotifyRefusal(Reason);
+}
+
+void AStrategyPlayerController::HandleConversationViewChanged()
+{
+	const FConversationView& View = Conversation->GetView();
+
+	if (!View.bOpen)
+	{
+		// removed rather than asked to close: RequestClose would announce it, and the announcement
+		// is how the player says Goodbye - to a conversation that is already over
+		if (ConversationWidget && ConversationWidget->IsInViewport())
+		{
+			ConversationWidget->RemoveFromParent();
+		}
+
+		return;
+	}
+
+	if (!ConversationWidget)
+	{
+		if (!ConversationWidgetClass)
+		{
+			if (!bWarnedNoConversationWindow)
+			{
+				UE_LOG(Logsmores, Warning, TEXT("StrategyPlayerController has no ConversationWidgetClass set; conversations reach the feed with no window."));
+				bWarnedNoConversationWindow = true;
+			}
+
+			return;
+		}
+
+		ConversationWidget = CreateWidget<UConversationWidget>(this, ConversationWidgetClass);
+
+		if (ConversationWidget)
+		{
+			ConversationWidget->OnWindowClosed.AddUniqueDynamic(this, &AStrategyPlayerController::HandleWindowClosed);
+		}
+	}
+
+	if (ConversationWidget && !ConversationWidget->IsInViewport())
+	{
+		ConversationWidget->AddToViewport(0);
+	}
 }
 
 bool AStrategyPlayerController::IsSquadMemberWithin(const FVector& Location, float Range) const
@@ -1429,6 +1564,13 @@ void AStrategyPlayerController::AttackKeyPressed(const FInputActionValue& Value)
 
 void AStrategyPlayerController::TalkKeyPressed(const FInputActionValue& Value)
 {
+	// Talk again during a conversation is Goodbye - the same toggle shape as the trade screen below
+	if (Conversation && Conversation->GetView().bOpen)
+	{
+		Conversation->RequestLeave();
+		return;
+	}
+
 	// if a trade (or container, or loot) screen is already open, pressing again closes it -
 	// same toggle shape as the container key
 	if (ContainerWidget && ContainerWidget->IsInViewport())
@@ -3008,6 +3150,170 @@ void AStrategyPlayerController::SmoresSetCulture(const FString& Culture)
 	const bool bChanged = SmoresDialog::SetDialogCulture(Culture.TrimStartAndEnd(), Message);
 
 	UE_LOG(Logsmores, Warning, TEXT("[DialogDebug] %s%s"), bChanged ? TEXT("") : TEXT("Culture unchanged: "), *Message);
+}
+
+void AStrategyPlayerController::SmoresTestConversation(const FString& ConversationId, const FString& TargetName)
+{
+	// a named NPC - by what it's called or by what it is, so "Bandit" finds a bandit whatever its
+	// placed name - else the clicked NPC. Resolved here, where the selection lives, the way
+	// SmoresTestBark does it.
+	AStrategyUnit* Target = nullptr;
+	const FString Wanted = TargetName.TrimStartAndEnd();
+
+	if (!Wanted.IsEmpty())
+	{
+		for (TActorIterator<AStrategyUnit> It(GetWorld()); It; ++It)
+		{
+			const UCharacterDefinition* Definition = It->GetCharacterDefinition();
+			const bool bByDefinition = Definition && Definition->DefinitionId.ToString().Equals(Wanted, ESearchCase::IgnoreCase);
+
+			if (!Cast<AStrategyPlayerUnit>(*It) && (bByDefinition || It->GetHolderDisplayName().ToString().Contains(Wanted)))
+			{
+				Target = *It;
+				break;
+			}
+		}
+
+		if (!Target)
+		{
+			UE_LOG(Logsmores, Warning, TEXT("[ConversationDebug] No NPC is called '%s' or is a '%s'."), *Wanted, *Wanted);
+			return;
+		}
+	}
+	else if (IsValid(SelectedNPC))
+	{
+		Target = SelectedNPC;
+	}
+
+	Server_DebugConversation(FName(*ConversationId.TrimStartAndEnd()), Target);
+}
+
+void AStrategyPlayerController::Server_DebugConversation_Implementation(FName ConversationId, AStrategyUnit* Target)
+{
+	const USmoresDialogSubsystem* Dialog = USmoresDialogSubsystem::Get(this);
+	UBanterDirectorComponent* Banter = UBanterDirectorComponent::Get(this);
+
+	if (!Dialog || !Conversation)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[ConversationDebug] No dialog subsystem in this world."));
+		return;
+	}
+
+	TArray<FString> Explanation;
+
+	auto LogExplanation = [&Explanation]()
+	{
+		for (const FString& Line : Explanation)
+		{
+			UE_LOG(Logsmores, Warning, TEXT("[ConversationDebug] %s"), *Line);
+		}
+	};
+
+	// "banter": the squad tries a banter right now, as its timer would, cooldown aside
+	if (ConversationId == FName(TEXT("banter")))
+	{
+		const FName Played = Banter ? Banter->TryBanter(PlayerState, &Explanation) : NAME_None;
+		LogExplanation();
+		UE_LOG(Logsmores, Warning, TEXT("[ConversationDebug] Banter: %s"), Played.IsNone() ? TEXT("none could be cast") : *Played.ToString());
+		return;
+	}
+
+	// no id: Talk's own choice on this NPC, with every greeting's account
+	if (ConversationId.IsNone())
+	{
+		if (!IsValid(Target))
+		{
+			UE_LOG(Logsmores, Warning, TEXT("[ConversationDebug] Name an NPC (SmoresTestConversation \"\" Bandit), click one, or give a conversation id."));
+			return;
+		}
+
+		AStrategyPlayerUnit* Listener = FindClosestPlayerPawn(Target->GetActorLocation());
+		const bool bStarted = Listener && Conversation->TryStartGreeting(Target, Listener, &Explanation);
+
+		LogExplanation();
+		UE_LOG(Logsmores, Warning, TEXT("[ConversationDebug] %s"), bStarted ? TEXT("Started - it breaks off if the squad member is out of range") : TEXT("No greeting started"));
+		return;
+	}
+
+	const FConversationDefinition* Definition = Dialog->GetLibrary().FindConversation(ConversationId);
+
+	if (!Definition)
+	{
+		TArray<FString> Ids;
+
+		for (const FConversationDefinition& Candidate : Dialog->GetLibrary().Conversations)
+		{
+			Ids.Add(Candidate.Id.ToString());
+		}
+
+		UE_LOG(Logsmores, Warning, TEXT("[ConversationDebug] No conversation '%s'. There are: %s"), *ConversationId.ToString(), *FString::Join(Ids, TEXT(", ")));
+		return;
+	}
+
+	if (Definition->Kind == EConversationKind::Ambient)
+	{
+		const bool bPlayed = Banter && Banter->PlayAmbient(*Definition, PlayerState, &Explanation);
+		LogExplanation();
+		UE_LOG(Logsmores, Warning, TEXT("[ConversationDebug] %s %s"), *ConversationId.ToString(), bPlayed ? TEXT("playing among the squad") : TEXT("couldn't be cast"));
+		return;
+	}
+
+	if (!IsValid(Target))
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[ConversationDebug] %s needs an NPC - name one (SmoresTestConversation %s Ada) or click one."), *ConversationId.ToString(), *ConversationId.ToString());
+		return;
+	}
+
+	AStrategyPlayerUnit* Listener = FindClosestPlayerPawn(Target->GetActorLocation());
+
+	// however far away, and whether or not it's eligible - the writer's way to try a conversation
+	const bool bStarted = Listener && Conversation->StartConversation(*Definition, Target, Listener, /*bIgnoreRange*/ true);
+
+	UE_LOG(Logsmores, Warning, TEXT("[ConversationDebug] %s with %s: %s"), *ConversationId.ToString(), *Target->GetHolderDisplayName().ToString(),
+		bStarted ? TEXT("started") : TEXT("couldn't start (no squad member?)"));
+}
+
+void AStrategyPlayerController::SmoresDialogMemory(const FString& Action, const FString& Flag)
+{
+	Server_DebugDialogMemory(Action.TrimStartAndEnd().ToLower(), FName(*Flag.TrimStartAndEnd()));
+}
+
+void AStrategyPlayerController::Server_DebugDialogMemory_Implementation(const FString& Action, FName Flag)
+{
+	UDialogMemoryComponent* Memory = UDialogMemoryComponent::Get(PlayerState);
+
+	if (!Memory)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[ConversationDebug] This player state has no dialog memory."));
+		return;
+	}
+
+	if (Action == TEXT("set") || Action == TEXT("clear"))
+	{
+		if (!SmoresDialog::IsValidFlagName(Flag.ToString()))
+		{
+			UE_LOG(Logsmores, Warning, TEXT("[ConversationDebug] '%s' isn't a flag name - letters, digits and _."), *Flag.ToString());
+			return;
+		}
+
+		Memory->SetFlag(Flag, Action == TEXT("set"));
+	}
+
+	const FDialogMemoryRecord& Record = Memory->GetRecord();
+
+	UE_LOG(Logsmores, Warning, TEXT("[ConversationDebug] Flags: %s"),
+		Record.Flags.Num() > 0 ? *FString::JoinBy(Record.Flags, TEXT(", "), [](FName Name) { return Name.ToString(); }) : TEXT("(none)"));
+
+	for (const FDialogSeenEntry& Seen : Record.Seen)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[ConversationDebug] Seen %s - %d time%s, most recently #%d"),
+			*Seen.ConversationId.ToString(), Seen.TimesSeen, Seen.TimesSeen == 1 ? TEXT("") : TEXT("s"), Seen.LastSeenOrder);
+	}
+
+	if (Record.Seen.Num() == 0)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[ConversationDebug] No conversations seen yet."));
+	}
 }
 
 void AStrategyPlayerController::SmoresKillNPC()

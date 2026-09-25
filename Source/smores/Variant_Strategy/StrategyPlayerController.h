@@ -41,6 +41,8 @@ class UPlayerStandingComponent;
 class USmoresActivityLog;
 class USquadActivityWatcher;
 class IInventoryHolder;
+class UConversationComponent;
+class UConversationWidget;
 
 /**
  *  Player Controller for a top-down strategy game.
@@ -353,6 +355,24 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UEquipmentWidget> EquipmentWidget;
 
+	/** The conversation window's class - WBP_Conversation. Without it a conversation plays into the feed with no window, and says so once. */
+	UPROPERTY(EditAnywhere, Category="UI")
+	TSubclassOf<UConversationWidget> ConversationWidgetClass;
+
+	/** The conversation window, once spawned. Kept after it closes, like the panel windows. */
+	UPROPERTY()
+	TObjectPtr<UConversationWidget> ConversationWidget;
+
+	/**
+	 *  This player's conversations - the server runs them, the client shows them. On the controller
+	 *  because a client can only send an RPC through an actor it owns. See UConversationComponent.
+	 */
+	UPROPERTY(VisibleAnywhere, Category="Dialog")
+	TObjectPtr<UConversationComponent> Conversation;
+
+	/** Warned once when a conversation opened and ConversationWidgetClass was empty */
+	bool bWarnedNoConversationWindow = false;
+
 	/**
 	 *  Window class for each nav-rail panel. A map rather than one TSubclassOf per panel so that
 	 *  adding a panel later is an entry here plus a value on EHUDPanel, not another pair of
@@ -650,11 +670,14 @@ protected:
 
 	/**
 	 *  The "interact with this person" verb, shared by the double-click gesture, the talk key and
-	 *  the target panel's Talk button: a hostile NPC refuses; otherwise, once a squad member is in
-	 *  reach, the NPC says something (a TradeOpened or NothingToSay bark, picked on the server) and
-	 *  a trader also opens trade. Out of reach is a TooFar refusal, trader or not.
+	 *  the target panel's Talk button. In order: a hostile NPC refuses; out of reach is a TooFar
+	 *  refusal; then the server decides - an eligible conversation opens its window; else a trader
+	 *  opens trade (with a TradeOpened bark); else the NPC says a NothingToSay bark.
 	 */
 	void InteractWithNPC(AStrategyUnit* NPC);
+
+	/** Opens or closes the conversation window to match what UConversationComponent's view says. Owning client. */
+	void HandleConversationViewChanged();
 
 	/** Attacks the currently-selected NPC if it's Passive (flips it to Aggressive); no-op otherwise */
 	void AttackKeyPressed(const FInputActionValue& Value);
@@ -864,7 +887,20 @@ public:
 	/** A bark this player's squad could hear - forwards the id and the speaker to Client_NotifyBark */
 	virtual void DeliverBark(FName LineId, AActor* Speaker, const FText& SpeakerName) override;
 
+	/** The OpenTrade effect: re-checks Trader keeps a shop and may be dealt with, then Client_OpenTrade and a TradeOpened bark. Server-side. */
+	virtual bool OpenTradeWith(AActor* Trader) override;
+
+	/** A conversation's effect was refused - forwards to Client_NotifyRefusal */
+	virtual void NotifyDialogRefusal(ESmoresRefusalReason Reason) override;
+
 	//~ End IDialogHost interface
+
+	/** The conversation component. Never null - it's a default subobject. */
+	UConversationComponent* GetConversation() const { return Conversation; }
+
+	/** Server -> owning client: open this trader's shop - the server decided Talk means trade, or a conversation ran OpenTrade */
+	UFUNCTION(Client, Reliable)
+	void Client_OpenTrade(AStrategyUnit* TraderUnit);
 
 	/**
 	 *  Server -> owning client: somebody within earshot of this player's squad said a line.
@@ -884,14 +920,14 @@ public:
 	void Client_NotifyBark(FName LineId, AActor* Speaker, const FText& SpeakerName);
 
 	/**
-	 *  Server-side half of InteractWithNPC's bark: re-checks the same gates the client ran
-	 *  (interactable, a squad member in reach), then has the NPC say a TradeOpened line if it keeps
-	 *  a shop and a NothingToSay line if it doesn't. The server decides which, rather than trusting
-	 *  the client's word for it, and picks the line - selection reads standing, which only the
-	 *  server holds.
+	 *  Server-side half of InteractWithNPC: re-checks the same gates the client ran (interactable,
+	 *  a squad member in reach), then decides what talking means. An eligible greeting opens a
+	 *  conversation; else a trader opens trade and says a TradeOpened line; else the NPC says a
+	 *  NothingToSay line. The server decides, rather than trusting the client's word for it -
+	 *  selection reads standing and the squad's dialog memory, which only the server holds.
 	 */
 	UFUNCTION(Server, Reliable)
-	void Server_RaiseInteractionBark(AStrategyUnit* NPC);
+	void Server_InteractWithNPC(AStrategyUnit* NPC);
 
 	/**
 	 *  Server-side entry point for collecting a loose world item into a pawn's grid. Re-checks
@@ -1074,6 +1110,26 @@ public:
 	UFUNCTION(Exec)
 	void SmoresSetCulture(const FString& Culture);
 
+	/**
+	 *  Debug exec: opens a conversation without walking up - "SmoresTestConversation
+	 *  example.Shakedown Bandit". A Greeting or Topic opens its window on the NPC whose name
+	 *  contains TargetName or whose character definition it names (else the clicked NPC),
+	 *  eligible or not, however far away, with the
+	 *  nearest squad member doing the talking; an Ambient one plays among the squad now. With no
+	 *  id, runs Talk's own selection on that NPC and logs why each greeting did or didn't win.
+	 *  Hops to the server.
+	 */
+	UFUNCTION(Exec)
+	void SmoresTestConversation(const FString& ConversationId = TEXT(""), const FString& TargetName = TEXT(""));
+
+	/**
+	 *  Debug exec: logs this squad's dialog memory - every flag set and every conversation seen.
+	 *  "SmoresDialogMemory set <flag>" sets a flag and "clear <flag>" clears one, to try a
+	 *  conversation that waits on one. Hops to the server, which owns the memory.
+	 */
+	UFUNCTION(Exec)
+	void SmoresDialogMemory(const FString& Action = TEXT(""), const FString& Flag = TEXT(""));
+
 protected:
 
 	/**
@@ -1154,6 +1210,14 @@ protected:
 	/** Server side of SmoresTestBark - the director and everything selection reads are server-owned */
 	UFUNCTION(Server, Reliable)
 	void Server_DebugBark(AStrategyUnit* Target, EBarkEvent Event);
+
+	/** Server side of SmoresTestConversation */
+	UFUNCTION(Server, Reliable)
+	void Server_DebugConversation(FName ConversationId, AStrategyUnit* Target);
+
+	/** Server side of SmoresDialogMemory. Action is "", "set" or "clear". */
+	UFUNCTION(Server, Reliable)
+	void Server_DebugDialogMemory(const FString& Action, FName Flag);
 
 public:
 

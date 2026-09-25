@@ -1,15 +1,21 @@
-# Dialog: the Loader, Facts and Barks
+# Dialog: Barks, Conversations and the Loader
 
 ## Purpose
 
-What characters say, and the machinery that picks it. Built by Slices 1 and 2 of
-`Docs/roadmaps/dialog-roadmap.md`: dialog read from plain text files at startup (the base game
-loaded exactly like a mod), a small condition language over a registered list of **facts**, and
-**barks** - one-way lines picked by "most specific match wins", delivered to the activity feed and
-floated briefly over the speaker's head, including the `Approached` bark NPCs say when a squad
-comes near. Conversations, topics and banter are the roadmap's Slice 3, and reuse everything here.
-Conversations are written in Yarn, and the player they will run on already exists - see
-"Conversations: the Yarn player".
+What characters say, and the machinery that picks it. Built by the three slices of
+`Docs/roadmaps/dialog-roadmap.md`:
+
+- dialog read from plain text files at startup, the base game loaded exactly like a mod;
+- a small condition language over a registered list of **facts**;
+- **barks** - one-way lines picked by "most specific match wins", delivered to the activity feed
+  and floated briefly over the speaker's head, including the `Approached` bark NPCs say when a
+  squad comes near;
+- **conversations** - authored exchanges with choices, written in **Yarn** (Yarn Spinner), played
+  in their own window: an NPC's **greeting**, then the **topics** that apply to them, plus
+  Goodbye. Conversations change the world through a fixed list of **effects**, and a squad
+  remembers what it has said and heard;
+- **banter** - the same machinery with no window: squad members talking among themselves, into
+  the feed and floating over each speaker.
 
 The design intent is `game-design`'s `dialogue.md`. This topic is how it is built.
 
@@ -44,10 +50,11 @@ The design intent is `game-design`'s `dialogue.md`. This topic is how it is buil
 - **A speaker who just spoke stays quiet for 6 seconds** (`SpeakerQuietSeconds`), whatever the line.
   That is what stops a fight turning into a wall of "Ngh." Being *spoken to* ignores it: talking to
   someone always gets an answer if one of their lines is free.
-- **Talking to someone changed.** Double-click, `T` and the target panel's Talk all reach the same
-  verb. A non-trader used to do nothing at all; now they say a `NothingToSay` line. Out of reach
-  now refuses with *Too far away* for a non-trader too, since a greeting is range-gated the same
-  as a trade. A hostile NPC still refuses, unchanged.
+- **Talking to someone** - double-click, `T` or the target panel's Talk, all the same verb - goes,
+  in order: a hostile NPC refuses; out of reach refuses with *Too far away*; then someone with a
+  conversation opens it (see Conversations, below); else a trader opens their shop and says a
+  `TradeOpened` line; else they say a `NothingToSay` line. A trader whose conversation a mod
+  removed still trades.
 
 ### Bark bubbles
 
@@ -68,8 +75,52 @@ text (the HUD's legible floor until the styling pass).
 - **Long lines wrap** at 260 slate units.
 - **It never takes a click.** A click on a bubble reaches the unit underneath it.
 
-A conversation will never float: back-and-forth goes in Slice 3's window (Jim, after Slice 1's PIE
-pass). Slice 3's ambient banter will use these bubbles, one line over each speaker.
+A conversation never floats: back-and-forth goes in its window (Jim, after Slice 1's PIE pass).
+Banter uses these bubbles, one line over each speaker.
+
+### Conversations
+
+- **Talk to someone who has a conversation and its window opens**: who you're talking to (name,
+  and portrait - initials until units have portraits), what has been said, and either
+  **Continue** or the choices. It is a floating window like the others: drag it by the title,
+  resize it from the corner.
+- **Which one**: of the greetings attached to that person whose requirements hold right now, the
+  highest priority wins; a tie goes to the one your squad saw least recently. Talk to a Bandit
+  who has already taken your toll and you get a different greeting.
+- **A choice you can't take right now** either shows greyed out with the reason beside it
+  (*Not enough gold*) or isn't offered at all - the writer decides, per choice. The toll shows
+  greyed when you're short; the question you already asked goes away.
+- **Topics.** When the greeting ends, the window offers every topic that applies to this person
+  now, plus **Goodbye**. A topic plays and comes back to the list, rebuilt: asking one topic can
+  unlock another, and a told-once story leaves the list after it is told. A topic can belong to
+  one character, a role, or a whole faction - which is how a mod gives the base game's people
+  something new to say.
+- **Ending it**: Goodbye, the window's X, or `T` again. It also **breaks off** - with a line in the
+  feed - if the squad member and the NPC end up more than 5 m apart (`BreakOffRange`), either goes
+  down, or a fight starts: the NPC turns hostile, either of them attacks, or either is hurt.
+  Talking to somebody else ends it too.
+- **Everything said goes to the COMMS feed** as well, quoted with the speaker's name - including
+  the choice you picked, said by your squad member. Effects that move gold or standing add their
+  own line (*Paid 20 gold*, *Raiders standing -10 (now -10)*). The feed is the transcript the
+  window doesn't keep once it closes.
+- **The world doesn't stop.** A conversation runs in real time, in single-player too (whether it
+  should pause is an open design question). In co-op each player's conversation is their own,
+  in their own language, and several players may talk to the same NPC at once.
+- **Who does the talking**: the squad member nearest the NPC, within reach.
+- **Your squad remembers.** The flags a conversation sets and the conversations seen belong to
+  your squad - your player - never another player's.
+
+### Banter
+
+- **Now and then, your squad members talk among themselves** - two of them, a few lines each, in
+  the feed and floating over whoever is speaking, like barks. No window, no choices.
+- **When**: 6 seconds after the last blow of a fight (`AfterFightSeconds`), and about every
+  5 minutes of world time while nothing happens (`IdleSeconds`) - never more than once every
+  3 minutes (`CooldownSeconds`). Rare on purpose, to feel earned.
+- **Who**: squad members on their feet standing within 10 m of each other (`CastRange`). One at a
+  conversation window sits it out. A fight starting, or a participant going down, stops it mid-way.
+- **Everyone near hears it**, exactly as a bark is heard. The knobs are on
+  `UBanterDirectorComponent` (`BP_StrategyGameState`).
 
 ### Debug execs
 
@@ -77,10 +128,12 @@ All on `AStrategyPlayerController`.
 
 | Command | Does |
 |---|---|
-| `SmoresReloadDialog` | Re-reads every package from disk and logs the per-package summary. **The writer's loop**: edit a file, type this, hear the change without restarting. This machine only - every machine loads its own copy |
-| `SmoresDialogReport` | Every package (id, folder, version, requires, loaded or SKIPPED, counts), barks per event, and every problem. `SmoresDialogReport facts` adds the writers' reference: every fact and who each event carries |
+| `SmoresReloadDialog` | Re-reads every package from disk and logs the per-package summary. **The writer's loop**: edit a file (recompile a `.yarn`), type this, hear the change without restarting. Any running conversation or banter ends first. This machine only - every machine loads its own copy |
+| `SmoresDialogReport` | Every package (id, folder, version, requires, loaded or SKIPPED, counts), every conversation (kind, priority, once, who it attaches to, requires), barks per event, and every problem. `SmoresDialogReport facts` adds the writers' reference: every fact, its name as a Yarn function, every effect, the `#reason:` keys, and who each event carries |
 | `SmoresTestBark <Event> [Name]` | Fires an event on a unit and logs **every line considered and why it did or didn't win**, then the winner as this machine shows it, in the current culture. The unit is the one whose name contains `Name` (`SmoresTestBark Approached Ada`), else the clicked NPC, else the first selected squad member. Cooldowns apply; quiet time doesn't, and neither do `Approached`'s range and cooldown - the nearest squad member is the listener wherever they are. A line said this way reaches the feed and floats like any other. For `WitnessedDeath` the unit is treated as the one who died. Hops to the server |
 | `SmoresSetCulture <culture>` | Shows game text in another culture - `SmoresSetCulture fr`, then `en` to return. In the editor it previews game text without touching the editor's own menus, and the preview ends when play stops |
+| `SmoresTestConversation <id> [Name]` | Opens a conversation without walking up: a Greeting or Topic (`SmoresTestConversation example.Shakedown Bandit`) opens its window on the NPC whose name contains `Name` or whose character definition it is (`Bandit` finds a bandit; `LVL_Strategy`'s are placed as "NPC 1" to "NPC 6"), else the clicked NPC, eligible or not, however far away - so it never breaks off for range - with the nearest squad member talking. An Ambient id plays it among the squad now, whatever its `requires:` and however far apart they stand. `SmoresTestConversation banter` has the squad try a banter as its timer would, cooldown aside, and logs why each candidate did or didn't play. With no id (`SmoresTestConversation "" Bandit`), runs Talk's own choice on that NPC and logs why each greeting did or didn't win. Hops to the server |
+| `SmoresDialogMemory [set\|clear <flag>]` | Logs this squad's flags and the conversations it has seen (how often, how recently). `SmoresDialogMemory set trader_mentioned_salt_road` sets a flag, to try a conversation that waits on one; `clear` clears it. Hops to the server |
 
 ## Writing Dialog
 
@@ -92,14 +145,16 @@ This section is the writers' and modders' reference.
 Content/Dialog/core/            the base game - package "core"
     mod.json
     barks/<any name>.csv
+    conversations/<name>.yarn   plus the three files ysc writes beside it:
+                  <name>.yarnc, <name>-Lines.csv, <name>-Metadata.csv
     localization/<culture>/<any name>.csv
 Mods/<folder>/                  one folder per mod, next to the installed game
     mod.json
     ...the same shape
 ```
 
-Every `.csv` under `barks/` is read, in file-name order. Anything else in a package folder (a README,
-notes) is ignored.
+Every `.csv` under `barks/` is read, in file-name order, and every `.yarn` under `conversations/`
+with the files beside it. Anything else in a package folder (a README, notes) is ignored.
 
 ### `mod.json`
 
@@ -169,8 +224,14 @@ For each of **`Speaker`**, **`Listener`** and **`Event.Victim`**:
 | `.LifeState` | name | `Alive`, `Downed` or `Dead` - nothing else is accepted |
 | `.Health` | number | health as a fraction, 0 to 1 |
 
-Plus **`StandingWithSpeaker`** (number): this player's standing with the speaker's faction,
--100 to 100, 0 when the speaker has none.
+Plus these, about the player whose squad it is:
+
+| Fact | Kind | Reads |
+|---|---|---|
+| `StandingWithSpeaker` | number | this player's standing with the speaker's faction, -100 to 100, 0 when the speaker has none |
+| `Gold` | number | how much gold this player has |
+| `Flag(name)` | yes/no | true once this squad's conversations have set that flag (`<<SetFlag name>>`) |
+| `Seen(conversation)` | yes/no | true once this squad has had that conversation - its title (`Seen(Shakedown)`, any package) or `package.title` |
 
 Each event carries only some of those people, and a condition asking about anyone else is refused:
 
@@ -183,8 +244,8 @@ Each event carries only some of those people, and a condition asking about anyon
 | `NothingToSay` | Speaker, Listener, Player |
 | `Approached` | Speaker, Listener, Player |
 
-`StandingWithSpeaker` needs the Player, so it works in `Hurt`, `TradeOpened`, `NothingToSay` and
-`Approached`.
+`StandingWithSpeaker`, `Gold`, `Flag` and `Seen` need the Player, so they work in `Hurt`,
+`TradeOpened`, `NothingToSay` and `Approached` - and in every conversation.
 
 **Give an `Approached` line a cooldown of a minute or so.** The event itself already waits
 `ApproachCooldownSeconds` per player; the row's cooldown is per speaker across every player, so it
@@ -202,10 +263,104 @@ is what stops one NPC greeting each squad that passes with the same words.
 So writing a more specific line is how to override a general one - and how a mod changes what
 players hear without touching the base game's files.
 
+### A conversation file
+
+A conversation is written in **Yarn** - Yarn Spinner's own language, with its own editor tooling
+(its VS Code extension highlights and checks a file as you type). The example mod's bandit
+shakedown, trimmed:
+
+```
+title: Shakedown
+kind: Greeting
+attach: Speaker.Definition == Bandit
+---
+<<declare $asked_about_road = false>>
+Bandit: Toll road. Twenty gold, or you walk back the way you came. #line:shakedown_toll
+<<jump Choices>>
+===
+
+title: Choices
+---
+-> Pay the toll. <<if gold() >= 20>> #line:shakedown_pay #reason:not_enough_money
+    <<TakeMoney 20>>
+    <<SetFlag example_paid_toll>>
+    Bandit: Pleasure doing business. Road's yours. #line:shakedown_paid
+-> Who says it's your road? <<if not $asked_about_road>> #line:shakedown_ask
+    <<set $asked_about_road to true>>
+    Bandit: The twelve of us in those rocks say so. #line:shakedown_twelve
+    <<jump Choices>>
+-> Get out of my way. #line:shakedown_refuse
+    <<ChangeStanding Raiders -10>>
+    Bandit: Wrong answer. #line:shakedown_wrong
+===
+```
+
+- **Compile it** with `ysc compile <name>.yarn -o . -n <name>` (Yarn Spinner Console **3.2.2**,
+  below) and ship the three files it writes beside the `.yarn`. The game reads all four: the
+  compiled program holds only ids, the lines file holds the text, and the `.yarn` itself is how a
+  problem names the line you wrote. **Recompile after every edit** - in the editor a `.yarnc` older
+  than its `.yarn` is refused, and anywhere a `#line:` the lines file doesn't have is.
+- **Every line needs a `#line:` id** - `ysc tag <name>.yarn` stamps one on every line without, so
+  you never type them. ysc would make one up for an untagged line, but that id changes whenever
+  the line moves - orphaning its translations and any voice recording - so the game refuses it.
+  Ids are letters, digits and `_`, unique within the package (barks included).
+- **A node with a `kind:` header is a conversation**, and its title is its id
+  (`example.Shakedown`). A node without our headers - `Choices` above - is an ordinary node a
+  conversation jumps into. The headers go under `title:`:
+
+  | Header | On | Means |
+  |---|---|---|
+  | `kind:` | every conversation | `Greeting` (what an NPC opens with), `Topic` (offered after a greeting), `Ambient` (banter, no window) |
+  | `attach:` | Greeting and Topic - required | who it belongs to, as a condition about the **Speaker** only: `Speaker.Definition == Bandit`, `Speaker.Role == trader`, `Speaker.Faction == TradersGuild` |
+  | `requires:` | any | what else must be true right now - any condition over Speaker, Listener and Player: `Flag(trader_mentioned_salt_road)`, `StandingWithSpeaker > -20` |
+  | `priority:` | any | a whole number, default 0. The highest eligible greeting wins; topics are listed highest first |
+  | `once:` | any | `true`: never again for a squad that has seen it |
+  | `label:` | Topic - required | the choice that offers it, in plain words (`label: Any chance of a better price?`). Translated under the id `<title>_label` |
+  | `participants:` | Ambient - required | 2 to 4 names its lines are said under (`participants: First, Second`) |
+
+  In a conversation the **Speaker** is the NPC and the **Listener** is the squad member talking;
+  in banter they are the first and second participants.
+- **Who says a line** is the name before its colon. In a window conversation `You:` is the squad
+  member talking, any other name is the NPC (the window shows their real name, so `Bandit:` is a
+  note to yourself), and no name is narration. In banter every line starts with one of the
+  participants.
+- **Questions are functions.** Every fact is one, with each `.` written as `_`:
+  `speaker_faction()`, `listener_definition()`, `standingwithspeaker()`, `gold()`,
+  `flag("name")`, `seen("Shakedown")`. Case doesn't matter, and text compares case-insensitively
+  (`speaker_faction() == "raiders"`). Yarn can't call a dotted name - it reads one as an enum.
+- **Effects are commands** - the only way a script changes anything:
+
+  | Command | Does |
+  |---|---|
+  | `<<SetFlag <flag> [true\|false]>>` | sets a flag this squad remembers (`false` clears it); `Flag(name)` reads it back |
+  | `<<ChangeStanding <faction> <amount>>>` | moves this player's standing with a faction (`-10`, `5`), kept within -100..100 |
+  | `<<TakeMoney <amount>>>` | takes gold, all or nothing - guard its choice with `<<if gold() >= amount>>` |
+  | `<<GiveMoney <amount>>>` | gives gold |
+  | `<<OpenTrade>>` | opens the NPC's shop - with a `TradeOpened` bark, as Talk on a trader always had - and **ends the conversation**: the trade screen replaces the window, and nothing after it runs. Window conversations only |
+
+  Flag names are shared by every package, so a mod can read a flag the base game sets; prefix
+  your own with your mod's id (`example_paid_toll`).
+- **A choice that can't be taken** is one with an `<<if>>` that fails. Tag it `#reason:<key>` and
+  it shows greyed out with that reason; leave the tag off and it isn't offered. The keys:
+  `not_enough_money` (*Not enough gold*). A `#reason:` goes on a choice only.
+- **Yarn's own `$variables` last one conversation** - each playthrough gets a fresh set, so one
+  squad's `$asked_about_road` is never another's. Anything the squad should remember is a flag.
+- **What Yarn can use here**: its operators, `visited()` and `visited_count()` (which count within
+  one playthrough), `random()`, `random_range()`, `dice()`, `round()`, `floor()`, `ceil()`,
+  `int()`, `min()`, `max()`, and `<<jump>>`, `<<detour>>`, `<<declare>>`, `<<set>>`, `<<if>>`.
+  **Not**: `<<wait>>` or any command that isn't an effect, markup (`[b]`), Yarn Spinner's own
+  saliency (`when:` headers - our `attach:`/`requires:` choose instead), and node groups.
+- **Banter can't offer choices or `<<OpenTrade>>`** - nobody is at a window - and its lines can't
+  insert values (`{$x}`) yet.
+- **Voice**: every line is one fixed sentence with one permanent id, so a future recording is
+  filed under it. Keep lines meant for voice free of inserted `{$values}`.
+
 ### Translations
 
 `localization/<culture>/<file>.csv`, with columns `Id,Text`. The id is the line's own id in the
-same package, written plain. A package translates only its own lines. `fr` covers `fr-CA` too.
+same package, written plain - a bark's id, a conversation line's `#line:` id, or a topic's
+`<title>_label`. A conversation line's `Name: ` in front may be kept or left off; either way it
+isn't shown as words. A package translates only its own lines. `fr` covers `fr-CA` too.
 
 ### When something is wrong
 
@@ -221,6 +376,18 @@ error: core barks/core.csv:14: in 'Speaker.Rol == guard': 'Speaker.Rol' isn't a 
 A faction, definition or role id that no loaded content has is a **warning** - kept, because a mod
 may name content from another mod that isn't installed. In the base game's own files it can only be
 a typo, so the content sweep fails on it.
+
+**A conversation problem costs that conversation** - or the file, when the file itself can't be
+used (missing compiled files, a garbage `.yarnc`, a stale compile). Checked at load time, with the
+line you wrote: a line without a `#line:` id; a function that isn't a fact, or called with the wrong
+number of values; a command that isn't an effect, with the wrong number of words, or a bad amount;
+an unknown `#reason:` key; a bad or missing header; a speaker who isn't a participant, a choice or
+`<<OpenTrade>>` in banter. A plain node with a problem costs every conversation that plays it:
+
+```
+error: example conversations/shakedown.yarn:31: node 'Choices': runs <<TakeMony>>, which isn't an effect the game has - the effects are SetFlag, ChangeStanding, TakeMoney, GiveMoney, OpenTrade
+error: example conversations/shakedown.yarn:18: conversation 'Shakedown' was skipped: it plays node 'Choices', which has the errors above
+```
 
 ## Core Rules
 
@@ -250,7 +417,32 @@ a typo, so the content sweep fails on it.
   missing the id (host and client running different dialog) logs it and posts nothing.
 - **Dialog reads faction standing and faction identity, and still nothing reads them for
   behaviour.** `StandingWithSpeaker` chooses what a trader says to you, not whether they trade.
-  Hostility is unchanged (`combat.md`).
+  Hostility is unchanged (`combat.md`) - and no effect sets it (a `StartFight` effect waits on the
+  AI roadmap; hostility is derived, never set).
+- **The server runs every conversation; a client only ever sees ids.** The Yarn player, the
+  choice of greeting, the topic list and every effect run on the server, in
+  `UConversationComponent` on the player's controller. Each line and choice reaches the owning
+  client as its id, and the client looks the words up in its own translated library - the barks'
+  rule, so each co-op player reads their own conversation in their own language. The pick comes
+  back as a position in the list the client was shown, and the server checks it.
+- **Our condition language chooses; Yarn plays.** Which conversation happens, and which topics
+  are offered, is decided by `attach:` / `requires:` / `priority:` / `once:` in our language, by
+  our code - Yarn Spinner's own saliency (`when:`) is not used. Inside a conversation, flow is
+  Yarn's, and it reads facts through functions.
+- **Dialog state is squad-scoped.** `UDialogMemoryComponent` on `AStrategyPlayerState` holds this
+  player's flags and the conversations they have seen; nothing is world-level. Yarn's own
+  `$variables` last one playthrough.
+- **Effects are the only way a script changes anything, and every one is authority-only**,
+  refusing with nothing changed off-authority (`FDialogEffectRegistry::Run` checks once, for all of
+  them). An effect that can fail (`TakeMoney`) is all-or-nothing, and its choice is guarded so it
+  shows greyed *before* it could fail - preventing the refusal beats explaining it
+  (`refusals-and-feedback.md`). A script that forgets the guard is refused, and the player told why.
+- **Each playthrough is its own; the loaded script is shared.** Two squads at the same NPC are two
+  players over one loaded program, each with its own place and variables. Nothing locks an NPC.
+- **Selection is Hades-style**: of the eligible, the highest priority; a tie to the one least
+  recently seen by this squad (never seen beats seen); then load order - so it never depends on
+  anything but the files and the squad's memory. A conversation counts as seen the moment it
+  starts, so walking off halfway still uses up a `once:` one.
 
 ## Localization - how runtime-loaded text gets translated
 
@@ -271,6 +463,10 @@ talk to Merchant Ada, and her greeting is French.
 - **This deviates from the roadmap's "one string table per package per culture"** - one table per
   package, plus the text source for every culture. Separate per-culture tables would each be a
   fixed language; a string-table entry routed through the manager is what switches live.
+- **Conversation lines and topic labels are published the same way**, into the same package
+  table, keyed by their qualified ids (`example.shakedown_toll`, `core.TraderPrices_label`). A
+  conversation line's speaker cue (`Bandit: `) is taken off before it becomes the source string,
+  and off a translation too, so it is never shown as words.
 - **In the editor**, game text normally shows in its source language (`ShouldLoadNativeGameData`),
   and `SmoresSetCulture` uses the engine's *game localization preview* rather than changing the
   editor's language. The preview refuses to start without a native game culture, which the project
@@ -280,8 +476,8 @@ talk to Merchant Ada, and her greeting is French.
 
 ## C++ Implementation
 
-All in `SmoresDialog` (`Source/SmoresDialog/`), except the controller and GameState glue and the
-bubbles, which are HUD and live in `SmoresUI` (below).
+All in `SmoresDialog` (`Source/SmoresDialog/`), except the controller, PlayerState and GameState
+glue, and the bubbles and conversation window, which are HUD and live in `SmoresUI` (below).
 
 | File | Holds |
 |---|---|
@@ -295,7 +491,16 @@ bubbles, which are HUD and live in `SmoresUI` (below).
 | `SmoresDialogSubsystem.h` | `USmoresDialogSubsystem`, a `UGameInstanceSubsystem`: gathers from disk, loads, publishes the text, logs the report, broadcasts `OnLibraryLoaded`. Survives map changes and exists on every machine |
 | `BarkDirectorComponent.h` | `UBarkDirectorComponent` (server-only, on the GameState) and `UBarkUnitWatcher` - one per unit, the `USquadActivityWatcher` pattern, because three of `UHealthComponent`'s four delegates can't say whose they are. Also the approach timer (`CheckApproaches`) and its knobs `ApproachRange` (800 cm), `ApproachCooldownSeconds` (60) and `ApproachCheckSeconds` (0.5) |
 | `ApproachTracker.h` | `FApproachTracker` - `Approached`'s edge-trigger as a plain value type: given where every NPC and every squad member stands, which squads just arrived. Per NPC per player; see "How `Approached` is raised" |
-| `DialogHost.h` | `IDialogHost` - what dialog needs a player's controller to do: `IsSquadMemberWithin`, `DeliverBark` (line id, speaker, speaker's name). The `IStrategySelectionHost` pattern; Slice 3's `OpenTrade` effect is the expected next member |
+| `DialogHost.h` | `IDialogHost` - what dialog needs a player's controller to do: `IsSquadMemberWithin`, `DeliverBark` (line id, speaker, speaker's name), `OpenTradeWith` (the `OpenTrade` effect) and `NotifyDialogRefusal`. The `IStrategySelectionHost` pattern |
+| `DialogConversationTypes.h` | `EConversationKind`, `EConversationEndReason`, `FConversationDefinition` (one loaded conversation: its headers, compiled, and a shared pointer to its file's script) and the two structs that cross the network, `FConversationLineView` / `FConversationChoiceView` - ids, never text. Not `ConversationTypes.h`: an engine plugin (CommonConversation) has that name, and UHT refuses two headers of one name |
+| `ConversationScript.h` | `FDialogConversationScript` (one compiled `.yarn`: the `FYarnProgram` and what the loader learned about each line - qualified id, speaker cue, text, whether it is a choice, its `#reason:`). **The one header with a Yarn type in it**, included only by `SmoresDialog`'s own `.cpp` files - see Registration |
+| `ConversationPlayer.h` | `FDialogConversationPlayer` - one playthrough, driving the plugin's VM (a pimpl, so no Yarn type in the header). Facts and effects come in through `FConversationPlayerSetup`, so a test drives it with stand-ins. Also `FindYarnBuiltIn` (our operators and built-ins), `GetYarnFunctionName` / `FindFactForYarnFunction` (`Speaker.Faction` is `speaker_faction()`), `SplitSpeaker`, `GetSpeakerSlot` |
+| `ConversationLoader.cpp` | `LoadDialogConversations`, called by `LoadPackages` for each package after its barks: reads each `.yarn` and its three files, checks everything (below), and adds the conversations and their texts to the library. `DialogLoaderInternal.h` holds the loader helpers it shares with `DialogLoader.cpp` |
+| `ConversationSelection.h` | Pure: `IsConversationEligible`, `GetEligibleConversations` (the topic list), `SelectConversation` (the greeting), and `GetConversationInterruption` over an `FConversationWatch` (range, down, fighting) |
+| `DialogEffects.h` | `FDialogEffect` / `FDialogEffectRegistry` (a value type; `MakeBuiltIn()` is the five effects), `FDialogEffectContext`, `FDialogEffectOutcome`; `FindChoiceReason` - the `#reason:` keys, each an `ESmoresRefusalReason` |
+| `DialogMemoryComponent.h` | `UDialogMemoryComponent` (on `AStrategyPlayerState`) around `FDialogMemoryRecord` - flags, and per conversation how often and how recently it was seen (a counter, not a time, so it survives a save). Server-owned, not replicated, authority-gated |
+| `ConversationComponent.h` | `UConversationComponent` (on `AStrategyPlayerController`) - the server side of a window conversation (selection, the Yarn player, the topic list, effects, the break-off timer) and the owning client's `FConversationView` the window draws, with `OnViewChanged` |
+| `BanterDirectorComponent.h` | `UBanterDirectorComponent` (on `AStrategyGameState`, server-only) - when each squad banters, casting, and playing it through the bark director's delivery |
 
 In `SmoresUI`:
 
@@ -304,6 +509,8 @@ In `SmoresUI`:
 | `BarkBubbleSchedule.h` | `FBarkBubbleTiming` (the lifetime formula), `FBarkBubbleSchedule` (one bubble per speaker, the clock, the fade, expiry) and `SmoresBarkBubbles::StackBoxes` - all plain, all tested |
 | `BarkBubbleLayerWidget.h` | `UBarkBubbleLayerWidget` - the full-screen, click-through layer: projects each speaker's head through the owning player's view every frame, stacks, and places a pooled `UBarkBubbleWidget` per bubble |
 | `BarkBubbleWidget.h` | `UBarkBubbleWidget` - one bubble: a bound `LineText` and the wrap width (`MaxTextWidth`, 260) |
+| `ConversationWidget.h` | `UConversationWidget` - the conversation window, a `UWindowWidget`. Draws the owning player's `FConversationView`, rebuilt the frame after it changes; every click is a request to `UConversationComponent`. Its X is Goodbye |
+| `ConversationChoiceWidget.h` | `UConversationChoiceWidget` - one choice row, the `UTargetActionWidget` shape and bound names: a button, the label, and the reason while it is greyed (worded by `URefusalWidget::GetRefusalText`) |
 
 ### How a bark travels
 
@@ -364,178 +571,166 @@ said it; nobody happened to hear.
 - **The layer and every bubble are `HitTestInvisible`** - the one deliberate exception to the HUD's
   click-shield rule, written up in `hud-and-panels.md`.
 
+### How a conversation runs
+
+1. **Talk.** `InteractWithNPC` runs the client-side gates (hostile, reach), then
+   `Server_InteractWithNPC` re-runs them and decides: `UConversationComponent::TryStartGreeting`
+   selects over every Greeting (`SelectConversation`, with this player's memory); failing that a
+   trader gets `Client_OpenTrade` and a `TradeOpened` bark; anyone else a `NothingToSay` bark.
+2. **Start.** `StartConversation` ends any other conversation this player had, records both sides'
+   health (a loss later means somebody got hurt), sends `Client_Begin` (both actors and names) and
+   starts the watch timer. `RunScript` marks the conversation seen and builds an
+   `FDialogConversationPlayer` over the shared script: facts from the dialog subsystem's registry
+   with Speaker = NPC, Listener = squad member, Player = this player state; commands to
+   `RunEffect`.
+3. **Each step.** `PresentScript` sends where the script got to: a line (`Client_ShowLine`, its id
+   and speaker slot), or the choices it offers that are **shown** (`Client_ShowChoices` - enabled or
+   greyed with a reason; `ShownChoices` maps each back to the player's own position). The client's
+   `Server_Continue` / `Server_Choose(index)` move it on; a pick is echoed first
+   (`Client_ShowPicked`, said by the squad member), so what it does lands in the feed after it.
+4. **Effects.** `RunEffect` runs the command through `FDialogEffectRegistry::Run` with the
+   conversation's people and the controller as `IDialogHost`. A feed line goes back through
+   `Client_PostOutcome`; a refusal through `NotifyDialogRefusal`. `OpenTrade` goes through
+   `IDialogHost::OpenTradeWith` - `Client_OpenTrade` and a `TradeOpened` bark addressed to the
+   squad member talking, so the barks written for a shop opening still play - and ends the
+   conversation (`OpenedTrade`) once the script stops.
+5. **The topic list.** When a script ends, `ShowTopicMenu` sends every eligible Topic
+   (`GetEligibleConversations` over this NPC, rebuilt each time) plus Goodbye; a pick runs that
+   topic's script, and its end comes back here.
+6. **The end.** Goodbye, `Server_Leave`, a new Talk, a reload (`OnLibraryWillReload`), or the
+   0.25 s world-time watch (`WatchConversation` -> `GetConversationInterruption`: someone gone or
+   more than `BreakOffRange` apart, someone down, the NPC hostile, somebody with an attack target,
+   somebody hurt) calls `EndConversation`, which sends `Client_End(reason)`.
+
+**On the client** each RPC updates `FConversationView` - the transcript (every line, resolved into
+this machine's language, also posted to the COMMS feed), Continue or the choices, and
+`bWaitingForServer` while a request is out - and fires `OnViewChanged`.
+`AStrategyPlayerController::HandleConversationViewChanged` adds `WBP_Conversation` to the viewport
+while `bOpen` and removes it when not; the window marks itself dirty and rebuilds on its next
+tick, so the button just clicked is never destroyed inside its own click. Its X
+(`HandleWindowClosed`) and `T` (`TalkKeyPressed`) are `RequestLeave`.
+
+### How a conversation is loaded and checked
+
+`LoadDialogConversations`, for each `conversations/*.yarn` in a package, after its barks:
+
+1. **Its three files, or nothing.** No `.yarnc` or `-Lines.csv` beside it costs the file; so does a
+   `.yarnc` the plugin's `FYarnProtobufParser` can't read. In editor builds a `.yarnc` whose
+   timestamp is older than the `.yarn`'s costs the file (a packaged build's times are staging
+   times). A `.yarnc` with no `.yarn` is a warning, ignored.
+2. **The lines table.** Each row's id must appear as `#line:<id>` on the line the table says it came
+   from in the `.yarn` - that is how an id ysc made up (`line:57260121`) is caught. The id is
+   qualified by the package, checked against every id the package already has (bark ids
+   included), and its text split into speaker cue and words. Every `#line:` in the `.yarn` must be
+   in the table, or the `.yarn` changed after the compile and the file is refused.
+3. **The program, node by node.** Every `CallFunction` must be an operator, a built-in or a fact
+   (never one about `Event.Victim`), called with the number of values it takes - read from the
+   `PushFloat` the compiler puts before each call. Every `RunCommand` is split the plugin's way
+   (`FYarnCommand::ParseCommandText`) and must be an effect with the right number of words, whose
+   `Check` accepts the words written out (a `{substitution}` is only checkable when it runs). Jumps
+   and detours are followed by name. A problem breaks the node.
+4. **The metadata.** A `reason:<key>` tag must be a known key, on a choice; on a choice with no
+   `<<if>>` it is a warning, since it can never show.
+5. **The conversations**, in the order written: every node with one of our headers. Headers are
+   checked (above), `attach:` compiled against the Speaker only, `requires:` against Speaker,
+   Listener and Player; everything it reaches must be unbroken; and an Ambient one may not reach a
+   choice, `<<OpenTrade>>`, a line said by anyone but a participant, or a line with a
+   substitution. A problem costs that conversation, with an error naming the line - so a writer
+   fixing one mistake never has to hunt for it.
+
+Problems name the `.yarn` and a line in it: a line's own line for line problems, the header's for
+header problems, and for a function or command the first line in its node that mentions it
+(`FYarnSourceIndex` - the compiled program carries no line numbers).
+
+### How the player is driven
+
+What the spike learned, and what the player (`ConversationPlayer.cpp`) does with it:
+
+- **Only the plugin's player is used:** `FYarnVirtualMachine`, `FYarnProtobufParser`, and
+  `UYarnInMemoryVariableStorage` - one per playthrough, made with `NewObject` as a plain object and
+  held by a `TStrongObjectPtr`. None of the plugin's runner, presenters, widgets or asset import:
+  they assume the script runs on the machine that shows it. The VM copies the program it is
+  given, so each playthrough holds its own copy of the (small) program over the shared script.
+- **The operators are ours.** Compiled Yarn calls its operators as functions (`gold() >= 20` calls
+  `Number.GreaterThanOrEqualTo`, `not` calls `Bool.Not`); the plugin registers those in its runner
+  layer, so `FindYarnBuiltIn` supplies the Number, Bool, String and Enum families plus the
+  built-ins listed in Writing Dialog. **One deliberate difference:** `String.EqualTo` ignores case,
+  as names do in our condition language.
+- **Facts are functions**, answered through `CallFunctionHandler` / `FunctionExistsHandler` /
+  `FunctionParamCountHandler` from the fact registry: a number fact answers a Yarn number, a name
+  a string (`None` for "has none", empty when unset), a yes/no a bool. Yarn can't call a dotted
+  name - `Speaker.Faction()` is read as a member of an enum type called `Speaker` - so each fact is
+  reached with its dots as underscores. A single `fact("Speaker.Faction")` bridge was rejected:
+  ysc infers one return type per function, and one function answering both numbers and names
+  won't compile.
+- **ysc accepts any function or command name without a declaration**, and makes up a line id
+  (`line:` + 8 hex digits) for an untagged line - hence the load-time checks.
+- **The VM pauses after every line and every command** until `Continue()`. Every effect finishes at
+  once, so a pause after a command is continued straight through (`Run`). An effect asking to end
+  (`OpenTrade`) stops the VM from outside its handler.
+- **A choice whose condition fails is never hidden by Yarn** - it arrives with `bIsAvailable`
+  false, all alike. The player marks each `bShown` (available, or unavailable with a `#reason:`)
+  and the component sends only those; `SetSelectedOption` still takes the position in the whole
+  set. When no choice at all is shown, the script ends there rather than wait on a pick nobody can
+  make.
+- **Line ids arrive as the whole tag** (`line:shakedown_toll`) and are qualified by the package.
+- **Initial values:** a `<<declare>>` value comes from the program whenever the variable store
+  doesn't have that variable yet. `visited()` reads the variable the VM itself counts a node's
+  visits into (`$Yarn.Internal.Visiting.<node>`), for nodes the compiler marked with a tracking
+  header.
+- **Custom node headers survive compiling** (`FYarnNode::Headers`), so our metadata lives on the
+  node. ysc adds its own tags too - a `lastline` tag on the line before a set of choices - which
+  the loader ignores.
+- **The Lines CSV's `file` column** is an absolute path on the writer's machine; ignored.
+- **Log noise:** the VM logs "Yarn VM: Running node ..." and, at the end of a script that jumped,
+  "Return with no return address - treating as Stop", both at Log level. Both are harmless.
+
+### How banter plays
+
+- **`UBanterDirectorComponent::CheckSquads`**, on a 2 s world-time timer, server-only, groups every
+  `AStrategyPlayerUnit` by its owner's player state and decides, per squad: fighting (a member with
+  an attack target, or who lost health since the last look) stops any banter and starts the
+  after-fight clock; `AfterFightSeconds` of calm after a fight, or `IdleSeconds` of nothing, tries
+  one - if `CooldownSeconds` have passed since the last.
+- **`TryBanter`** orders the Ambient conversations as selection does (priority, least recently
+  seen, load order) and plays the first it can cast: `FindCast` shuffles the members on their feet
+  (not the one at a conversation window), and takes the first pair within `CastRange` for whom
+  `requires:` holds with them as Speaker and Listener; further participants only need to be near the
+  first.
+- **Each line** goes out through `UBarkDirectorComponent::Deliver` - every player with a squad
+  member within `HearingRange` gets it in the feed and floating over the speaker - and the next
+  follows after the line's reading time (the bubble's formula) plus `LineGapSeconds`, **in real
+  time**: the world-time wait is scaled by the current time dilation, so 8x doesn't rush it and
+  the paused tier doesn't freeze it. A participant down, gone or fighting ends it.
+
 ### Registration and packaging
 
 - The module follows `unreal-module-organization.md`'s checklist: `SmoresDialog.Build.cs`, the root
   `SmoresDialog.cpp`/`.h` (with `LogSmoresDialog`), the `.uproject` entry, both `Target.cs` files, and
-  `smores.Build.cs`. It depends on `SmoresCore`, `SmoresCombat` and `SmoresCharacters`, plus `Json`
-  privately for the manifests.
+  `smores.Build.cs`. It depends on `SmoresCore`, `SmoresCombat` and `SmoresCharacters` publicly, and
+  privately on `Json` (the manifests), `SmoresEconomy` (the wallet `gold()` and the money effects
+  reach) and **`YarnSpinner`** (the conversation player). `SmoresUI` depends on it for the window.
+- **The Yarn dependency is private, and must stay private.** No public header in `SmoresDialog`
+  includes a Yarn header: `ConversationScript.h` is the one that does, and only `SmoresDialog`'s
+  own `.cpp` files include it; everything public refers to a script as the forward-declared
+  `FDialogConversationScript`, and the player hides its VM behind a pimpl. So nothing else in the
+  game links against the plugin or needs its include paths.
 - **`Config/DefaultGame.ini` stages `Content/Dialog` as-is**
   (`+DirectoriesToAlwaysStageAsUFS=(Path="Dialog")`). The cooker only cooks `.uasset`s; without
   this line a packaged build has no dialog at all, and says so only as one load error.
+  The conversation files stage with it - `.yarn`, `.yarnc` and the two CSVs are all just files in
+  the folder. Not yet re-checked in a package since Slice 3 (see Known Gaps).
   **Verified 2026-09-24**: a `BuildCookRun` Win64 Development package lists
   `smores/Content/Dialog/core/{mod.json, barks/core.csv, localization/fr/barks.csv}` in
   `smores-Windows.pak` (`UnrealPak <pak> -List`), and the packaged game logs
   `Dialog: base game Core 0.1.0: loaded, 27 barks, 6 translations, 0 errors, 0 warnings` - read
   through the pak by the same `IFileManager` calls the editor uses on loose files.
-- `.gitattributes` marks `*.csv` as text.
+- `.gitattributes` marks `*.csv` and `*.yarn` as text and `*.yarnc` as binary.
 - **`Config/DefaultEditorPerProjectUserSettings.ini` keeps the editor's auto-import out of
   `Content/Dialog`** (a `Dialog/*` exclusion on the `/Game/` `AutoReimportDirectorySettings`, beside
   the engine's own `Localization/*` one). Without it the editor sees new `.csv`/`.json` files in the
   content folder and offers to *import* them - which would make a DataTable asset of every bark
   file. If that prompt ever appears for dialog files, the answer is **Don't Import**.
-
-## Blueprint / Asset Dependencies
-
-The director and subsystem need nothing: `UBarkDirectorComponent` is a native default subobject of
-`AStrategyGameState`, so `BP_StrategyGameState` has it with no Blueprint change, and the subsystem
-creates itself.
-
-The bubbles, all under `Content/Variant_Strategy/UI/`:
-
-| Asset | Parent | Bound names |
-|---|---|---|
-| `WBP_BarkBubble` | `UBarkBubbleWidget` | `LineText`, inside a dark translucent `Border` |
-| `WBP_BarkBubbleLayer` | `UBarkBubbleLayerWidget` | `BubbleCanvas` (the root canvas); plus the `BubbleWidgetClass` default, which must point at `WBP_BarkBubble` or barks reach the feed and nothing floats (it warns once) |
-| `UI_Strategy` | `UStrategyUI` | `BarkBubbleLayer` - a `WBP_BarkBubbleLayer` stretched over the whole screen, painted beneath the six regions |
-
-## Content
-
-| File | Holds |
-|---|---|
-| `Content/Dialog/core/mod.json` | the base game's manifest, id `core` |
-| `Content/Dialog/core/barks/core.csv` | 33 barks for the three existing definitions (Settler, Bandit, Trader): every event has a generic line and at least one more specific one - for `Approached`, two generic, a trader's hawk (plus a Traders Guild one), a bandit's challenge and a hated-by-Raiders warning. Placeholder writing in the austere tone of `narrative-and-lore.md` |
-| `Content/Dialog/core/localization/fr/barks.csv` | the six trader greetings in placeholder French - the localization proof |
-| `Mods/example/` | one bark (three clauses, more specific than anything in core) for a Traders Guild trader greeting a Settler, plus its French. Wins Merchant Ada's greeting whenever it's off its 30 s cooldown, without touching core |
-
-## Testing
-
-36 tests - 28 dialog, 4 bark-bubble and the spike's 4 (`testing.md` has the run commands):
-
-- `Smores.Dialog.Condition.*` (5) - parse and evaluate; each kind of mistake rejected with its
-  reason; subjects an event lacks; unknown content ids as warnings; errors carrying their line.
-- `Smores.Dialog.Barks.*` (4) - most specific wins, least-recently-said breaks ties before weight,
-  weight breaks only full ties (fixed seed), cooldowns per speaker.
-- `Smores.Dialog.Loader.*` (10) - CSV as spreadsheets write it, `Requires` ordering, a missing
-  requirement, a cycle, duplicate ids, the same id in two packages, a broken row skipped while its
-  neighbours load, bad manifests, translations, header columns in any order.
-- `Smores.Dialog.Text.TranslationsFallBackInCultureOrder` - the text source, asked directly (never
-  registered - switching the culture of the editor running the suite would change every other
-  test's text).
-- `Smores.Dialog.Facts.AnswerFromRealUnits` (in `smores`, which has the concrete unit stand-in) -
-  every built-in fact read off real units, a real player state and a real condition.
-- `Smores.Dialog.Approach.*` (5) - `FApproachTracker`: entering fires once (with the nearest member
-  as listener) and standing inside never again; coming back waits for the cooldown *and* a leave; a
-  downed NPC and a squad member never fire; each player and each NPC separately; memory stays
-  bounded to who is near whom.
-- `Smores.UI.BarkBubbles.*` (4, in `SmoresUI`) - the lifetime formula (floor, per character, cap);
-  one bubble per speaker, a replacement restarting its clock and keeping its place; the fade and
-  expiry, and a destroyed speaker's bubble dropped; overlapping bubbles stacking straight up while
-  bubbles side by side stay put. Placement on screen and the look are PIE.
-- **`Smores.Content.Dialog.CoreLoadsWithZeroProblems`** - the core content sweep: zero errors *and
-  zero warnings*, every event with a bark, a generic line and a more specific one, no text mangled
-  by a wrong encoding, at least one translation. `Smores.Content.Dialog.ExampleModLoadsCleanly`
-  checks the example mod loads and still outranks core.
-
-- `Smores.DialogSpike.*` (4, THROWAWAY with the spike module; Slice 3 ports what they prove) -
-  play `Mods/example/conversations/shakedown` from its real files: the whole ask-then-refuse path
-  (ids, speakers, text, the used-up question, the command before its line); the pay choice
-  unavailable when poor and `TakeMoney` when not; two conversations over one loaded script keeping
-  separate places, memory and commands; a missing and a garbage file each refused with a message.
-
-Every dialog test except the two content sweeps and the spike's builds its packages from strings and answers facts
-from a map (`Tests/SmoresDialogTestFactory.h`), so a writer retuning a bark can't break one.
-
-## Extension Points
-
-- **A new fact**: register it in `FDialogFactRegistry::MakeBuiltIn` with its type, the subjects it
-  reads, and (for a name) its content domain or fixed vocabulary. Only when something can answer it.
-- **A new bark event**: a value on `EBarkEvent`, its row in `GetEventSubjects`, and a caller that
-  raises it on the server through `UBarkDirectorComponent::RaiseEvent`. Add at least a generic
-  line in `core.csv` in the same change - the content sweep requires one per event. `Approached`
-  is the worked example of an event with no signal of its own: the director makes one on a timer.
-- **Real perception for `Approached`**: replace how `CheckApproaches` decides a squad is inside
-  (today straight-line distance). `FApproachTracker` takes "who is inside" as input and needn't
-  change.
-- **Something else that floats**: `UStrategyUI::ShowBarkBubble` takes any actor and any `FText`;
-  Slice 3's ambient banter is the expected next caller.
-- **New lines, a new translation, a new mod**: content only - see Writing Dialog.
-- **Something else the director needs from a controller**: a method on `IDialogHost`.
-
-## Conversations: the Yarn player (built ahead of Slice 3)
-
-Conversations are written in **Yarn** (Yarn Spinner). Jim chose it over Ink on 2026-09-25, after a
-spike that played the same scene in both; the reasons are in the roadmap's Resolved Design
-Decisions, and the plan for everything built on top is its Slice 3. What exists today is the
-**player, proven on one scene, in a throwaway module**. Nothing in the game offers a conversation
-yet; `InteractWithNPC` is unchanged.
-
-### What exists
-
-- **`Mods/example/conversations/shakedown.yarn`** - the example conversation, kept for Slice 3 to
-  put on a Bandit. It exercises a question the game answers (`gold()`), two actions the game
-  carries out (`<<TakeMoney 20>>`, `<<ChangeStanding Raiders -10>>`), Yarn's own memory
-  (`$asked_about_road`), a conditional choice, a loop back to the choices, and an explicit
-  `#line:` id on every line. Beside it are the three files `ysc` writes from it, all read as plain
-  files at runtime:
-  - `shakedown.yarnc` - the compiled program, which holds **only line ids, never text**;
-  - `shakedown-Lines.csv` - `id,text,file,node,lineNumber`, the text of every line;
-  - `shakedown-Metadata.csv` - each line's tags other than `#line:` (empty here).
-
-  The bark loader ignores the `conversations/` folder.
-- **`Source/SmoresDialogSpike/`** - THROWAWAY. Slice 3 moves the player into `SmoresDialog`, then
-  deletes this module and its three registrations (`smores.uproject`, both `Target.cs` files).
-  - `YarnConversation.cpp`:
-    - `SmoresDialogSpike::LoadYarnScript` reads the `.yarnc` through the plugin's
-      `FYarnProtobufParser` and the lines table through `SmoresDialog::ParseCsv`, the bark
-      loader's own CSV reader.
-    - `FSpikeYarnConversation` drives the plugin's `FYarnVirtualMachine` directly.
-  - `SpikeConversation.h` - the shape the tests and commands see. A line is an id, a speaker and
-    text; the choices are id, text and "available". `Advance()` and `Choose()` move it on, and two
-    hooks (`GetGold`, `RunCommand`) stand in for the game.
-  - `USpikeConversationSubsystem` - the PIE commands `SmoresSpikeTalk [gold]` (default 50) and
-    `SmoresSpikeChoose <n>` (from 1). Lines, choices and commands go to the COMMS feed. It is local
-    and single-player by design; it exists only so the scene could be played.
-  - `Tests/SpikeConversationTest.cpp` - four tests (see Testing).
-
-### How the player is driven - what the spike learned
-
-- **Only the plugin's player is used:**
-  - `FYarnVirtualMachine`;
-  - `FYarnProtobufParser`, which reads a `.yarnc`;
-  - `UYarnInMemoryVariableStorage`, one per conversation, made with `NewObject` as a plain object
-    (it is a component, but needs no actor).
-
-  None of the plugin's dialogue runner, presenters, widgets or asset import is used. They assume
-  the script runs on the machine that shows it, and ours runs on the server and sends ids.
-- **The operators are ours.** Compiled Yarn calls its operators as functions: `gold() >= 20` calls
-  `Number.GreaterThanOrEqualTo`, and `not` calls `Bool.Not`. The plugin registers those in
-  `UYarnDialogueInstance`, its runner layer, not in the player, so the spike supplies its own
-  (`MakeYarnOperators`: the Number, Bool and String families). Not yet supplied: `Enum.*`,
-  `visited()`, `visited_count()`, `random()`, `dice()` and the rest of the plugin's built-in
-  library.
-- **The game's questions are functions** (`gold()`), answered through the VM's
-  `CallFunctionHandler`, `FunctionExistsHandler` and `FunctionParamCountHandler`. **The game's
-  actions are commands**: `<<TakeMoney 20>>` arrives as an `FYarnCommand` whose `CommandName` and
-  `Parameters` are plain strings.
-- **`ysc` accepts any function or command name without a declaration.** It inferred `gold()`'s
-  type and never asked what `TakeMoney` is. A misspelled name therefore only surfaces when that
-  line runs, so the loader has to check the names itself.
-- **The VM pauses after every line *and* every command** until `Continue()`. A command that
-  finishes at once is continued straight through (`FSpikeYarnConversation::Run`). The pause is what
-  lets a `<<wait 2>>` take two seconds.
-- **A choice whose condition fails is never hidden.** It arrives with `bIsAvailable` false, and
-  this is all-or-nothing: the script can't mark one choice "hide me" and another "grey me out". It
-  applies to the used-up question as much as to the toll you can't afford. `SetSelectedOption`
-  takes the position in the option set, counting unavailable choices too.
-- **Line ids arrive as the whole tag**, `line:shakedown_toll`. The spike strips the `line:` part.
-- **Initial values:** a `<<declare>>` value comes from the program whenever the variable store
-  doesn't have that variable yet.
-- **Custom node headers survive compiling.** Checked with `attach:`, `priority:` and `kind:`
-  headers on a node: `ysc` keeps them, and the plugin's reader puts them in `FYarnNode::Headers`.
-  Our conversation metadata can therefore live on the node itself.
-- **The Lines CSV's `file` column** is an absolute path on the writer's machine; ignore it.
-- **Log noise:** the VM logs "Yarn VM: Running node ..." at Log level. It is harmless.
 
 ### The Yarn plugin - how we carry it
 
@@ -544,7 +739,7 @@ yet; `InteractWithNPC` is unchanged.
   (2026-09-21).
   - It has two modules: `YarnSpinner` (runtime) and `YarnSpinnerEditor`.
   - It is a project plugin, so it is enabled without a `.uproject` entry.
-  - Only `SmoresDialogSpike` depends on it today; `SmoresDialog` will from Slice 3.
+  - Only `SmoresDialog` depends on it, privately - see Registration and packaging.
 - **It is not in git.** `.gitignore` lists `Plugins/YarnSpinner/` while this repo is public. When
   Jim makes the repo private, delete that line and commit the plugin like any other code.
   - Until then, **a fresh clone won't build**. To put the plugin back: clone the repo above at that
@@ -577,20 +772,174 @@ yet; `InteractWithNPC` is unchanged.
     engine-compatibility updates. That is our reading, not legal advice. The plugin stays out of
     git until the repo is private, unless Jim decides otherwise.
 - **The compiler:** `ysc` **3.2.2**, the version the plugin names, a self-contained Windows `.exe`.
-  - On this machine it is at `Saved/DialogSpike/tools/ysc/ysc.exe`, which is not in git. To
-    re-download it: `github.com/YarnSpinnerTool/YarnSpinner-Console/releases`,
-    `ysc-win-3.2.2-*.zip`.
+  - On this machine it is at `Saved/DialogSpike/tools/ysc/ysc.exe`, which is not in git (the
+    folder is left from the spike; the path is only a convention). To re-download it:
+    `github.com/YarnSpinnerTool/YarnSpinner-Console/releases`, `ysc-win-3.2.2-*.zip`.
   - `ysc compile <file>.yarn -o <dir> -n <name>` writes the three files.
   - `ysc tag <file>.yarn` stamps a `#line:` id on every untagged line, so writers never type ids.
   - Writers write in Yarn Spinner's own tools (such as its VS Code extension). The compiled files
     are what a mod ships.
 
+## Blueprint / Asset Dependencies
+
+The directors, the memory and the conversation component need nothing: `UBarkDirectorComponent`
+and `UBanterDirectorComponent` are native default subobjects of `AStrategyGameState`,
+`UDialogMemoryComponent` of `AStrategyPlayerState` and `UConversationComponent` of
+`AStrategyPlayerController`, so their Blueprints have them with no change, and the subsystem
+creates itself.
+
+The bubbles, all under `Content/Variant_Strategy/UI/`:
+
+| Asset | Parent | Bound names |
+|---|---|---|
+| `WBP_BarkBubble` | `UBarkBubbleWidget` | `LineText`, inside a dark translucent `Border` |
+| `WBP_BarkBubbleLayer` | `UBarkBubbleLayerWidget` | `BubbleCanvas` (the root canvas); plus the `BubbleWidgetClass` default, which must point at `WBP_BarkBubble` or barks reach the feed and nothing floats (it warns once) |
+| `UI_Strategy` | `UStrategyUI` | `BarkBubbleLayer` - a `WBP_BarkBubbleLayer` stretched over the whole screen, painted beneath the six regions |
+
+The conversation window, also under `Content/Variant_Strategy/UI/`:
+
+| Asset | Parent | Bound names |
+|---|---|---|
+| `WBP_Conversation` | `UConversationWidget` | The window chrome every window has (`TitleBarDragHandle` with `TitleText` and `CloseButton`, `ResizeHandle`), `SpeakerNameText`, `PortraitImage` and `InitialsText` in one overlay, `TranscriptScroll` holding `TranscriptText`, `ContinueButton`, `ChoiceBox`; plus the `ChoiceWidgetClass` default, which must point at `WBP_ConversationChoice` or no choice can show (it warns once) |
+| `WBP_ConversationChoice` | `UConversationChoiceWidget` | `ActionButton`, `LabelText`, `ReasonText` - the same names as `WBP_TargetAction` |
+| `BP_StrategyPlayerController` | `AStrategyPlayerController` | the `ConversationWidgetClass` default -> `WBP_Conversation`. Empty, a conversation reaches the feed with no window, and the controller warns once |
+
+## Content
+
+| File | Holds |
+|---|---|
+| `Content/Dialog/core/mod.json` | the base game's manifest, id `core` |
+| `Content/Dialog/core/barks/core.csv` | 33 barks for the three existing definitions (Settler, Bandit, Trader): every event has a generic line and at least one more specific one - for `Approached`, two generic, a trader's hawk (plus a Traders Guild one), a bandit's challenge and a hated-by-Raiders warning. Placeholder writing in the austere tone of `narrative-and-lore.md` |
+| `Content/Dialog/core/localization/fr/barks.csv` | the six trader greetings in placeholder French - the localization proof |
+| `Content/Dialog/core/conversations/trader.yarn` | `TraderGreeting` - any trader (`Speaker.Role == trader`): *Buying or selling?*, with a choice that opens the shop (`<<OpenTrade>>`). `TraderPrices` - a haggling-flavoured topic with no haggling in it (prices stay flat); one answer sets `trader_mentioned_salt_road`. `TraderBackstory` - the Trader definition's backstory, `requires: Flag(trader_mentioned_salt_road)`, `once: true`: standing in for recruit backstories until recruiting exists |
+| `Content/Dialog/core/conversations/banter.yarn` | Two Settler banters: `SettlerBanterWater` (anytime) and `SettlerBanterAfterFight` (priority 5, when the first speaker's health is under 70%) |
+| `Content/Dialog/core/localization/fr/conversations.csv` | The trader greeting's lines and both topic labels in placeholder French |
+| `Mods/example/` | one bark (three clauses, more specific than anything in core) for a Traders Guild trader greeting a Settler, plus its French. Wins Merchant Ada's greeting whenever it's off its 30 s cooldown, without touching core. And two conversation files, proving a mod can give conversations to the base game's characters: |
+| `Mods/example/conversations/shakedown.yarn` | `Shakedown` - every Bandit's greeting: the toll (`gold()`, `<<TakeMoney 20>>`, `#reason:not_enough_money`, `<<SetFlag example_paid_toll>>`), a question Yarn's own memory uses up, and a refusal (`<<ChangeStanding Raiders -10>>`). `ShakedownPaid` - priority 10, `requires: Flag(example_paid_toll)`: once a squad has paid, every Bandit waves it through |
+| `Mods/example/conversations/guild.yarn` | `GuildTopic` - a topic attached to a whole faction (`Speaker.Faction == TradersGuild`), so Merchant Ada offers it after her greeting |
+
+## Testing
+
+49 tests - 45 dialog and 4 bark-bubble (`testing.md` has the run commands):
+
+- `Smores.Dialog.Condition.*` (5) - parse and evaluate; each kind of mistake rejected with its
+  reason; subjects an event lacks; unknown content ids as warnings; errors carrying their line.
+- `Smores.Dialog.Barks.*` (4) - most specific wins, least-recently-said breaks ties before weight,
+  weight breaks only full ties (fixed seed), cooldowns per speaker.
+- `Smores.Dialog.Loader.*` (10) - CSV as spreadsheets write it, `Requires` ordering, a missing
+  requirement, a cycle, duplicate ids, the same id in two packages, a broken row skipped while its
+  neighbours load, bad manifests, translations, header columns in any order.
+- `Smores.Dialog.Text.TranslationsFallBackInCultureOrder` - the text source, asked directly (never
+  registered - switching the culture of the editor running the suite would change every other
+  test's text).
+- `Smores.Dialog.Facts.AnswerFromRealUnits` (in `smores`, which has the concrete unit stand-in) -
+  every built-in fact read off real units, a real player state and a real condition.
+- `Smores.Dialog.Approach.*` (5) - `FApproachTracker`: entering fires once (with the nearest member
+  as listener) and standing inside never again; coming back waits for the cooldown *and* a leave; a
+  downed NPC and a squad member never fire; each player and each NPC separately; memory stays
+  bounded to who is near whom.
+- `Smores.UI.BarkBubbles.*` (4, in `SmoresUI`) - the lifetime formula (floor, per character, cap);
+  one bubble per speaker, a replacement restarting its clock and keeping its place; the fade and
+  expiry, and a destroyed speaker's bubble dropped; overlapping bubbles stacking straight up while
+  bubbles side by side stay put. Placement on screen and the look are PIE.
+- **`Smores.Content.Dialog.CoreLoadsWithZeroProblems`** - the core content sweep: zero errors *and
+  zero warnings* (a stale compile is an error, so it fails here too), every event with a bark, a
+  generic line and a more specific one, a Greeting, a Topic and an Ambient conversation, every
+  topic's label with text, no text mangled by a wrong encoding, at least one translation.
+  `Smores.Content.Dialog.ExampleModLoadsCleanly` checks the example mod loads, still outranks core,
+  and adds its three conversations.
+- `Smores.Dialog.Conversation.*` (13):
+  - the player - the four tests the spike proved it with, now through the real loader: the whole
+    ask-then-refuse path (qualified ids, speaker cues, text, the used-up question left off, the
+    command before its line); the pay choice greyed with `CannotAfford` when poor and `TakeMoney`
+    when not; two playthroughs over one loaded script keeping separate places, memory and
+    commands; a missing and a garbage compiled file each refused with a report while the package's
+    barks still load;
+  - loading - headers into metadata, texts with the cue off, the `#reason:` on its choice, a
+    translation's cue taken off; each load check in `checks.yarn` refused at its own line while
+    `Fine` loads; the Ambient rules; a stale compile by timestamp and by a `#line:` the table lacks;
+    line ids sharing a package with its barks;
+  - selection - priority, `once:`, `requires:` and `attach:`; the tie-break (never seen, then
+    longest ago, then load order) and `Seen()` by title or qualified id; the topic list is exactly
+    the eligible topics in order; and when a conversation breaks off (range, down, combat).
+- `Smores.Dialog.Effects.*` (3) and `Smores.Dialog.Memory.IsPerPlayer` - on real components on a
+  real player state: `TakeMoney` all-or-nothing, `GiveMoney`, and `gold()` reading the same
+  wallet; every effect refusing off-authority with nothing changed; `ChangeStanding`, `SetFlag`
+  and `Flag()`; and two players' memory staying apart, including which of them a
+  `requires: Flag(...)` conversation is for.
+
+Every dialog test except the two content sweeps builds its packages from strings and answers facts
+from a map (`Tests/SmoresDialogTestFactory.h`), so a writer retuning a bark can't break one. The
+conversation tests' compiled scripts are the one thing read from disk - the tests' own copies in
+`Source/SmoresDialog/Tests/Conversations/`, never the game's content. **Recompile a fixture after
+editing it**, like any `.yarn`. Everything the window and banter do on screen - placement, pacing,
+the flow of topics - is PIE.
+
+## Extension Points
+
+- **A new fact**: register it in `FDialogFactRegistry::MakeBuiltIn` with its type, the subjects it
+  reads, and (for a name) its content domain or fixed vocabulary. Only when something can answer it.
+- **A new bark event**: a value on `EBarkEvent`, its row in `GetEventSubjects`, and a caller that
+  raises it on the server through `UBarkDirectorComponent::RaiseEvent`. Add at least a generic
+  line in `core.csv` in the same change - the content sweep requires one per event. `Approached`
+  is the worked example of an event with no signal of its own: the director makes one on a timer.
+- **Real perception for `Approached`**: replace how `CheckApproaches` decides a squad is inside
+  (today straight-line distance). `FApproachTracker` takes "who is inside" as input and needn't
+  change.
+- **Something else that floats**: `UStrategyUI::ShowBarkBubble` takes any actor and any `FText`;
+  banter reaches it through the bark director's `Deliver`.
+- **New lines, a new translation, a new mod, a new conversation**: content only - see Writing
+  Dialog.
+- **A new fact is a Yarn function too**, with no extra work: conversations call it with its dots as
+  underscores.
+- **A new effect**: an `FDialogEffect` in `FDialogEffectRegistry::MakeBuiltIn` - its name, how many
+  words it takes, a `Check` for the words at load time, and a `Run` (authority is already checked).
+  If it needs the window, set `bNeedsWindow`; if it needs the controller, add to `IDialogHost`. The
+  roadmap names the next ones: `Recruit`, `SetWage`, and a `StartFight` once hostility can be set.
+- **A new `#reason:` key**: one row in `SmoresDialog::FindChoiceReason` and one in
+  `GetChoiceReasonKeys`, naming an `ESmoresRefusalReason` - which may itself be new
+  (`refusals-and-feedback.md`).
+- **A new conversation kind** would be a value on `EConversationKind` and its rules in
+  `ConversationLoader.cpp`'s header checks - but a quest's conversations are expected to be
+  Greetings and Topics with quest facts, not a new kind.
+- **Something else the director needs from a controller**: a method on `IDialogHost`.
+
 ## Known Gaps
 
-- **Conversations, topics, banter, dialog memory and effects are Slice 3** - see the roadmap. The
-  language is decided (Yarn) and its player works (above), but nothing in the game offers a
-  conversation yet. A conversation plays in its own panel, never as floating text (Jim, after
-  Slice 1's PIE pass).
+- **Conversations and banter are judged only lightly.** Jim's PIE pass (2026-09-25, "looks
+  great"): the shakedown played and a second bandit knew the squad had paid; the trader's greeting
+  led into its topics; the window, centred, is fine for now; banter played after a short wait. No
+  retuning asked for. More content and longer play may change the banter knobs (below) and the
+  window's place.
+- **Choices can't be picked with number keys.** A player-facing key goes through Enhanced Input
+  (`input-and-keybinds.md`), and a new key's mapping is a hand step in the editor - so it waits for
+  a pass that decides the keys. The window is mouse-only; `T` is Goodbye.
+- **Only the NPC's portrait shows, and no unit has one**, so the window draws initials - the HUD's
+  designed fallback. The squad member's name shows on their lines.
+- **A conversation doesn't pause single-player.** An open design question (`dialogue.md`); until it
+  is answered, the world runs on around the window.
+- **Only the talking player sees a conversation.** Another player standing beside the NPC hears
+  nothing of it - banter and barks are heard by everyone near; a conversation is private.
+- **An effect's feed line is worded on the server**, in the server's language - the trade
+  precedent (`Client_NotifyActivity`). The conversation's own lines are ids and translate per
+  client.
+- **Topic labels live in the node header**, so a label can't have a `#line:` id of its own; its id is
+  derived from the node's title (`<title>_label`). Renaming a topic's node orphans its label's
+  translations as well as its `Seen()` memory.
+- **Yarn markup (`[b]`, `[wave]`) and `<<wait>>` aren't supported** - the text shows as written. The
+  VM's own built-ins beyond those listed aren't answered either (`format`, `string`, `number`...);
+  a script calling one is refused at load time.
+- **Banter lines can't insert values** (`{$x}`), because they go out through the bark path, which
+  carries only an id.
+- **Banter's knobs are guesses**: `CooldownSeconds` 180, `IdleSeconds` 300, `AfterFightSeconds` 6,
+  `CastRange` 10 m, `LineGapSeconds` 0.6 - all world time except the line gap. "Rare enough to feel
+  earned" is Jim's call in PIE.
+- **A packaged build hasn't been checked since conversations arrived.** The files stage with
+  `Content/Dialog` (they are plain files in the folder), and the loader reads them through the same
+  file calls; the Slice 1 packaging check hasn't been repeated.
+- **The Yarn plugin is local-only while the repo is public** - see "The Yarn plugin - how we carry
+  it". A fresh clone won't build without it.
+
 - **How often barks fire is judged only lightly.** Jim's Slice 2 PIE pass (2026-09-25) saw
   approach barks from NPCs and the trader, squad members barking in a fight, and no repeats while
   standing near someone, and asked for no retuning. Bigger fights and more content may change

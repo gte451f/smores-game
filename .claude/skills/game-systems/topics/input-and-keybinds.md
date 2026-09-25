@@ -31,7 +31,7 @@ Amend this topic in the same change as any new binding.
 | `I` | `IA_Strategy_Inventory` | Toggle the selected pawn's inventory window |
 | `O` | `IA_Strategy_ToggleContainer` | Open the nearest container, or a Downed NPC's loot |
 | `H` | `IA_Strategy_Attack` | Attack the selected NPC |
-| `T` | `IA_Strategy_Talk` | Talk to / trade with the selected NPC — the keyboard route to the double-click interact, reading the same targeted NPC `H` does |
+| `T` | `IA_Strategy_Talk` | Talk to / trade with the selected NPC — the keyboard route to the double-click interact, reading the same targeted NPC `H` does. Pressed again while a conversation window is open it is Goodbye, and while a trade screen is open it closes it. The conversation window's choices are mouse-only for now: number keys for them would need their own actions, mapped by hand in the IMC (`dialog.md`'s Known Gaps) |
 | `P` | `IA_Strategy_SquadPanel` | Toggle the squad roster panel (a stub today — see `hud-and-panels.md`) |
 | `M` | `IA_Strategy_MapPanel` | Toggle the world map panel (a stub today) |
 | `U` | `IA_Strategy_ResearchPanel` | Toggle the research panel (a stub today) |

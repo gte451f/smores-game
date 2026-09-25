@@ -37,9 +37,11 @@ void UWindowWidget::NativeConstruct()
 		TitleText->SetText(WindowTitle);
 	}
 
+	// unique: a window kept and re-added to the viewport constructs again, and a second binding
+	// both trips the delegate's duplicate-binding ensure and closes the window twice per click
 	if (CloseButton)
 	{
-		CloseButton->OnClicked.AddDynamic(this, &UWindowWidget::HandleCloseButtonClicked);
+		CloseButton->OnClicked.AddUniqueDynamic(this, &UWindowWidget::HandleCloseButtonClicked);
 	}
 
 	// switch this widget from the default full-screen-stretch viewport slot into a fixed-rect

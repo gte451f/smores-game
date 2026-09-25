@@ -1,0 +1,9 @@
+Id,Text
+# Placeholder French for the trader's greeting and topic list - proof that a conversation translates the way a bark does. Not a real translation.,
+# A line's id is its #line: tag; a topic's label is <title>_label. A speaker's name at the front ("Trader: ") may be kept or left off.,
+trader_greet,Vous achetez ou vous vendez ?
+trader_greet_trade,Montrez-moi ce que vous avez.
+trader_greet_looking,Je regarde seulement.
+trader_greet_eyes,"Regardez avec les yeux, alors."
+TraderPrices_label,Un meilleur prix peut-être ?
+TraderBackstory_label,Vous avez parcouru la route du sel ?

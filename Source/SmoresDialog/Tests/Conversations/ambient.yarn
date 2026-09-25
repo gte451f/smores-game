@@ -1,0 +1,48 @@
+// Test fixture: what an Ambient conversation may and may not do.
+// Compile with: ysc compile ambient.yarn -o . -n ambient
+
+title: GoodBanter
+kind: Ambient
+participants: A, B
+---
+A: Cold tonight. #line:good_banter_cold
+B: Colder tomorrow. #line:good_banter_colder
+===
+
+title: BanterWithChoice
+kind: Ambient
+participants: A, B
+---
+A: Well? #line:banter_choice_well
+-> Answer. #line:banter_choice_answer
+===
+
+title: BanterStranger
+kind: Ambient
+participants: A, B
+---
+A: Who's that? #line:banter_stranger_who
+C: Nobody. #line:banter_stranger_nobody
+===
+
+title: BanterTrade
+kind: Ambient
+participants: A, B
+---
+A: Let's trade. #line:banter_trade_lets
+<<OpenTrade>>
+===
+
+title: BanterNoParticipants
+kind: Ambient
+---
+A: Hello? #line:banter_nobody_hello
+===
+
+title: BanterAttach
+kind: Ambient
+participants: A, B
+attach: Speaker.Role == guard
+---
+A: Hm. #line:banter_attach_hm
+===

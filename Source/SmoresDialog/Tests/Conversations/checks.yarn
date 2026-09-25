@@ -1,0 +1,93 @@
+// Test fixture: one conversation per mistake the loader has to catch, and one that is fine.
+// Compile with: ysc compile checks.yarn -o . -n checks
+
+title: Fine
+kind: Greeting
+attach: Speaker.Role == guard
+---
+Guard: Move along. #line:fine_move
+You: Moving. #line:fine_moving
+===
+
+title: UnknownFunction
+kind: Greeting
+attach: Speaker.Role == guard
+---
+<<if wealth() > 3>>
+    Guard: Rich, are you? #line:unknown_function_rich
+<<endif>>
+===
+
+title: UnknownCommand
+kind: Greeting
+attach: Speaker.Role == guard
+---
+Guard: Take this. #line:unknown_command_take
+<<GiveGold 5>>
+===
+
+title: WrongCount
+kind: Greeting
+attach: Speaker.Role == guard
+---
+Guard: Pay up. #line:wrong_count_pay
+<<TakeMoney>>
+===
+
+title: WrongArity
+kind: Greeting
+attach: Speaker.Role == guard
+---
+<<if flag()>>
+    Guard: I know you. #line:wrong_arity_know
+<<endif>>
+===
+
+title: BadReason
+kind: Greeting
+attach: Speaker.Role == guard
+---
+Guard: Well? #line:bad_reason_well
+-> Bribe him. <<if gold() >= 5>> #line:bad_reason_bribe #reason:too_poor
+-> Leave. #line:bad_reason_leave
+===
+
+title: Untagged
+kind: Greeting
+attach: Speaker.Role == guard
+---
+Guard: This line was never given an id.
+===
+
+title: UsesBroken
+kind: Greeting
+attach: Speaker.Role == guard
+---
+Guard: Let me check. #line:uses_broken_check
+<<jump Broken>>
+===
+
+title: Broken
+---
+<<Explode>>
+===
+
+title: BadKind
+kind: Banter
+attach: Speaker.Role == guard
+---
+Guard: Hm. #line:bad_kind_hm
+===
+
+title: NoAttach
+kind: Greeting
+---
+Guard: Who are you? #line:no_attach_who
+===
+
+title: TopicNoLabel
+kind: Topic
+attach: Speaker.Role == guard
+---
+Guard: About that. #line:topic_no_label_about
+===

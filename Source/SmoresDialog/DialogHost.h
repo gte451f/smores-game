@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Interface.h"
+#include "SmoresRefusalReason.h"
 #include "DialogHost.generated.h"
 
 UINTERFACE(MinimalAPI, meta = (CannotImplementInterfaceInBlueprint))
@@ -17,7 +18,8 @@ class UDialogHost : public UInterface
  *
  *  The IStrategySelectionHost pattern (unreal-module-organization.md): nothing depends on the
  *  smores module, so SmoresDialog declares the narrow interface it needs and the controller
- *  implements it. Slice 1 needs two things; Slice 3's OpenTrade effect is expected to be the next.
+ *  implements it: whether a squad is near, delivering a bark, and opening a shop for the OpenTrade
+ *  effect.
  *
  *  Every call arrives on the server, one per player controller, and must not assume there is only
  *  one of those.
@@ -44,4 +46,13 @@ public:
 	 *  without a bubble.
 	 */
 	virtual void DeliverBark(FName LineId, AActor* Speaker, const FText& SpeakerName) = 0;
+
+	/**
+	 *  Opens Trader's shop on this player's screen - the OpenTrade effect. Server-side. False, with
+	 *  nothing opened, if Trader keeps no shop or isn't someone this player may deal with right now.
+	 */
+	virtual bool OpenTradeWith(AActor* Trader) = 0;
+
+	/** Tells this player why something a conversation tried for them was refused ("Not enough gold"). Server-side. */
+	virtual void NotifyDialogRefusal(ESmoresRefusalReason Reason) = 0;
 };

@@ -1,0 +1,15 @@
+id,text,file,node,lineNumber
+line:fine_move,Guard: Move along.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\checks.yarn,Fine,8
+line:fine_moving,You: Moving.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\checks.yarn,Fine,9
+line:unknown_function_rich,"Guard: Rich, are you?",C:\dev\smores\Source\SmoresDialog\Tests\Conversations\checks.yarn,UnknownFunction,17
+line:unknown_command_take,Guard: Take this.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\checks.yarn,UnknownCommand,25
+line:wrong_count_pay,Guard: Pay up.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\checks.yarn,WrongCount,33
+line:wrong_arity_know,Guard: I know you.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\checks.yarn,WrongArity,42
+line:bad_reason_well,Guard: Well?,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\checks.yarn,BadReason,50
+line:bad_reason_bribe,Bribe him.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\checks.yarn,BadReason,51
+line:bad_reason_leave,Leave.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\checks.yarn,BadReason,52
+line:0b5f975e,Guard: This line was never given an id.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\checks.yarn,Untagged,59
+line:uses_broken_check,Guard: Let me check.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\checks.yarn,UsesBroken,66
+line:bad_kind_hm,Guard: Hm.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\checks.yarn,BadKind,79
+line:no_attach_who,Guard: Who are you?,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\checks.yarn,NoAttach,85
+line:topic_no_label_about,Guard: About that.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\checks.yarn,TopicNoLabel,92

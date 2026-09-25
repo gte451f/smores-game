@@ -7,13 +7,14 @@ when Jim points at it. The permanent record of how dialog works lives in the `ga
 skill's `dialog.md` topic, created by Slice 1 and extended by each slice after it, and this file is
 trimmed as each slice ships. Sections marked **SHIPPED** have moved there and keep only a pointer.
 
-> **Status: Slices 1 and 2 are DONE** - Slice 1 built, committed and PIE-checked by Jim
-> 2026-09-24; Slice 2 (floating bark text and proximity barks) built and PIE-checked by Jim
-> 2026-09-25. **Slice 3 (conversations) is next:** Jim chose **Yarn** on 2026-09-25, after a spike
-> that played the same scene in Ink and in Yarn from loose files (see "Decided: Yarn"). The spike's
-> Yarn player, its tests and the example scene (commits `a466c73` and `c1bffd2`) were merged into
-> `main` on 2026-09-25. The Yarn plugin itself is local-only and never committed while the repo is
-> public (`dialog.md`). The game-data roadmap this one depended on closed 2026-09-24.
+> **Status: all three slices are DONE - the roadmap is complete.** Slice 1 built, committed and
+> PIE-checked by Jim 2026-09-24; Slice 2 (floating bark text and proximity barks) built and
+> PIE-checked by Jim 2026-09-25; Slice 3 (conversations, topics, banter, effects and squad memory,
+> in **Yarn**) built on top of the spike's player, which it folded into `SmoresDialog`, and
+> PIE-checked by Jim 2026-09-25 ("looks great"). Everything built is documented in `dialog.md`;
+> what is left here is the decision record and the open questions. The Yarn plugin itself is
+> local-only and never committed while the repo is public (`dialog.md`). The game-data roadmap this
+> one depended on closed 2026-09-24.
 
 Dialog is a deliberate **area of improvement over Kenshi**, which is the reference game in most
 other respects. Barks matter, but so do NPC and recruit backstories, faction dealings, in-squad
@@ -67,16 +68,15 @@ smores → SmoresUI → SmoresDialog → {SmoresCharacters, SmoresEconomy} → {
 This is a real split, not a speculative one (per `unreal-module-organization.md`'s "When to
 Actually Split"), for two reasons:
 
-- **A third-party runtime arrives in Slice 3** (the Yarn Spinner plugin, whose player the spike
-  module `SmoresDialogSpike` holds until then). Confining that dependency to one module means
-  nothing else in the game links against it.
+- **A third-party runtime arrived in Slice 3** (the Yarn Spinner plugin). Confining that
+  dependency to one module - privately - means nothing else in the game links against it.
 - **Dialog reads nearly everything below it** (records, standing, wallets, inventory) and almost
   nothing reads dialog (only `SmoresUI`, to draw the window, and `smores`, to open it). That puts
   it near the top of the stack, like `SmoresAI` in the target map.
 
 Slice 1 created it (registered per `unreal-module-organization.md`'s checklist, and added to its
-target module map), with `IDialogHost` as the controller seam. Today `SmoresUI` doesn't depend on it;
-the conversation window adds that edge. Effects that need the player controller
+target module map), with `IDialogHost` as the controller seam. The conversation window gave
+`SmoresUI` its edge to it in Slice 3. Effects that need the player controller
 (opening trade) go through a narrow interface declared in `SmoresDialog` and implemented by
 `AStrategyPlayerController`. That is the `IStrategySelectionHost` pattern, so nothing starts
 depending on `smores`.
@@ -88,32 +88,9 @@ package/file/line reports, qualified ids, runtime string tables and translations
 the multiplayer rules (every machine loads the same files; dialog crosses the network as ids;
 mismatch detectable, not enforced) are all built and documented in `dialog.md`.
 
-What Slice 3 still owes the loader:
-
-- **`conversations/*.yarn` in each package**, each shipped with the three files `ysc` writes
-  beside it:
-  - `<name>.yarnc`, the program, which holds ids only;
-  - `<name>-Lines.csv`, the text;
-  - `<name>-Metadata.csv`, each line's other tags.
-
-  The spike's `LoadYarnScript` already reads the first two from loose files (`dialog.md`). A
-  broken file or node is skipped with a package/file/line report, like a bark row.
-- **Every line must carry an explicit `#line:` id**, or the loader rejects it. `ysc` invents an
-  id for an untagged line, but that id changes when the line moves, which would orphan its
-  translations and any voice recording. `ysc tag` stamps real ids, so writers never type them.
-- **Line text goes into the package's string table**, keyed by the qualified line id exactly like
-  a bark's. Translations then use the same `localization/<culture>/*.csv` files and the same text
-  source. The program never holds text, so "the client looks the line up by id" is simply Yarn's
-  own model.
-- **Names are checked at load time.** `ysc` accepts any function or command name without asking,
-  so the loader walks each program's instructions and checks:
-  - every function called, against the facts Yarn can ask;
-  - every command run, against the effects, with its argument count.
-
-  An unknown name is an error for that conversation, not a surprise in the middle of one.
-- **Hot reload ends active conversations first** rather than migrating them.
-- **The loader rejects a `.yarnc` older than its `.yarn`**, in editor builds only, so a writer
-  can't test stale text.
+Slice 3 added `conversations/*.yarn` to it, with the three files `ysc` writes beside each, and
+the load-time checks conversations need - built and documented in `dialog.md` ("A conversation
+file", "How a conversation is loaded and checked").
 
 ## Facts, Conditions and Effects
 
@@ -124,44 +101,17 @@ today), the "only register a fact something can answer" rule, and the condition 
 (clauses joined by `;`, no `or`, checked at load time) are built and documented in `dialog.md`. The
 grammar already accepts the `Flag(name)` / `Seen(id)` call form; Slice 3 registers those two facts.
 
-**Our condition language owns selection even inside conversation scripts.** Yarn has its own
-variables (`$asked_about_road`) and expressions. Those are used for flow *inside* a conversation,
-and read facts through Yarn **functions** (`gold()` in the example). But whether a conversation or
-topic is *available* is always written in our language, in its node headers (see Slice 3). That
-keeps one grammar for writers to learn, one validator, and one place a modder looks.
+**Our condition language owns selection even inside conversation scripts** - built in Slice 3:
+`attach:` / `requires:` headers choose, Yarn's `$variables` and functions run the flow inside, and
+every fact is a Yarn function with its dots as underscores (`speaker_faction()`, `gold()`). Yarn
+can't call a dotted name, and a single `fact("...")` bridge wouldn't compile once one function had
+to answer both numbers and names. `dialog.md` has the details.
 
-- **Yarn's functions come from the fact registry, not by hand.** Check first whether a script may
-  call a dotted name such as `Speaker.Faction()`. If not, one bridge function, `fact("Speaker.Faction")`,
-  plus a few named shortcuts like `gold()`, covers it.
-- **Yarn's `$variables` are scratch, local to one conversation.** The spike gives each conversation
-  a fresh store. Anything that must outlive a conversation goes through `<<SetFlag name>>` and is
-  read back by `Flag(name)`, so squad memory lives in one place (`UDialogMemoryComponent`), is
-  saved in one place, and is readable by our condition language.
+### Effects — SHIPPED (Slice 3)
 
-### Effects
-
-A fixed list of named actions a line or choice can trigger, each implemented in C++,
-**authority-only**, and validated at load time like facts. In Yarn an effect is a **command**:
-`<<TakeMoney 20>>`, `<<ChangeStanding Raiders -10>>`. Its arguments arrive as strings, and the
-effect parses them. Slice 1 needs none (barks change nothing). Slice 3 registers only what its
-content uses: `SetFlag`, `ChangeStanding`, `TakeMoney`, `GiveMoney`, `OpenTrade`.
-
-An effect that could fail (`TakeMoney` with too little in the wallet) is guarded by a condition on
-its choice (`-> Pay the toll. <<if gold() >= 20>>`), so it is checked *before* the choice is
-offered. The effect itself stays all-or-nothing, and refuses on its own if a script forgets the
-guard.
-
-**Yarn never hides a choice whose condition fails.** It offers every such choice marked
-unavailable, alike, so the script alone can't say "grey this one out, hide that one". *Our* window
-decides, per choice, from a tag:
-
-- a choice tagged `#reason:<key>` shows greyed with that reason (`-> Pay the toll. <<if gold() >= 20>> #reason:not_enough_money`).
-  That is the "a disabled action still shows, with its reason" rule the target panel follows
-  (`hud-and-panels.md`);
-- a choice without one is left out when unavailable, like the question already asked.
-
-The reason keys are a fixed, load-time-validated list, worded in one place like
-`ESmoresRefusalReason`, and they come through the `-Metadata.csv` tags.
+`SetFlag`, `ChangeStanding`, `TakeMoney`, `GiveMoney` and `OpenTrade` - Yarn commands, C++,
+authority-only, checked at load time - and the `#reason:` tag that decides a greyed choice from a
+hidden one are built and documented in `dialog.md`.
 
 ## Implementation Order
 
@@ -348,120 +298,76 @@ this roadmap.
 Yarn Spinner 3's own saliency (storylets, the `when:` node header) is **not used**. Our condition
 language owns selection, and our metadata lives in our own headers.
 
-### Slice 3 — Conversations, topics and banter
+### Slice 3 — Conversations, topics and banter — **DONE**
 
-**Starts from the spike, not from scratch.** The Yarn player already works on one scene;
-`dialog.md`'s "Conversations: the Yarn player" covers what it does and what it taught. It already:
+Built 2026-09-25 from the spike's Yarn player, which moved into `SmoresDialog`; the spike module and
+its registrations are gone, and its four tests were ported. Everything below is documented in
+`dialog.md` (Player Surface's "Conversations" and "Banter", Writing Dialog's "A conversation
+file", and the C++ sections), `hud-and-panels.md` (the window) and the other topics it touches.
+In short:
 
-- loads a compiled script from loose files;
-- steps through it, with choices and their availability;
-- calls functions and runs commands;
-- runs several conversations over one loaded script;
-- refuses broken files.
+- **The format**: each Yarn node with our headers (`kind`, `attach`, `requires`, `priority`, `once`,
+  `participants`, and a Topic's `label`) is one conversation; the loader checks every line id,
+  function, command and header at load time, with the line.
+- **The flow**: Talk picks the highest-priority eligible greeting (ties to the one least recently
+  seen); when it ends the window offers every eligible topic plus Goodbye; a topic comes back to
+  the list, rebuilt. It breaks off on range (5 m), down, or a fight.
+- **The server runs it** (`UConversationComponent` on the controller) and sends ids; each client
+  reads its own language. `UDialogMemoryComponent` on the player state holds flags and seen
+  conversations, read by the new `Flag()` / `Seen()` facts; `Gold` is a fact too.
+- **The window**: `UConversationWidget` / `UConversationChoiceWidget` in `SmoresUI`, with
+  `WBP_Conversation` and `WBP_ConversationChoice` wired through MCP.
+- **Banter**: `UBanterDirectorComponent` on the GameState plays Ambient conversations among a
+  squad after a fight and now and then while idle, through the bark delivery.
+- **Content**: a `core` trader greeting with a trade choice, a haggling-flavoured topic that
+  unlocks a once-only backstory topic on the Trader, two Settler banters, and in the example mod
+  the shakedown on every Bandit (with a follow-up greeting once paid) and a topic on every
+  Traders Guild member. The trader greeting and topic labels have placeholder French.
+- **Debug execs**: `SmoresTestConversation` (open one by id on a named NPC, play a banter, or run
+  Talk's own choice with an explanation) and `SmoresDialogMemory`.
+- 17 new tests (13 `Smores.Dialog.Conversation.*`, 3 `Smores.Dialog.Effects.*`,
+  `Smores.Dialog.Memory.IsPerPlayer`) and the content sweeps extended; 189 green.
 
-The first step is to **move that player into `SmoresDialog`**. `SmoresDialog` gains the
-`YarnSpinner` plugin module as a dependency, plus `SmoresEconomy` for `TakeMoney`. Port the spike's
-four tests, then **delete `SmoresDialogSpike`** and its registrations. Keep
-`Mods/example/conversations/shakedown.yarn`: it is this slice's first piece of content.
+**Choices made while building, all small and all reversible:**
 
-**Builds:**
+- **Talk is decided on the server now.** The client still refuses hostile and out-of-reach at once;
+  what happens next (conversation, trade, bark) comes back from `Server_InteractWithNPC`, so even
+  opening trade is a round trip on a remote client.
+- **`OpenTrade` ends the conversation** - the trade screen replaces the window - and still raises
+  the `TradeOpened` bark, so the trader lines written for a shop opening (the example mod's
+  included) keep playing now that Talk on Merchant Ada opens a conversation first.
+- **Topics can be raised again**; only `once: true` retires one. A conversation counts as seen the
+  moment it starts, so walking off a `once:` one halfway uses it up.
+- **"You:" is the squad member's cue**; any other name is the NPC and none is narration. A topic's
+  label is plain words in its header, translated under `<title>_label`.
+- **Flag names are shared by every package** (a mod can read core's), with a mod's own flags
+  prefixed by its id by convention.
+- **Text compares case-insensitively in Yarn too** (`String.EqualTo`), as names do in conditions.
+- **When no choice is shown** (every one unavailable and untagged), the script ends there.
+- **Banter starts at**: 6 s after a fight, every 5 min idle, at most every 3 min, cast within 10 m -
+  guesses, on `UBanterDirectorComponent`.
+- **No number keys for choices yet** - a new key's IMC mapping is a hand step; the window is
+  mouse-only, and `T` is Goodbye.
+- `ConversationTypes.h` is `DialogConversationTypes.h`: an engine plugin has the first name, and
+  UHT refuses two reflected headers with one name.
 
-- **The conversation format.** A `.yarn` file in a package's `conversations/` folder. **Each node
-  that carries our headers is one conversation, and those headers are its metadata.** Yarn keeps
-  custom node headers through compiling (checked), so no separate file is needed. The headers:
-  - `attach:` what it attaches to: a definition id, role, faction or tag (e.g.
-    `Speaker.Definition == Bandit`)
-  - `requires:` its requirements (our condition language)
-  - `priority:`
-  - `once:` never again for this squad once seen
-  - `kind:` `Greeting`, `Topic` or `Ambient`
-  - `participants:` for `Ambient`, the participants it needs
+Before Jim's look, an agent's PIE smoke test drove it through the console and the window itself:
+both packages loaded clean (core 5 conversations, example 3); the shakedown played through the
+window - question used up, refusal, `Red Sand Raiders standing -10 (now -10)` in the feed, then
+Goodbye; Merchant Ada's greeting opened her shop in place of the window; Talk's selection explained
+itself; the range break-off fired for a squad member across the map; a banter cast and played its
+four lines; memory reported what was seen. It found a latent bug in every kept window (the close
+button bound twice on reopening - fixed in `UWindowWidget`), a transcript that didn't scroll to its
+last line once choices appeared (fixed), and that long feed lines don't wrap (a HUD Known Gap).
 
-  A node without our headers is an ordinary Yarn node that a conversation jumps into, like the
-  shakedown's `Choices`.
-- **Complete the operator library.** Add `Enum.*` to the spike's operators, plus whichever
-  built-ins the content uses. For `visited()`/`visited_count()`, the plugin's own versions show
-  where the VM records node visits in the variable store.
-- **Selection, Hades-style.** Of the conversations attached to this NPC whose requirements hold
-  and which aren't used up, the highest priority wins. A tie goes to the least recently seen.
-- **Topics.** When a greeting conversation ends, the window offers every eligible `Topic`
-  attached to this NPC as a choice, plus "Goodbye". Topics are how a mod, and later a quest, adds
-  something to *our* NPCs without editing them: attach a topic to `Speaker.Faction == Ironclan`
-  and every Ironclan member offers it. The list is built by our code, not inside the script, so topics never
-  depend on what the language runtime supports.
-- `UDialogMemoryComponent` on `AStrategyPlayerState`: this squad's flags and seen conversations.
-  Server-owned, a plain reflected record for the future save system to serialize unchanged. Adds
-  the `Flag(name)` and `Seen(id)` facts.
-- `UConversationComponent` on `AStrategyPlayerController` (RPCs need a player-owned actor). The
-  server runs the Yarn player. A client RPC sends the current line and choices **as ids**, with each
-  choice's enabled state and reason. A server RPC sends back the pick. The conversation **ends**
-  when either side walks out of range, is downed, or enters combat.
-  - Ids are qualified by package like bark ids (`example.shakedown_toll`). Yarn's own form is
-    `line:shakedown_toll`, and the spike strips the `line:` part.
-  - Each conversation gets its own player and variable store; the loaded program is shared.
-- **A debug exec** to open a conversation by id on a named NPC without walking up, like
-  `SmoresTestBark`. It replaces the spike's `SmoresSpikeTalk` / `SmoresSpikeChoose`, which go with
-  its module.
-- **The world doesn't stop.** Time dilation, pause included, is single-player only
-  (`player-experience.md`), so a co-op conversation runs in real time. Whether *single-player*
-  pauses during a conversation is an open design question. Until it's answered, it doesn't pause.
-- **Several players may talk to the same NPC at once.** Each squad's conversation is its own
-  instance. Nothing locks the NPC.
-- **The effects**: `SetFlag`, `ChangeStanding` (through `UPlayerStandingComponent`), `TakeMoney`
-  / `GiveMoney` (through the wallet), `OpenTrade` (through the controller interface).
-- **`InteractWithNPC`'s new order**: hostile → refusal (unchanged) → an eligible conversation →
-  open it → else a trader → open trade directly (so a trader whose conversation a stripped mod
-  removed still trades) → else the `NothingToSay` bark. The Talk button, `T` and the double-click
-  all reach it already.
-- **The window**: `UConversationWidget` in `SmoresUI` plus its WBP via MCP - its own panel, never
-  floating text, which Jim confirmed in Slice 1's PIE pass. It shows the speaker's
-  name and portrait (portrait fallback rules from `hud-and-panels.md`), the current line, and the
-  choices, with disabled ones showing their reason. Every line spoken also goes to the COMMS feed,
-  which is the transcript the design promises in `player-interface.md`.
-- **Ambient playback**, the second mode of the same machinery. An `Ambient` conversation plays
-  without a window. Lines go to the feed with a reading delay between them, and float over each
-  speaker through Slice 2's bubble layer. Used for **in-squad banter**: a server-side director
-  tries an eligible ambient conversation after an engagement ends and at a slow cooldown while the
-  squad is idle, casting its participants from that player's squad members standing near each
-  other. The validator rejects choices inside an ambient script.
-- Content, one example of each shape:
-  - a `core` trader greeting with a trade choice and a haggling-flavored topic (no real
-    haggling; prices stay flat)
-  - **the shakedown, already written**, in `Mods/example/conversations/shakedown.yarn`. Give its
-    `Shakedown` node our headers (`attach: Speaker.Definition == Bandit`, `kind: Greeting`), so
-    Talk on any Bandit in `LVL_Strategy` opens it instead of today's "Keep walking" bark. Add
-    `#reason:not_enough_money` to its pay choice, and point `gold()` at the real wallet.
-    - It covers `TakeMoney`, `ChangeStanding` (on `Raiders`, the Bandit's faction), a guarded
-      choice, Yarn's own memory and a loop.
-    - It sits in the example mod, so it also proves a mod can give a conversation to one of *our*
-      characters.
-    - Hostile NPCs still refuse to talk first (unchanged). Today's Bandits answer Talk, so they
-      qualify.
-  - a backstory topic on the Trader definition that unlocks once a flag is set, standing in for
-    recruit backstories until recruitment exists
-  - one two-Settler banter
-  - the example mod gains a topic attached to a whole faction
+**Jim's PIE pass, 2026-09-25: "looks great".**
 
-**Tests:**
-
-- Selection: priority, once-only, requirements, the tie-break.
-- The topic list is exactly the eligible topics.
-- Effects refuse off-authority, and are all-or-nothing (`TakeMoney` with too little leaves the
-  wallet untouched, and the choice showed disabled).
-- Memory is per player: two players, one sets a flag, the other doesn't see it.
-- A conversation ends on range, down and combat.
-- Ambient validation.
-- The spike's four tests, ported: the whole path, the gold-guarded choice, two conversations over
-  one script, broken files.
-- Load-time checks: a line without an explicit `#line:` id, an unknown function or command, a
-  wrong argument count, and an unknown `#reason:` key are each rejected with their file and line.
-- The `core` sweep extended to conversations.
-
-**Verification:** Jim plays each shape in PIE. He judges the window's placement and feel, banter
-pacing (too chatty or too rare), and whether the "topics after the greeting" flow reads naturally.
-
-**Ships into:** `dialog.md`; `input-and-keybinds.md` if the window adds any key (choices by number
-keys go through Enhanced Input, per the keybind rule); `hud-and-panels.md` for the window.
+- **The bandit shakedown worked**, and a second bandit knew the squad had paid and played a
+  different line - the squad memory and `ShakedownPaid`'s priority, as built.
+- **Talking with the trader revealed a moderate conversation tree** - the greeting, then the topics.
+- **The window sat centred on screen, which is fine for now.** Its placement stays as built.
+- **Squad banter played after a short wait.** No retuning asked for; the knobs stay at their
+  starting values (`UBanterDirectorComponent`).
 
 ## Explicitly Out of Scope
 
@@ -514,6 +420,8 @@ Settled during the conversation that produced this file. Don't reopen them witho
   only (not its runner, presenters or asset import), from loose files. Jim's call, 2026-09-25,
   after the Ink-vs-Yarn spike, for Yarn's line ids, text table, translation and voice handling.
   See "Decided: Yarn".
+- **A conversation's metadata lives in its Yarn node's headers, and our condition language chooses**
+  (not Yarn's `when:`). Written into Slice 3 on 2026-09-25 and built that way.
 - **The Yarn plugin stays out of git while the repo is public**, carried as a local, patched copy
   (`dialog.md` has the patch list). When the repo goes private, it is committed.
 

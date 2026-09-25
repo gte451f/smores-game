@@ -1,0 +1,10 @@
+id,text,file,node,lineNumber
+line:good_banter_cold,A: Cold tonight.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\ambient.yarn,GoodBanter,8
+line:good_banter_colder,B: Colder tomorrow.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\ambient.yarn,GoodBanter,9
+line:banter_choice_well,A: Well?,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\ambient.yarn,BanterWithChoice,16
+line:banter_choice_answer,Answer.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\ambient.yarn,BanterWithChoice,17
+line:banter_stranger_who,A: Who's that?,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\ambient.yarn,BanterStranger,24
+line:banter_stranger_nobody,C: Nobody.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\ambient.yarn,BanterStranger,25
+line:banter_trade_lets,A: Let's trade.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\ambient.yarn,BanterTrade,32
+line:banter_nobody_hello,A: Hello?,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\ambient.yarn,BanterNoParticipants,39
+line:banter_attach_hm,A: Hm.,C:\dev\smores\Source\SmoresDialog\Tests\Conversations\ambient.yarn,BanterAttach,47

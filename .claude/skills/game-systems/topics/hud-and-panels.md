@@ -145,6 +145,20 @@ overdrawing them. It is a full-screen layer painted **beneath** the six regions,
 a click. The rules (one per speaker, how long a line stays, stacking) belong to dialog and are in
 `dialog.md`'s "Bark bubbles"; the feed still records every line.
 
+### Conversation window
+
+Talking to someone who has a conversation opens it in a floating window of its own - never as
+floating text. It has the same chrome as every other window (drag by the title, resize from the
+corner, an X), and shows who you're talking to (their name, and their portrait or initials), the
+conversation so far, and either **Continue** or the choices on offer. A choice that can't be taken
+right now shows greyed, with the refusal line's own reason beside it (*Not enough gold*), the way
+the target panel's disabled actions do. The X is Goodbye, and so is `T`. What decides which
+conversation opens, the topic list after the greeting, and when a conversation breaks off belong to
+dialog and are in `dialog.md`'s "Conversations"; the COMMS feed records every line said.
+
+It opens low and central (620 x 420 at 560, 380), clear of the target panel above and the portrait
+bar and feed below. Jim's PIE pass (2026-09-25): centred on screen is fine for now.
+
 ### What the rail is not
 
 The rail mirrors keys; it does not add capability. Asking for the inventory with no pawn selected
@@ -207,6 +221,11 @@ coincidence (see Core Rules).
 - **Panel windows are kept, not rebuilt.** `PanelWidgets` holds a panel's widget after it closes,
   so re-opening reuses it. Closing goes through the window's own `RequestClose` so it broadcasts
   `OnWindowClosed` exactly as it would have if the player had clicked its X.
+  - **A kept window runs `NativeConstruct` again every time it is re-added**, so every delegate
+    bound there must be `AddUniqueDynamic` (or unbound in `NativeDestruct`). `UWindowWidget` bound
+    its close button with a plain `AddDynamic` until dialog Slice 3: the second opening of any
+    kept window tripped the delegate's duplicate-binding ensure (once per session, so it went
+    unnoticed) and left the X closing it twice.
 - **All of this is per-local-player UI state.** Which panels a player has open is nobody else's
   business: nothing here is replicated or authority-gated, and in co-op every player's rail
   answers only for their own windows. `OpenPanel` early-outs on a non-local controller.
@@ -421,6 +440,20 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
 - **`UBarkBubbleWidget`** - one bubble, spawned from `BubbleWidgetClass`: `LineText` and the wrap
   width. Like `UActivityEntryWidget` it is not a region and not a control.
 
+### The conversation window
+
+- **`UConversationWidget`** - a `UWindowWidget`, so drag, resize, the close button and the
+  press-swallowing come free. It draws the owning player's `FConversationView` from
+  `UConversationComponent` - which is why `SmoresUI` depends on `SmoresDialog` - binding its
+  `OnViewChanged` on construct and **rebuilding on the next tick** rather than inside the change:
+  a pick arrives from one of its own buttons, and on a listen server the answer comes back before
+  that click has finished. Every click is a request to the component; it never decides anything.
+  Its choice rows are pooled and never destroyed, for the same reason.
+- **`UConversationChoiceWidget`** - one row, spawned from `ChoiceWidgetClass`: the
+  `UTargetActionWidget` shape and bound names (`ActionButton`, `LabelText`, `ReasonText`). The
+  reason is worded by `URefusalWidget::GetRefusalText`, so it reads the same here as on the refusal
+  line.
+
 ### The regions
 
 - **`UHUDRegionWidget`** — base for every HUD region. Two things, neither free: the click shield
@@ -563,6 +596,12 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
 - **`ToggleInventoryPanel()`** — the inventory key's behaviour with the input plumbing stripped
   off, so the rail's Inventory button runs exactly the same path rather than a lookalike of it.
   `ToggleInventory(const FInputActionValue&)` is now a one-line forwarder.
+- **`ConversationWidgetClass` / `ConversationWidget` / `HandleConversationViewChanged`** — the
+  conversation window. The controller's `UConversationComponent` (`SmoresDialog`) fires
+  `OnViewChanged` on the owning client; the handler spawns `WBP_Conversation` on first use, adds it
+  to the viewport while the view is open and **removes** it (never `RequestClose`, whose
+  announcement is the player's Goodbye) when it closes. `HandleWindowClosed` returns early for it
+  too, after sending Goodbye - like a panel, it never touches the inventory input context.
 - **`HandleWindowClosed`** — returns early for any `UHUDPanelWidget`, before the inventory
   bookkeeping.
 - **`BuildTargetInfo(const AActor*, const TArray<AStrategyUnit*>&)`** — a **static** that takes
@@ -623,6 +662,8 @@ All under `Content/Variant_Strategy/UI/`:
 | `WBP_ActivityFeed` | `UActivityFeedWidget` | `LogTabButton`, `SquadTabButton`, `QuestsTabButton`, `CommsTabButton`, `EntryBox`, `EmptyText`; plus the `EntryWidgetClass` property, which must point at `WBP_ActivityEntry` or the feed silently shows no lines |
 | `WBP_ActivityEntry` | `UActivityEntryWidget` | `MessageText`, `SourceText` |
 | `WBP_BarkBubbleLayer` | `UBarkBubbleLayerWidget` | `BubbleCanvas`; plus the `BubbleWidgetClass` property, which must point at `WBP_BarkBubble` or barks reach the feed and nothing floats |
+| `WBP_Conversation` | `UConversationWidget` | the window chrome (`TitleBarDragHandle`, `TitleText`, `CloseButton`, `ResizeHandle`), `SpeakerNameText`, `PortraitImage`, `InitialsText`, `TranscriptScroll`, `TranscriptText`, `ContinueButton`, `ChoiceBox`; plus the `ChoiceWidgetClass` property, which must point at `WBP_ConversationChoice` or no choice can show. Opened by `BP_StrategyPlayerController`'s `ConversationWidgetClass` |
+| `WBP_ConversationChoice` | `UConversationChoiceWidget` | `ActionButton`, `LabelText`, `ReasonText` - the `WBP_TargetAction` names |
 | `WBP_BarkBubble` | `UBarkBubbleWidget` | `LineText` |
 | `WBP_HUDPlaceholderRegion` | `UHUDPlaceholderRegionWidget` | `LabelText`; no instances left in `UI_Strategy` — kept for the next region that arrives before its contents |
 | `WBP_SquadPanel` | `USquadPanelWidget` | `TitleText`, `CloseButton`, `TitleBarDragHandle`, `ResizeHandle`, `BodyText` |
@@ -717,6 +758,11 @@ deliberately short.
    rather than pretending to be empty-for-now.
 
 ## Known Gaps
+
+- **Long feed lines don't wrap** - they run past the feed's right edge and are cut off. Seen in
+  dialog Slice 3's PIE smoke test, where conversation lines are the longest the feed has carried.
+  Whether a line wraps (and the rows grow) or truncates is a layout call for `WBP_ActivityEntry`'s
+  text and `UActivityFeedWidget`'s rows.
 
 - **Health events reach the feed only on the machine that ran the damage**, which today is the
   server. So the fight record is correct in a standalone session and on a listen server's own

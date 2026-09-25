@@ -7,6 +7,7 @@
 #include "CharacterRecordComponent.h"
 #include "WorldSeedComponent.h"
 #include "BarkDirectorComponent.h"
+#include "BanterDirectorComponent.h"
 
 AStrategyGameState::AStrategyGameState()
 {
@@ -15,4 +16,5 @@ AStrategyGameState::AStrategyGameState()
 	CharacterRecords = CreateDefaultSubobject<UCharacterRecordComponent>(TEXT("CharacterRecords"));
 	WorldSeed = CreateDefaultSubobject<UWorldSeedComponent>(TEXT("WorldSeed"));
 	BarkDirector = CreateDefaultSubobject<UBarkDirectorComponent>(TEXT("BarkDirector"));
+	BanterDirector = CreateDefaultSubobject<UBanterDirectorComponent>(TEXT("BanterDirector"));
 }

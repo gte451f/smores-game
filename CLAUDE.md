@@ -94,15 +94,13 @@ before writing or changing gameplay state.** The short version:
 
 Eight runtime modules, each a sibling folder directly under `Source/`: the primary `smores`
 module plus `SmoresCore`, `SmoresCombat`, `SmoresItems`, `SmoresCharacters`, `SmoresUI`,
-`SmoresEconomy`, and `SmoresDialog` (plus a temporary ninth, `SmoresDialogSpike` - the Yarn
-conversation-player spike, which dialog Slice 3 folds into `SmoresDialog`). `smores` holds only
+`SmoresEconomy`, and `SmoresDialog`. `smores` holds only
 the Strategy game framework (game mode, player controller, player state, camera pawn), the main
 menu, and the unused template base classes — every gameplay domain lives in a feature module.
 
-Dependency direction runs `smores` → {`SmoresUI`, `SmoresDialog`} → {`SmoresCharacters`,
-`SmoresEconomy`} → {`SmoresItems`, `SmoresCombat`} → `SmoresCore`, and never back. (`SmoresUI`
-will depend on `SmoresDialog` once the conversation window exists.) Two consequences worth
-knowing before you write anything:
+Dependency direction runs `smores` → `SmoresUI` → `SmoresDialog` → {`SmoresCharacters`,
+`SmoresEconomy`} → {`SmoresItems`, `SmoresCombat`} → `SmoresCore`, and never back (`smores`
+depends on each of them directly too). Two consequences worth knowing before you write anything:
 
 - **Nothing depends on `smores`.** When a lower module needs behavior from
   `AStrategyPlayerController`, it declares a narrow interface in its own module and the

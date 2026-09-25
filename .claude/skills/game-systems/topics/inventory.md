@@ -892,9 +892,11 @@ documents what's actually built.
     same pricing (sell side). The pawn window's pricing is set after `OpenInventoryForPawn`,
     which rebinds and therefore clears it
   - `AStrategyPlayerController::InteractWithNPC` — the "interact with this person" verb shared
-    by the double-click, the talk key and the target panel: interactable, somebody close enough,
-    then a bark (`Server_RaiseInteractionBark`, which picks `TradeOpened` or `NothingToSay` on the
-    server) and, for a trader, the trade windows. See `dialog.md`
+    by the double-click, the talk key and the target panel: interactable and somebody close
+    enough on the client, then `Server_InteractWithNPC` decides - an eligible conversation opens
+    its window; else a trader's shop opens through `Client_OpenTrade` with a `TradeOpened` bark;
+    else a `NothingToSay` bark. A conversation's `<<OpenTrade>>` reaches the same
+    `Client_OpenTrade` through `IDialogHost::OpenTradeWith`. See `dialog.md`
   - `AStrategyPlayerController::IsInteractableNPC` / `GetTraderStock` — the mirror of
     `IsLootableNPC`, and the trader lookup layered on top of it. Both static, both the single
     place their rule is written down
@@ -1158,9 +1160,9 @@ documents what's actually built.
 - **Real market pricing** — implement `IPricingProvider` and have `UTraderComponent` consult it
   instead of its own flat markup. Nothing in `TryTradeItem` or the UI reads a markup directly, so
   the swap is contained to that component.
-- **Dialog with a non-trader NPC** — `AStrategyPlayerController::InteractWithNPC` is the seam.
-  Dialog Slice 1 filled the silent branch with a `NothingToSay` bark; Slice 2's conversations slot
-  in ahead of trade there (the order is in `Docs/roadmaps/dialog-roadmap.md`).
+- **Dialog with an NPC** — `AStrategyPlayerController::Server_InteractWithNPC` is the seam, and
+  conversations now come first there: a trader's `core` greeting opens the shop from a choice, and
+  a trader with no eligible conversation still trades straight away (`dialog.md`).
 - **A new interaction rule** (a faction refusing to deal, a merchant who only trades at certain
   hours) — extend `IsInteractableNPC`, which is the one place "may the player deal with this
   person" is written down, rather than adding a check per call site.

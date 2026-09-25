@@ -5,11 +5,15 @@
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "DialogFacts.h"
+#include "DialogEffects.h"
 #include "DialogLibrary.h"
 #include "SmoresDialogSubsystem.generated.h"
 
 /** Broadcast after every load, first or hot reload, once the new library is in place */
 DECLARE_MULTICAST_DELEGATE(FOnDialogLibraryLoaded);
+
+/** Broadcast at the start of a hot reload, while the old library is still in place */
+DECLARE_MULTICAST_DELEGATE(FOnDialogLibraryWillReload);
 
 /**
  *  The loaded dialog library, and the loader that fills it.
@@ -49,13 +53,16 @@ public:
 	/** Everything loaded */
 	const FDialogLibrary& GetLibrary() const { return Library; }
 
-	/** The facts conditions may use */
+	/** The facts conditions may use - and conversation scripts may call */
 	const FDialogFactRegistry& GetFacts() const { return Facts; }
+
+	/** The effects conversation scripts may run */
+	const FDialogEffectRegistry& GetEffects() const { return Effects; }
 
 	/** The id and version of every package that loaded, in load order - what a join-time mismatch check would compare (the session roadmap's job) */
 	TArray<FString> GetLoadedPackageVersions() const;
 
-	/** A line's text in the current culture, or empty for an id this machine doesn't have */
+	/** A line's text in the current culture - a bark's, a conversation line's or a topic's label - or empty for an id this machine doesn't have */
 	FText GetLineText(FName LineId) const;
 
 	/** Logs the per-package summary and every problem. bIncludeFacts adds the writers' reference: every fact, and who each event carries. */
@@ -64,9 +71,17 @@ public:
 	/** Fired after every load. The bark director forgets its recency state here, since the lines may have changed. */
 	FOnDialogLibraryLoaded OnLibraryLoaded;
 
+	/** Fired before a hot reload replaces the library. Running conversations end here rather than being carried across. */
+	FOnDialogLibraryWillReload OnLibraryWillReload;
+
 private:
 
 	FDialogFactRegistry Facts;
+
+	FDialogEffectRegistry Effects;
+
+	/** False until the first load, so the first isn't announced as a reload */
+	bool bHasLoaded = false;
 
 	FDialogLibrary Library;
 };

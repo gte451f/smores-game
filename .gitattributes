@@ -12,6 +12,9 @@
 *.md     text
 *.json   text
 *.csv    text
+# conversations: the Yarn source is text; what ysc compiles from it is bytes, never to be touched
+*.yarn   text
+*.yarnc  binary
 *.xml    text
 *.py     text
 

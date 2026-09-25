@@ -11,6 +11,7 @@ class UWorldFactionComponent;
 class UCharacterRecordComponent;
 class UWorldSeedComponent;
 class UBarkDirectorComponent;
+class UBanterDirectorComponent;
 
 /**
  *  Per-session state for the strategy variant. Like AStrategyPlayerState it owns no gameplay
@@ -47,6 +48,9 @@ public:
 	/** Who says what when something bark-worthy happens. Never null - it's a default subobject. */
 	UBarkDirectorComponent* GetBarkDirector() const { return BarkDirector; }
 
+	/** When each squad banters among itself. Never null - it's a default subobject. */
+	UBanterDirectorComponent* GetBanterDirector() const { return BanterDirector; }
+
 private:
 
 	/** How fast the simulation is running, in SmoresCore. See the class comment for why it isn't
@@ -73,4 +77,9 @@ private:
 	 *  hearing reads the same line, because one person said it. See UBarkDirectorComponent. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UBarkDirectorComponent> BarkDirector;
+
+	/** Plays squad banter - Ambient conversations among one player's squad - in SmoresDialog. One
+	 *  per session, server-only, delivering through the bark director. See UBanterDirectorComponent. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UBanterDirectorComponent> BanterDirector;
 };

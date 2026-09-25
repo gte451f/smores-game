@@ -9,6 +9,11 @@
 #include "DialogFacts.h"
 #include "DialogLibrary.h"
 #include "DialogLoader.h"
+#include "DialogCondition.h"
+#include "DialogConversationTypes.h"
+#include "HAL/FileManager.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 
 /**
  *  Shared builders for the dialog tests. In a header rather than an anonymous namespace per file for
@@ -65,6 +70,7 @@ inline FDialogFactRegistry MakeTestDialogFacts(const TSharedRef<FDialogTestAnswe
 	Add(TEXT("Listener.Faction"), EDialogValueType::Name, EDialogSubject::Listener, false, SmoresDialog::FactionDomain(), {});
 	Add(TEXT("StandingWithSpeaker"), EDialogValueType::Number, EDialogSubject::Speaker | EDialogSubject::Player, false, NAME_None, {});
 	Add(TEXT("Flag"), EDialogValueType::Bool, EDialogSubject::Player, true, NAME_None, {});
+	Add(TEXT("Gold"), EDialogValueType::Number, EDialogSubject::Player, false, NAME_None, {});
 
 	return Registry;
 }
@@ -109,6 +115,83 @@ inline FDialogPackageSource MakeTestDialogPackage(const TCHAR* FolderName, const
 inline FDialogPackageSource MakeTestCorePackage(const FString& BarksCsv = FString())
 {
 	return MakeTestDialogPackage(TEXT("core"), TEXT("core"), TArray<FString>(), BarksCsv, /*bIsCore*/ true);
+}
+
+/**
+ *  Where the conversation tests' own scripts live - Source/SmoresDialog/Tests/Conversations, each
+ *  .yarn beside the three files ysc wrote from it. A compiled program is bytes nobody writes by hand,
+ *  so these are the one thing the dialog tests read from disk; they are the tests' copies, never
+ *  the game's content, so a writer can't break a test.
+ */
+inline FString GetTestConversationDirectory()
+{
+	return FPaths::Combine(FPaths::ProjectDir(), TEXT("Source"), TEXT("SmoresDialog"), TEXT("Tests"), TEXT("Conversations"));
+}
+
+/**
+ *  Adds a test script to Source as conversations/<Name>.yarn with the three files beside it - read
+ *  from disk the way GatherPackagesFromDisk reads them, without their timestamps (so a checkout's
+ *  file times can't trip the stale-compile check). False if a file is missing.
+ */
+inline bool AddTestConversationFiles(FDialogPackageSource& Source, const TCHAR* Name)
+{
+	const FString Directory = GetTestConversationDirectory();
+	bool bAllRead = true;
+
+	for (const TCHAR* Suffix : { TEXT(".yarn"), TEXT(".yarnc"), TEXT("-Lines.csv"), TEXT("-Metadata.csv") })
+	{
+		const FString FileName = FString(Name) + Suffix;
+		const FString FullPath = FPaths::Combine(Directory, FileName);
+
+		FDialogSourceFile File;
+		File.Path = TEXT("conversations/") + FileName;
+
+		const bool bRead = FString(Suffix) == TEXT(".yarnc") ? FFileHelper::LoadFileToArray(File.Bytes, *FullPath) : FFileHelper::LoadFileToString(File.Contents, *FullPath);
+
+		bAllRead &= bRead;
+
+		if (bRead)
+		{
+			Source.Files.Add(MoveTemp(File));
+		}
+	}
+
+	return bAllRead;
+}
+
+/** The file at this package path in Source, or null - for a test that tampers with one */
+inline FDialogSourceFile* FindTestSourceFile(FDialogPackageSource& Source, const FString& Path)
+{
+	return Source.Files.FindByPredicate([&Path](const FDialogSourceFile& File) { return File.Path == Path; });
+}
+
+/**
+ *  A conversation definition built by hand, for the selection tests - no script, since selection
+ *  never runs one. Conditions compile against Facts over Speaker, Listener and Player; a condition
+ *  that doesn't compile fails the test through the returned definition's empty id.
+ */
+inline FConversationDefinition MakeTestConversation(const FDialogFactRegistry& Facts, const TCHAR* Id, EConversationKind Kind, const TCHAR* Attach,
+	const TCHAR* Requires = TEXT(""), int32 Priority = 0, bool bOnce = false, int32 LoadOrder = 0)
+{
+	FConversationDefinition Conversation;
+	Conversation.Id = FName(Id);
+	Conversation.Kind = Kind;
+	Conversation.Priority = Priority;
+	Conversation.bOnce = bOnce;
+	Conversation.LoadOrder = LoadOrder;
+	Conversation.LabelId = FName(*(FString(Id) + TEXT("_label")));
+
+	TArray<FString> Errors;
+	TArray<FString> Warnings;
+	const EDialogSubject Subjects = EDialogSubject::Speaker | EDialogSubject::Listener | EDialogSubject::Player;
+
+	if (!SmoresDialog::CompileCondition(Attach, Facts, Subjects, nullptr, Conversation.Attach, Errors, Warnings)
+		|| !SmoresDialog::CompileCondition(Requires, Facts, Subjects, nullptr, Conversation.Requires, Errors, Warnings))
+	{
+		Conversation.Id = NAME_None;
+	}
+
+	return Conversation;
 }
 
 /** Every problem, one per line - what a failed assertion prints so the reader sees why */

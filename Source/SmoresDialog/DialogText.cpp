@@ -198,27 +198,39 @@ namespace SmoresDialog
 		TArray<FDialogLocalizedTextSource::FLine> SourceLines;
 		TMap<FName, int32> SourceLineById;
 
-		for (const FBarkLine& Bark : Library.Barks)
+		// a bark's text and a conversation's go into the same table: to a string table both are
+		// only an id and the words
+		auto PublishLine = [&Registry, &SourceLines, &SourceLineById](FName Id, FName PackageId, const FString& SourceText)
 		{
-			const FName TableId = GetStringTableId(Bark.PackageId);
+			const FName TableId = GetStringTableId(PackageId);
 
 			if (FStringTablePtr Table = Registry.FindMutableStringTable(TableId))
 			{
 				// the editor's string tables carry translator notes and a game's don't, so the setter's
 				// signature differs between the two builds
 #if WITH_EDITORONLY_DATA
-				Table->SetSourceString(Bark.Id.ToString(), Bark.SourceText, FString());
+				Table->SetSourceString(Id.ToString(), SourceText, FString());
 #else
-				Table->SetSourceString(Bark.Id.ToString(), Bark.SourceText);
+				Table->SetSourceString(Id.ToString(), SourceText);
 #endif
 			}
 
 			FDialogLocalizedTextSource::FLine Line;
 			Line.Namespace = TableId.ToString();
-			Line.Key = Bark.Id.ToString();
-			Line.SourceString = Bark.SourceText;
+			Line.Key = Id.ToString();
+			Line.SourceString = SourceText;
 
-			SourceLineById.Add(Bark.Id, SourceLines.Add(MoveTemp(Line)));
+			SourceLineById.Add(Id, SourceLines.Add(MoveTemp(Line)));
+		};
+
+		for (const FBarkLine& Bark : Library.Barks)
+		{
+			PublishLine(Bark.Id, Bark.PackageId, Bark.SourceText);
+		}
+
+		for (const FDialogText& Text : Library.Texts)
+		{
+			PublishLine(Text.Id, Text.PackageId, Text.SourceText);
 		}
 
 		for (const FDialogTranslation& Translation : Library.Translations)

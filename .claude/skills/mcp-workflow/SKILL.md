@@ -363,4 +363,33 @@ built these systems, `unreal-mcp` was ~40%+ of total token usage. Keep it small:
   preserves the widget's name, its existing parent slot object *and* that slot's settings, and
   the C++ `BindWidget` binding — and it reports which properties had no counterpart on the new
   class. Much safer than delete-and-re-add, which breaks the name binding.
+- **Duplicate-and-reparent is the cheap way to a new window WBP, with one trap.**
+  `AssetTools.duplicate` an existing window (its chrome - `TitleBarDragHandle`, `TitleText`,
+  `CloseButton`, `ResizeHandle` - comes with it), then `BlueprintTools.set_parent` to the new C++
+  class and `CompileWidgetBlueprint`: that reparents a Widget Blueprint cleanly (dialog Slice 3 made
+  `WBP_Conversation` from `WBP_HelpPanel` and `WBP_ConversationChoice` from `WBP_TargetAction`
+  this way). The duplicate isn't written to disk until `save_assets([])`. **The trap: the source's
+  own class-default overrides survive the reparent** and silently beat the new parent's C++
+  constructor values - `WBP_HelpPanel`'s authored window position and size overrode
+  `UConversationWidget`'s. Values the source never overrode come from the new parent correctly.
+  After a reparent, write any C++-owned default the source had overridden back to the C++ value,
+  and confirm with a binary grep that the saved asset no longer carries the property name.
+- **After a reparent, a bound name's placeholder row is not the widget.** `GetWidgets` lists every
+  still-empty `BindWidgetOptional` slot of the new parent as a row with `widget: "None"` (see the
+  placeholder-row bullet above), so a batch script that tests `name in widgets` believes
+  `TranscriptText` already exists, skips creating it, and the next `AddWidget` under it fails with
+  *"Widget can't have children"*. Count a name as present only when its `widget` is a real
+  `refPath` object.
+- **Driving a PIE session end to end works** (dialog Slice 3's smoke test):
+  `EditorToolset.EditorAppToolset.StartPIE` with
+  `{"options":{"bSimulate":false,"playMode":"PlayMode_InViewPort","warmupSeconds":3}}`, and
+  `StopPIE` with no arguments. For console commands, `SlateInspectorToolset.Observe("w1", 60)`
+  once, then `Snapshot`: the status bar's Cmd textbox is the `textbox` right after the "Cmd"
+  combobox; **Click it before every command**, then `Type` with `submit: true`. The game's own
+  widgets are in the Slate tree under the viewport's splitter - a `Snapshot` of it shows window
+  text, choice labels and feed lines in a few KB. **`Click` on a game button only focuses it**;
+  follow it with `PressKey("Enter")` to press it. Refs are reused as widgets are relabelled, so
+  snapshot again after each step. `Screenshot` on that node returns megabytes of encoded image
+  that auto-persists to a file - decode it with Python to a PNG and Read that. Grepping
+  `Saved/Logs/smores.log` from a known line is cheaper than `LogsToolset`.
 - **Create/modify operations that touch project assets: get user confirmation first.**

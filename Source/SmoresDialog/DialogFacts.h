@@ -23,7 +23,7 @@ struct SMORESDIALOG_API FDialogFact
 	/** Everyone this fact reads. A condition may only use it in an event that carries all of them. */
 	EDialogSubject Reads = EDialogSubject::None;
 
-	/** True for the Flag(name)-style call form. No Slice 1 fact takes one; the grammar is ready for those that will. */
+	/** True for the call form - Flag(met_kess), Seen(Shakedown) */
 	bool bTakesArgument = false;
 
 	/**
@@ -84,8 +84,9 @@ public:
 
 	/**
 	 *  The facts the game answers today: for each of Speaker, Listener and Event.Victim, their
-	 *  Definition, Role, Faction, Name, LifeState and Health; plus StandingWithSpeaker. See
-	 *  dialog.md for what each one reads.
+	 *  Definition, Role, Faction, Name, LifeState and Health; plus StandingWithSpeaker, Gold, and
+	 *  the squad's dialog memory, Flag(name) and Seen(conversation). See dialog.md for what each
+	 *  one reads.
 	 */
 	static FDialogFactRegistry MakeBuiltIn();
 

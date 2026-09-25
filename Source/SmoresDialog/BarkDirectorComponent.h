@@ -143,6 +143,13 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Barks|Approach", meta = (ClampMin = 0, Units = "s"))
 	float ApproachCheckSeconds = 0.5f;
 
+	/**
+	 *  Sends a said line to every player with a squad member within HearingRange of Speaker - to
+	 *  their feed, and floating over Speaker. **Authority only.** Barks and banter both go out this
+	 *  way: a banter line is heard exactly as a bark is, by whoever is near.
+	 */
+	void Deliver(FName LineId, AActor* Speaker) const;
+
 	/** Called by the unit watchers */
 	void HandleUnitHurt(AStrategyUnit* Unit, AActor* DamageInstigator);
 	void HandleUnitDowned(AStrategyUnit* Unit);
@@ -166,9 +173,6 @@ protected:
 	 *  loading is a level being added, not a spawn, so OnActorSpawned never hears about its actors.
 	 */
 	void HandleLevelAdded(ULevel* Level, UWorld* World);
-
-	/** Sends a said line to every player with a squad member within HearingRange of Speaker */
-	void Deliver(FName LineId, AActor* Speaker) const;
 
 	/**
 	 *  The approach timer: where does every NPC and every squad member stand, and has any squad just

@@ -33,12 +33,14 @@ record store on the GameState; see `game-data.md`), `SmoresUI`
 `IInventoryMoveHost`), and `SmoresEconomy` (`UWalletComponent`, `IPricingProvider`,
 `UTraderComponent`), and `SmoresDialog` (the dialog loader and library `USmoresDialogSubsystem`,
 the condition language and fact registry, bark selection, `UBarkDirectorComponent`, the
-localized text source, and `IDialogHost`; see `dialog.md`) — see "Migrating Today's Prototype
-Code" below. One game `Target.cs` and one Editor `Target.cs`, both referencing all eight modules —
-plus a ninth, temporary one: `SmoresDialogSpike`, the Yarn conversation-player spike, which dialog
-Slice 3 folds into `SmoresDialog` and deletes. It is the first module to depend on a project plugin
-(`YarnSpinner`, in `Plugins/YarnSpinner/`, which is gitignored for now - see `dialog.md`'s "The
-Yarn plugin - how we carry it").
+localized text source, `IDialogHost`, and the conversations - the Yarn player, loading,
+selection, effects, `UDialogMemoryComponent`, `UConversationComponent` and
+`UBanterDirectorComponent`; see `dialog.md`) — see "Migrating Today's Prototype Code" below. One
+game `Target.cs` and one Editor `Target.cs`, both referencing all eight modules. `SmoresDialog` is
+the only module to depend on a project plugin (`YarnSpinner`, in `Plugins/YarnSpinner/`, which is
+gitignored for now - see `dialog.md`'s "The Yarn plugin - how we carry it"), and privately: no
+public header of its includes a Yarn one. The Yarn spike's module, `SmoresDialogSpike`, was folded
+into `SmoresDialog` and deleted by dialog Slice 3.
 
 `SmoresEconomy` is the **first module cut for an ownership reason rather than as part of the
 original migration**, and it is worth reading as the worked example of "When to Actually
@@ -147,16 +149,18 @@ Source/
                                    # vs. Feature Modules"
   SmoresEconomy/                   # value primitives: WalletComponent, PricingProvider,
                                    # TraderComponent (a UInventoryComponent subclass)
-  SmoresDialog/                    # dialog Slice 1 - near the top of the stack: reads records,
-    SmoresDialog.Build.cs          # standing and health below it, and only smores reads it (and
-    SmoresDialog.cpp / .h          # SmoresUI, once a conversation window exists)
+  SmoresDialog/                    # dialog - near the top of the stack: reads records, standing,
+    SmoresDialog.Build.cs          # health and wallets below it, and only smores and SmoresUI
+    SmoresDialog.cpp / .h          # (the conversation window) read it
     DialogTypes.* DialogFacts.* DialogCondition.*     # the fact list and condition language
-    DialogLibrary.* DialogLoader.*                    # packages from text files, and what loaded
+    DialogLibrary.* DialogLoader.* ConversationLoader.cpp  # packages from text files, what loaded
     BarkSelection.* BarkDirectorComponent.*           # "most specific wins"; the server's director
     DialogText.* SmoresDialogSubsystem.* DialogHost.*  # string tables + translations; the library;
                                    # IDialogHost, implemented by AStrategyPlayerController
-  SmoresDialogSpike/               # TEMPORARY: the Yarn player proven on one scene; Slice 3 moves
-                                   # it into SmoresDialog and deletes this module
+    DialogConversationTypes.h ConversationScript.h    # conversations as loaded (Yarn only in the second)
+    ConversationPlayer.* ConversationSelection.*      # the Yarn VM driven directly; who talks when
+    DialogEffects.* DialogMemoryComponent.*           # what a script may do; what a squad remembers
+    ConversationComponent.* BanterDirectorComponent.* # a player's conversation; squad banter
   SmoresMarkets/                   # market simulation, much later - see the target map
   SmoresSaveGame/
   SmoresOnlineSession/
@@ -322,7 +326,7 @@ better answer than a fourth interface.
 | `SmoresCombat` | Health/damage, melee resolution, disposition/aggro, incapacitation/capture | `SmoresCore`, `SmoresCharacters` | `combat.md` (both skills) |
 | `SmoresFactions` | Faction simulation, standing, territory, assault intelligence, military progression, and faction-level decision-making (relationships, settlement investment, raid/assault decisions) on its own slow clock | `SmoresCore`, `SmoresCharacters` | `factions-and-world-state.md` |
 | `SmoresAI` | Individual character behavior: roles/archetypes, perception, drives, goal selection, and the per-character job queue | `SmoresCore`, `SmoresCharacters`, `SmoresCombat`, `SmoresItems`, `SmoresFactions`, `SmoresWorld` | `ai-and-behavior.md`, `orders-and-jobs.md` |
-| `SmoresDialog` **(EXISTS)** | Dialog: the text-file loader (base game and mods through one path), the condition language and facts, barks, and (Slices 2-3) floating bark text, conversations, topics, banter and effects. Confines the Yarn Spinner plugin to one module (it joins with Slice 3; the spike module holds it until then) | `SmoresCore`, `SmoresCombat`, `SmoresCharacters` today; `SmoresEconomy` with the first wallet effect | `dialogue.md`; `dialog.md` (current) |
+| `SmoresDialog` **(EXISTS)** | Dialog: the text-file loader (base game and mods through one path), the condition language and facts, barks, conversations, topics, banter, effects and the squad's dialog memory. Confines the Yarn Spinner plugin to one module, as a private dependency | `SmoresCore`, `SmoresCombat`, `SmoresCharacters` publicly; `SmoresEconomy`, `YarnSpinner` and `Json` privately | `dialogue.md`; `dialog.md` (current) |
 | `SmoresEconomy` **(EXISTS)** | **Value primitives only**: currency/wallet, pricing interface, traders and their stock | `SmoresCore`, `SmoresItems` | `economy.md` |
 | `SmoresMarkets` | Market simulation proper: supply/demand, emergent regional pricing, trade routes, caravans | `SmoresCore`, `SmoresItems`, `SmoresEconomy`, `SmoresFactions`, `SmoresWorld` | `economy.md` |
 | `SmoresWorld` | Map data, regions/biomes, POIs, fog of war/travel, wildlife, environmental events | `SmoresCore`, `SmoresFactions` (territory overlay) | `open-world.md`, `world-map-and-travel.md` |
@@ -338,9 +342,9 @@ correspond to systems that don't exist in any form yet (factions, markets, base 
 tech/crafting are all still design-only per `game-design`).
 
 **Why `SmoresDialog` was cut when it was.** The second module cut for an ownership reason, and
-for two reasons that were real rather than predicted: a third-party runtime (the Ink or Yarn
-plugin, dialog Slice 3) is arriving, and confining it to one module means nothing else in the game
-links against it; and dialog reads nearly everything below it while almost nothing reads dialog -
+for two reasons that were real rather than predicted: a third-party runtime (the Yarn Spinner
+plugin, which dialog Slice 3 brought in) was arriving, and confining it to one module means nothing
+else in the game links against it; and dialog reads nearly everything below it while almost nothing reads dialog -
 the healthy top-of-stack shape `SmoresAI` will have. Standing it up cost the five-step checklist
 below and nothing else; the one new seam was `IDialogHost`, because the bark director has to reach
 each player's controller to deliver a line.

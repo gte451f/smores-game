@@ -8,6 +8,7 @@
 
 class UWalletComponent;
 class UPlayerStandingComponent;
+class UDialogMemoryComponent;
 
 /**
  *  Per-player state for the strategy variant. It owns no gameplay state of its own - it hosts
@@ -37,6 +38,9 @@ public:
 	/** This player's standing with each faction. Never null - it's a default subobject. */
 	UPlayerStandingComponent* GetStanding() const { return Standing; }
 
+	/** What this player's squad remembers of dialog - flags and conversations seen. Never null - it's a default subobject. */
+	UDialogMemoryComponent* GetDialogMemory() const { return DialogMemory; }
+
 private:
 
 	/** This player's gold, in SmoresEconomy. See the class comment for why it isn't an int32 here. */
@@ -47,4 +51,9 @@ private:
 	 *  GameState with the factions themselves. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UPlayerStandingComponent> Standing;
+
+	/** This player's squad's dialog memory, in SmoresDialog. Dialog state is squad-scoped, and a
+	 *  squad is a player, so it is here - the standing precedent. Server-owned. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UDialogMemoryComponent> DialogMemory;
 };
