@@ -316,7 +316,8 @@ live in `SmoresCore`; `ULootTableDefinition` in `SmoresItems`; `USmoresDefinitio
 `AStrategyContainer` gained `LootTable` and an authored `PlacedContainerId` and rolls all-or-nothing
 on top of `StartingItems` at `BeginPlay`. Five `DA_Loot_*` tables, three mineral items tagged
 `Item.Mineral`, and both placed chests pointed at a situation table. `SmoresRollTable` added.
-140 tests green.
+140 tests green; Jim PIE-verified both chests rolling a fresh set of items on top of their
+hand-placed ones. **This closes the roadmap.**
 
 Notes worth carrying into later roadmaps:
 
