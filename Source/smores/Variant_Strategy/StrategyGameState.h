@@ -10,6 +10,7 @@ class UTimePaceComponent;
 class UWorldFactionComponent;
 class UCharacterRecordComponent;
 class UWorldSeedComponent;
+class UBarkDirectorComponent;
 
 /**
  *  Per-session state for the strategy variant. Like AStrategyPlayerState it owns no gameplay
@@ -43,6 +44,9 @@ public:
 	/** The campaign's seed, which every seeded roll starts from. Never null - it's a default subobject. */
 	UWorldSeedComponent* GetWorldSeed() const { return WorldSeed; }
 
+	/** Who says what when something bark-worthy happens. Never null - it's a default subobject. */
+	UBarkDirectorComponent* GetBarkDirector() const { return BarkDirector; }
+
 private:
 
 	/** How fast the simulation is running, in SmoresCore. See the class comment for why it isn't
@@ -64,4 +68,9 @@ private:
 	 *  SmoresCore. Server-only, like the records; see UWorldSeedComponent. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UWorldSeedComponent> WorldSeed;
+
+	/** Picks and delivers barks, in SmoresDialog. One per session, server-only: everyone within
+	 *  hearing reads the same line, because one person said it. See UBarkDirectorComponent. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UBarkDirectorComponent> BarkDirector;
 };

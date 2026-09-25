@@ -59,7 +59,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Identity")
 	FName DefaultFactionId;
 
-	/** "shopkeeper", "guard" - an id and nothing more. There is no role system yet; dialog and barks will want one. */
+	/** "trader", "guard" - an id and nothing more. There is no role system yet: dialog's Role facts read it to choose what someone says, and nothing reads it for behaviour. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Identity")
 	FName RoleId;
 

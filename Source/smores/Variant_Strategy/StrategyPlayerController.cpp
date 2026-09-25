@@ -52,6 +52,10 @@
 #include "CharacterRecordComponent.h"
 #include "CharacterDefinition.h"
 #include "StrategyTargetInfo.h"
+#include "SmoresDialogSubsystem.h"
+#include "BarkDirectorComponent.h"
+#include "DialogText.h"
+#include "EngineUtils.h"
 #include "smores.h"
 
 #define LOCTEXT_NAMESPACE "StrategyPlayerController"
@@ -1321,22 +1325,9 @@ void AStrategyPlayerController::InteractWithNPC(AStrategyUnit* NPC)
 		return;
 	}
 
-	UTraderComponent* Stock = GetTraderStock(NPC);
-
-	// no wares means no shop. This is where dialog goes when it exists, and there is
-	// deliberately no stub for it here: an empty hook nobody implements against is clutter, and
-	// the settled *ordering* is what lets dialog drop in later with no rework.
-	//
-	// Deliberately no refusal either, for the same reason. Every other silence in this file is a
-	// rule the player ran into; this one is a feature that isn't built, and "they have nothing to
-	// say" would be a lie the day dialog lands.
-	if (!Stock)
-	{
-		return;
-	}
-
-	// proximity is the same gate every transfer context shares - a trader implements
-	// IInventoryHolder through AStrategyUnit, so this needed no new distance code
+	// proximity is the same gate every transfer context shares - a unit implements IInventoryHolder,
+	// so this needed no new distance code. Checked before the trader question now, because talking
+	// is range-gated too: someone out of reach can't be greeted any more than traded with.
 	if (!FindPlayerPawnInRangeOfHolder(NPC))
 	{
 		NotifyRefusal(ESmoresRefusalReason::TooFar);
@@ -1344,7 +1335,80 @@ void AStrategyPlayerController::InteractWithNPC(AStrategyUnit* NPC)
 		return;
 	}
 
-	OpenTrade(NPC, Stock);
+	// they say something either way: a trader greets the customer, and anyone else has nothing to
+	// say - which is now an authored line rather than a silence (the old comment here refused to
+	// fake one with a refusal, rightly). The server picks both the event and the line.
+	Server_RaiseInteractionBark(NPC);
+
+	if (UTraderComponent* Stock = GetTraderStock(NPC))
+	{
+		OpenTrade(NPC, Stock);
+	}
+}
+
+void AStrategyPlayerController::Server_RaiseInteractionBark_Implementation(AStrategyUnit* NPC)
+{
+	// the client's own checks, re-run - a bark changes nothing, but a client shouldn't be able to
+	// make someone across the map talk
+	if (!IsInteractableNPC(NPC))
+	{
+		return;
+	}
+
+	AStrategyPlayerUnit* Listener = FindPlayerPawnInRangeOfHolder(NPC);
+	UBarkDirectorComponent* Director = UBarkDirectorComponent::Get(this);
+
+	if (!Listener || !Director)
+	{
+		return;
+	}
+
+	const EBarkEvent Event = GetTraderStock(NPC) ? EBarkEvent::TradeOpened : EBarkEvent::NothingToSay;
+
+	// quiet time is for things that happen *to* a speaker; being spoken to always gets an answer
+	// if a line is free, or talking to someone who just barked at somebody else would go silent
+	Director->RaiseEvent(Event, NPC, Listener, PlayerState, /*OutExplanation*/ nullptr, /*bIgnoreQuietTime*/ true);
+}
+
+bool AStrategyPlayerController::IsSquadMemberWithin(const FVector& Location, float Range) const
+{
+	const float RangeSquared = FMath::Square(Range);
+
+	// the world's units rather than PlayerPawns: that list is this controller's local convenience,
+	// refreshed on its own schedule, and this is asked on the server for every controller
+	for (TActorIterator<AStrategyPlayerUnit> It(GetWorld()); It; ++It)
+	{
+		if (It->GetOwningController() == this && FVector::DistSquared(It->GetActorLocation(), Location) <= RangeSquared)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void AStrategyPlayerController::DeliverBark(FName LineId, const FText& SpeakerName)
+{
+	Client_NotifyBark(LineId, SpeakerName);
+}
+
+void AStrategyPlayerController::Client_NotifyBark_Implementation(FName LineId, const FText& SpeakerName)
+{
+	const USmoresDialogSubsystem* Dialog = USmoresDialogSubsystem::Get(this);
+	const FText Line = Dialog ? Dialog->GetLineText(LineId) : FText::GetEmpty();
+
+	if (Line.IsEmpty())
+	{
+		// the id came from the server's files and this machine doesn't have it - host and client
+		// are running different dialog. Refusing that join is the session roadmap's job.
+		UE_LOG(Logsmores, Warning, TEXT("[Barks] The server said line '%s', which this machine's dialog doesn't have."), *LineId.ToString());
+
+		return;
+	}
+
+	// quoted, so speech reads differently from the feed's other news ("Is down")
+	PostActivity(EActivityCategory::Comms, EActivitySeverity::Normal,
+		FText::Format(LOCTEXT("BarkFeedLine", "\u201C{0}\u201D"), Line), SpeakerName);
 }
 
 void AStrategyPlayerController::AttackKeyPressed(const FInputActionValue& Value)
@@ -2799,6 +2863,144 @@ void AStrategyPlayerController::SmoresEquipItem(int32 EntryIndex)
 void AStrategyPlayerController::SmoresUnequipItem(int32 SlotIndex)
 {
 	DebugEquipmentForSelection(INDEX_NONE, SlotIndex);
+}
+
+void AStrategyPlayerController::SmoresReloadDialog()
+{
+	USmoresDialogSubsystem* Dialog = USmoresDialogSubsystem::Get(this);
+
+	if (!Dialog)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[DialogDebug] No dialog subsystem in this world."));
+		return;
+	}
+
+	// the reload logs its own per-package summary and every problem it found
+	Dialog->Reload();
+
+	UE_LOG(Logsmores, Warning, TEXT("[DialogDebug] Reloaded: %d barks, %d errors, %d warnings. SmoresDialogReport for the detail."),
+		Dialog->GetLibrary().Barks.Num(),
+		Dialog->GetLibrary().CountProblems(EDialogProblemSeverity::Error),
+		Dialog->GetLibrary().CountProblems(EDialogProblemSeverity::Warning));
+}
+
+void AStrategyPlayerController::SmoresDialogReport(const FString& Detail)
+{
+	const USmoresDialogSubsystem* Dialog = USmoresDialogSubsystem::Get(this);
+
+	if (!Dialog)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[DialogDebug] No dialog subsystem in this world."));
+		return;
+	}
+
+	Dialog->LogReport(Detail.TrimStartAndEnd().Equals(TEXT("facts"), ESearchCase::IgnoreCase));
+}
+
+void AStrategyPlayerController::SmoresTestBark(const FString& EventName, const FString& TargetName)
+{
+	EBarkEvent Event = EBarkEvent::Hurt;
+
+	if (!SmoresDialog::ParseBarkEvent(EventName, Event))
+	{
+		TArray<FString> EventNames;
+
+		for (const EBarkEvent Candidate : SmoresDialog::GetAllBarkEvents())
+		{
+			EventNames.Add(SmoresDialog::GetBarkEventName(Candidate));
+		}
+
+		UE_LOG(Logsmores, Warning, TEXT("[BarkDebug] '%s' isn't a bark event. Try one of: %s"), *EventName, *FString::Join(EventNames, TEXT(", ")));
+		return;
+	}
+
+	// a named unit, else the clicked NPC, else the first selected squad member, so a squad bark can
+	// be tried too. The selection is client-side input state - resolve here, hop with the actor.
+	AStrategyUnit* Target = nullptr;
+	const FString Wanted = TargetName.TrimStartAndEnd();
+
+	if (!Wanted.IsEmpty())
+	{
+		for (TActorIterator<AStrategyUnit> It(GetWorld()); It; ++It)
+		{
+			if (It->GetHolderDisplayName().ToString().Contains(Wanted))
+			{
+				Target = *It;
+				break;
+			}
+		}
+
+		if (!Target)
+		{
+			UE_LOG(Logsmores, Warning, TEXT("[BarkDebug] No unit's name contains '%s'."), *Wanted);
+			return;
+		}
+	}
+	else
+	{
+		Target = IsValid(SelectedNPC) ? SelectedNPC.Get() : (ControlledUnits.Num() > 0 ? ControlledUnits[0] : nullptr);
+	}
+
+	if (!IsValid(Target))
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[BarkDebug] Name a unit (SmoresTestBark Hurt Ada), click an NPC, or select a squad member first."));
+		return;
+	}
+
+	Server_DebugBark(Target, Event);
+}
+
+void AStrategyPlayerController::Server_DebugBark_Implementation(AStrategyUnit* Target, EBarkEvent Event)
+{
+	UBarkDirectorComponent* Director = UBarkDirectorComponent::Get(this);
+
+	if (!IsValid(Target) || !Director)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[BarkDebug] No target, or no bark director on this GameState."));
+		return;
+	}
+
+	TArray<FString> Explanation;
+	FName Said;
+
+	if (Event == EBarkEvent::WitnessedDeath)
+	{
+		Said = Director->RaiseWitnessedDeath(Target, &Explanation, /*bIgnoreQuietTime*/ true);
+	}
+	else
+	{
+		// give the event exactly who it carries, the way play would - a Downed bark has no listener,
+		// and handing it one would let the explanation describe a moment that can't happen
+		const EDialogSubject Subjects = SmoresDialog::GetEventSubjects(Event);
+
+		AStrategyPlayerUnit* ClosestPawn = FindClosestPlayerPawn(Target->GetActorLocation());
+		AActor* Listener = EnumHasAnyFlags(Subjects, EDialogSubject::Listener) && ClosestPawn != Target ? ClosestPawn : nullptr;
+		APlayerState* EventPlayer = EnumHasAnyFlags(Subjects, EDialogSubject::Player) ? PlayerState.Get() : nullptr;
+
+		Said = Director->RaiseEvent(Event, Target, Listener, EventPlayer, &Explanation, /*bIgnoreQuietTime*/ true);
+	}
+
+	for (const FString& Line : Explanation)
+	{
+		UE_LOG(Logsmores, Warning, TEXT("[BarkDebug] %s"), *Line);
+	}
+
+	// the line as this machine would show it - in the current culture, so a SmoresSetCulture switch
+	// is visible here as well as in the feed
+	const USmoresDialogSubsystem* Dialog = USmoresDialogSubsystem::Get(this);
+	const FString Shown = Dialog && !Said.IsNone() ? Dialog->GetLineText(Said).ToString() : FString();
+
+	const FString Outcome = Said.IsNone() ? FString(TEXT("nothing said")) : FString::Printf(TEXT("said %s: \"%s\""), *Said.ToString(), *Shown);
+
+	UE_LOG(Logsmores, Warning, TEXT("[BarkDebug] => %s"), *Outcome);
+}
+
+void AStrategyPlayerController::SmoresSetCulture(const FString& Culture)
+{
+	FString Message;
+	const bool bChanged = SmoresDialog::SetDialogCulture(Culture.TrimStartAndEnd(), Message);
+
+	UE_LOG(Logsmores, Warning, TEXT("[DialogDebug] %s%s"), bChanged ? TEXT("") : TEXT("Culture unchanged: "), *Message);
 }
 
 void AStrategyPlayerController::SmoresKillNPC()

@@ -11,6 +11,7 @@
 *.slnx   text
 *.md     text
 *.json   text
+*.csv    text
 *.xml    text
 *.py     text
 

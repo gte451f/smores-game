@@ -112,7 +112,7 @@ The bottom-right record of what just happened. Four tabs:
 |---|---|
 | LOG | Everything, in the order it happened |
 | SQUAD | Your squad's own news — damage taken and dealt, downs, deaths, pickups, refusals |
-| COMMS | Talking and trading |
+| COMMS | Talking and trading - including every bark your squad is close enough to hear (`dialog.md`) |
 | QUESTS | Nothing, and says so: *"Objectives will appear here once quests exist."* |
 
 Lines are coloured by how they went — red for squad damage, green for a hit landed or a squad
@@ -132,7 +132,10 @@ record.
 
 What is deliberately *not* in it: an NPC fight you had no part in. Going down and dying carry no
 "who did it", so the feed only reports a non-squad unit's down or death once your own squad has
-hurt that unit — see Core Rules.
+hurt that unit — see Core Rules. **Barks are the exception, and a deliberate one**: what somebody
+*says* is heard by whoever is within 20 m, whether or not they were in the fight, so a bandit's
+"Finish it, then." reaches a squad standing nearby. Barks arrive in quotes, with the speaker as the
+line's source.
 
 ### What the rail is not
 
@@ -554,6 +557,10 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
 - **`FocusCameraOnUnit`** — the camera solve. See Core Rules; the geometry is the whole of it.
 - **`PostActivity` / `Client_NotifyActivity`** — the local and server-to-client routes into the
   feed, shaped exactly like `NotifyRefusal` / `Client_NotifyRefusal` and for the same reasons.
+- **`Client_NotifyBark`** — the feed's third server-to-client route, and the one that does *not*
+  carry worded text: the server sends a bark's **line id** and the speaker's name, and the client
+  resolves the words from its own loaded, translated dialog before calling `PostActivity`. Dialog
+  crosses the network as ids so each co-op player reads a bark in their own language (`dialog.md`).
   `NotifyRefusal` now posts as well as raising the line, with its own repeat suppression.
 - **`ToggleActivityFeedKeyPressed`** — goes controller → `AStrategyHUD::ToggleActivityFeed` →
   `UStrategyUI` → the region, **not** through `IStrategyHUDCommands`. `smores` already depends on
@@ -659,6 +666,8 @@ deliberately short.
    - Neither, and you only have a `UObject` → `USmoresActivityLog::Get(SomePlayerController)`.
      There is no world-context overload on purpose; a producer that can't name a player is a
      producer about to assume there is only one.
+   - Server-side and it is **dialog** → don't word it at all: raise it through
+     `UBarkDirectorComponent`, which sends the line's id (`Client_NotifyBark`) - see `dialog.md`.
 4. **If the event is a parameterless delegate, you need something that knows the subject.**
    `USquadActivityWatcher` is the worked example — one instance per unit, because the delegate
    can't tell you which unit fired it.

@@ -13,7 +13,7 @@ see "When to Actually Split" below.
 
 ## Current State
 
-Seven runtime modules: `smores` (`Source/smores/smores.Build.cs`, the primary/game
+Eight runtime modules: `smores` (`Source/smores/smores.Build.cs`, the primary/game
 module), `SmoresCore` (stood up as an empty proving module alongside the first real split, now
 holding `ESmoresRefusalReason`, `UTimePaceComponent`, `USmoresActivityLog`, the
 `USmoresDefinition` base plus its look-up library, the payload-agnostic
@@ -31,8 +31,10 @@ record store on the GameState; see `game-data.md`), `SmoresUI`
 `UInventoryCellWidget`, `UInventoryItemWidget`, `UEquipmentWidget`/`UEquipmentSlotWidget`,
 `UInventoryDragDropOperation`, plus `IStrategySelectionHost`/`IStrategyCameraCommands`/
 `IInventoryMoveHost`), and `SmoresEconomy` (`UWalletComponent`, `IPricingProvider`,
-`UTraderComponent`) — see "Migrating Today's Prototype Code" below. One game `Target.cs` and
-one Editor `Target.cs`, both referencing all seven modules.
+`UTraderComponent`), and `SmoresDialog` (the dialog loader and library `USmoresDialogSubsystem`,
+the condition language and fact registry, bark selection, `UBarkDirectorComponent`, the
+localized text source, and `IDialogHost`; see `dialog.md`) — see "Migrating Today's Prototype
+Code" below. One game `Target.cs` and one Editor `Target.cs`, both referencing all eight modules.
 
 `SmoresEconomy` is the **first module cut for an ownership reason rather than as part of the
 original migration**, and it is worth reading as the worked example of "When to Actually
@@ -141,6 +143,14 @@ Source/
                                    # vs. Feature Modules"
   SmoresEconomy/                   # value primitives: WalletComponent, PricingProvider,
                                    # TraderComponent (a UInventoryComponent subclass)
+  SmoresDialog/                    # dialog Slice 1 - near the top of the stack: reads records,
+    SmoresDialog.Build.cs          # standing and health below it, and only smores reads it (and
+    SmoresDialog.cpp / .h          # SmoresUI, once a conversation window exists)
+    DialogTypes.* DialogFacts.* DialogCondition.*     # the fact list and condition language
+    DialogLibrary.* DialogLoader.*                    # packages from text files, and what loaded
+    BarkSelection.* BarkDirectorComponent.*           # "most specific wins"; the server's director
+    DialogText.* SmoresDialogSubsystem.* DialogHost.*  # string tables + translations; the library;
+                                   # IDialogHost, implemented by AStrategyPlayerController
   SmoresMarkets/                   # market simulation, much later - see the target map
   SmoresSaveGame/
   SmoresOnlineSession/
@@ -240,6 +250,7 @@ AStrategyGameState                 <- thin host; ~10 lines
   +-- UWorldFactionComponent     (SmoresCore)         <- game-data Slice 3
   +-- UCharacterRecordComponent  (SmoresCharacters)   <- game-data Slice 4
   +-- UWorldSeedComponent        (SmoresCore)         <- game-data Slice 5
+  +-- UBarkDirectorComponent     (SmoresDialog)       <- dialog Slice 1
 ```
 
 That is the point of writing the rule down: the cheap moment to apply it is the first piece of
@@ -305,6 +316,7 @@ better answer than a fourth interface.
 | `SmoresCombat` | Health/damage, melee resolution, disposition/aggro, incapacitation/capture | `SmoresCore`, `SmoresCharacters` | `combat.md` (both skills) |
 | `SmoresFactions` | Faction simulation, standing, territory, assault intelligence, military progression, and faction-level decision-making (relationships, settlement investment, raid/assault decisions) on its own slow clock | `SmoresCore`, `SmoresCharacters` | `factions-and-world-state.md` |
 | `SmoresAI` | Individual character behavior: roles/archetypes, perception, drives, goal selection, and the per-character job queue | `SmoresCore`, `SmoresCharacters`, `SmoresCombat`, `SmoresItems`, `SmoresFactions`, `SmoresWorld` | `ai-and-behavior.md`, `orders-and-jobs.md` |
+| `SmoresDialog` **(EXISTS)** | Dialog: the text-file loader (base game and mods through one path), the condition language and facts, barks, and (Slice 2) conversations, topics, banter and effects. Confines the Ink/Yarn runtime to one module | `SmoresCore`, `SmoresCombat`, `SmoresCharacters` today; `SmoresEconomy` with the first wallet effect | `dialogue.md`; `dialog.md` (current) |
 | `SmoresEconomy` **(EXISTS)** | **Value primitives only**: currency/wallet, pricing interface, traders and their stock | `SmoresCore`, `SmoresItems` | `economy.md` |
 | `SmoresMarkets` | Market simulation proper: supply/demand, emergent regional pricing, trade routes, caravans | `SmoresCore`, `SmoresItems`, `SmoresEconomy`, `SmoresFactions`, `SmoresWorld` | `economy.md` |
 | `SmoresWorld` | Map data, regions/biomes, POIs, fog of war/travel, wildlife, environmental events | `SmoresCore`, `SmoresFactions` (territory overlay) | `open-world.md`, `world-map-and-travel.md` |
@@ -318,6 +330,14 @@ better answer than a fourth interface.
 This table is a target shape, not a literal migration order — several of these modules
 correspond to systems that don't exist in any form yet (factions, markets, base building,
 tech/crafting are all still design-only per `game-design`).
+
+**Why `SmoresDialog` was cut when it was.** The second module cut for an ownership reason, and
+for two reasons that were real rather than predicted: a third-party runtime (the Ink or Yarn
+plugin, dialog Slice 2) is arriving, and confining it to one module means nothing else in the game
+links against it; and dialog reads nearly everything below it while almost nothing reads dialog -
+the healthy top-of-stack shape `SmoresAI` will have. Standing it up cost the five-step checklist
+below and nothing else; the one new seam was `IDialogHost`, because the bark director has to reach
+each player's controller to deliver a line.
 
 **Why `SmoresEconomy` is split in two.** An earlier version of this table had one
 `SmoresEconomy` covering "markets, emergent pricing, trade routes, caravans" and depending
@@ -669,6 +689,6 @@ first:
 - Migration is complete — `SmoresCore`, `SmoresCombat`, `SmoresItems`, `SmoresCharacters` and
   `SmoresUI` (steps 1-4, see "Migrating Today's Prototype Code") are all done, and no further
   *migration* step is planned; the remaining modules in the target map correspond to systems
-  that don't exist in any form yet. `SmoresEconomy` was added afterwards and is a different
-  kind of event — a **new** module cut for a domain that had just become real, not existing
-  code relocating. Expect the rest of the target map to arrive that way too.
+  that don't exist in any form yet. `SmoresEconomy` and then `SmoresDialog` were added afterwards
+  and are a different kind of event — a **new** module cut for a domain that had just become
+  real, not existing code relocating. Expect the rest of the target map to arrive that way too.

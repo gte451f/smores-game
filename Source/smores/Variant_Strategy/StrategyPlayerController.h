@@ -9,6 +9,8 @@
 #include "StrategyCameraCommands.h"
 #include "StrategyHUDCommands.h"
 #include "InventoryMoveHost.h"
+#include "DialogHost.h"
+#include "DialogTypes.h"
 #include "ActivityEntry.h"
 #include "StrategyPlayerController.generated.h"
 
@@ -46,7 +48,7 @@ class IInventoryHolder;
  *  Implements both mouse and touch controls.
  */
 UCLASS(abstract)
-class AStrategyPlayerController : public APlayerController, public IStrategySelectionHost, public IStrategyCameraCommands, public IStrategyHUDCommands, public IInventoryMoveHost
+class AStrategyPlayerController : public APlayerController, public IStrategySelectionHost, public IStrategyCameraCommands, public IStrategyHUDCommands, public IInventoryMoveHost, public IDialogHost
 {
 	GENERATED_BODY()
 
@@ -647,10 +649,10 @@ protected:
 	void OpenTrade(AStrategyUnit* TraderUnit, UTraderComponent* Stock);
 
 	/**
-	 *  The "interact with this person" verb, shared by the double-click gesture and the talk key:
-	 *  a trader opens trade, a non-trader is where dialog will go when it exists, and a hostile
-	 *  NPC gets neither. Does nothing when the NPC isn't interactable or nobody is close enough -
-	 *  the caller has already decided the gesture meant *this* NPC either way.
+	 *  The "interact with this person" verb, shared by the double-click gesture, the talk key and
+	 *  the target panel's Talk button: a hostile NPC refuses; otherwise, once a squad member is in
+	 *  reach, the NPC says something (a TradeOpened or NothingToSay bark, picked on the server) and
+	 *  a trader also opens trade. Out of reach is a TooFar refusal, trader or not.
 	 */
 	void InteractWithNPC(AStrategyUnit* NPC);
 
@@ -854,6 +856,39 @@ public:
 	UFUNCTION(Client, Reliable)
 	void Client_NotifyActivity(EActivityCategory Category, EActivitySeverity Severity, const FText& Text, const FText& Source);
 
+	//~ Begin IDialogHost interface
+
+	/** True if any unit this controller owns is within Range of Location. Server-side. */
+	virtual bool IsSquadMemberWithin(const FVector& Location, float Range) const override;
+
+	/** A bark this player's squad could hear - forwards the id to Client_NotifyBark */
+	virtual void DeliverBark(FName LineId, const FText& SpeakerName) override;
+
+	//~ End IDialogHost interface
+
+	/**
+	 *  Server -> owning client: somebody within earshot of this player's squad said a line.
+	 *
+	 *  **The line travels as its id, never its text** - the dialog roadmap's settled rule. The
+	 *  client looks it up in its own loaded, translated library, so in co-op each player reads the
+	 *  same bark in their own language. A client missing the id (host and client running different
+	 *  dialog) logs it and posts nothing. Reliable, like Client_NotifyActivity: the director's quiet
+	 *  time keeps the rate low, and NothingToSay is the only answer a player gets to talking to
+	 *  someone.
+	 */
+	UFUNCTION(Client, Reliable)
+	void Client_NotifyBark(FName LineId, const FText& SpeakerName);
+
+	/**
+	 *  Server-side half of InteractWithNPC's bark: re-checks the same gates the client ran
+	 *  (interactable, a squad member in reach), then has the NPC say a TradeOpened line if it keeps
+	 *  a shop and a NothingToSay line if it doesn't. The server decides which, rather than trusting
+	 *  the client's word for it, and picks the line - selection reads standing, which only the
+	 *  server holds.
+	 */
+	UFUNCTION(Server, Reliable)
+	void Server_RaiseInteractionBark(AStrategyUnit* NPC);
+
 	/**
 	 *  Server-side entry point for collecting a loose world item into a pawn's grid. Re-checks
 	 *  proximity and that the destination really is a player pawn's own inventory rather than
@@ -1002,6 +1037,39 @@ public:
 	UFUNCTION(Exec)
 	void SmoresRollTable(FName TableId, int32 Seed = 0, int32 Count = 1);
 
+	/**
+	 *  Debug exec: re-reads every dialog package from disk - Content/Dialog/core and Mods/ - and
+	 *  logs the summary. A writer edits a file, types this, and hears the change without
+	 *  restarting. This machine only: each machine loads its own copy of the files.
+	 */
+	UFUNCTION(Exec)
+	void SmoresReloadDialog();
+
+	/** Debug exec: logs every dialog package, its counts and every load problem. "SmoresDialogReport facts" adds the writers' reference - every fact a condition may use, and who each event carries. */
+	UFUNCTION(Exec)
+	void SmoresDialogReport(const FString& Detail = TEXT(""));
+
+	/**
+	 *  Debug exec: fires a bark event on a unit and logs every line considered and why it did or
+	 *  didn't win - the answer to "why did that line play?" - then the winning line as this machine
+	 *  shows it, in the current culture. The unit is the one whose name contains TargetName
+	 *  ("SmoresTestBark TradeOpened Ada"), or with no name the targeted NPC, else the first selected
+	 *  squad member. Delivers the line exactly as play would, including cooldowns; only the
+	 *  speaker's quiet time is skipped, so lines can be tried back to back. For WitnessedDeath the
+	 *  unit is treated as the one who died, and its allies nearby are the ones who react. Hops to
+	 *  the server, where the director lives.
+	 */
+	UFUNCTION(Exec)
+	void SmoresTestBark(const FString& EventName, const FString& TargetName = TEXT(""));
+
+	/**
+	 *  Debug exec: shows game text in another culture - "SmoresSetCulture fr", then "en" to return.
+	 *  In the editor it previews the game's text without touching the editor's own menus. The proof
+	 *  that runtime-loaded dialog translates; see dialog.md's localization section.
+	 */
+	UFUNCTION(Exec)
+	void SmoresSetCulture(const FString& Culture);
+
 protected:
 
 	/**
@@ -1078,6 +1146,10 @@ protected:
 	/** Server side of the record debug exec */
 	UFUNCTION(Server, Reliable)
 	void Server_DebugRecord(AStrategyUnit* Unit);
+
+	/** Server side of SmoresTestBark - the director and everything selection reads are server-owned */
+	UFUNCTION(Server, Reliable)
+	void Server_DebugBark(AStrategyUnit* Target, EBarkEvent Event);
 
 public:
 

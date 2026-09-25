@@ -1,0 +1,41 @@
+Id,Event,Conditions,Text,Weight,Cooldown
+# Base-game barks. One row per line. The most specific matching row wins (the one with the most conditions); ties go to the line said least recently.,,,,,
+# Conditions are separated by semicolons and all must hold. SmoresDialogReport facts lists what you can ask about.,,,,,
+# Text containing a comma needs "double quotes". Cooldown is per speaker in seconds. Weight only breaks ties.,,,,,
+#,,,,,
+# --- Hurt: the speaker took a hit and is still standing. Listener is whoever hit them.,,,,,
+hurt_generic,Hurt,,Ngh.,1,8
+hurt_generic_scar,Hurt,,That'll scar.,1,8
+hurt_badly,Hurt,Speaker.Health < 0.35,Can't take much more of this.,1,20
+hurt_bandit,Hurt,Speaker.Definition == Bandit,You'll bleed for that.,1,15
+hurt_bandit_badly,Hurt,Speaker.Definition == Bandit; Speaker.Health < 0.35,Not like this. Not for scrap.,1,30
+hurt_settler,Hurt,Speaker.Definition == Settler,I'm hit!,1,10
+hurt_settler_by_raider,Hurt,Speaker.Definition == Settler; Listener.Faction == Raiders,The raider's got teeth.,1,20
+hurt_trader,Hurt,Speaker.Role == trader,"I sell knives, I don't catch them.",1,15
+hurt_trader_by_customer,Hurt,Speaker.Role == trader; Listener.Definition == Settler,This is how you pay?,1,20
+#,,,,,
+# --- Downed: the speaker just went down. Nobody is addressed.,,,,,
+downed_generic,Downed,,Can't... get up.,1,0
+downed_bandit,Downed,Speaker.Definition == Bandit,"Finish it, then.",1,0
+downed_settler,Downed,Speaker.Definition == Settler,I'm down! Get me up!,1,0
+downed_trader,Downed,Speaker.Role == trader,Take the stock. Just leave me.,1,0
+#,,,,,
+# --- WitnessedDeath: someone on the speaker's side died nearby. Event.Victim is the one who died.,,,,,
+witness_generic,WitnessedDeath,,They're gone.,1,0
+witness_raider,WitnessedDeath,Speaker.Faction == Raiders,They'll pay for that one.,1,0
+witness_settler,WitnessedDeath,Speaker.Definition == Settler,No. Not them.,1,0
+witness_settler_for_settler,WitnessedDeath,Speaker.Definition == Settler; Event.Victim.Definition == Settler,We bury them when this is over.,1,0
+#,,,,,
+# --- TradeOpened: a squad member opened the speaker's shop.,,,,,
+trade_generic,TradeOpened,,Coin first. Questions never.,1,0
+trade_generic_sale,TradeOpened,,Everything's for sale. Some of it twice.,1,0
+trade_trader,TradeOpened,Speaker.Role == trader,What'll it be?,1,0
+trade_trader_guild,TradeOpened,Speaker.Role == trader; Speaker.Faction == TradersGuild,Guild prices. No haggling.,1,30
+trade_trader_friendly,TradeOpened,Speaker.Role == trader; StandingWithSpeaker >= 20,Good to see a face that pays.,1,30
+trade_trader_hostile,TradeOpened,Speaker.Role == trader; StandingWithSpeaker <= -20,Your money spends. That's all it does.,1,30
+#,,,,,
+# --- NothingToSay: a squad member tried to talk to someone with no shop and nothing else to offer.,,,,,
+nothing_generic,NothingToSay,,Move along.,1,0
+nothing_generic_busy,NothingToSay,,Not now.,1,0
+nothing_bandit,NothingToSay,Speaker.Definition == Bandit,"Keep walking, if you like your teeth.",1,10
+nothing_raider_hated,NothingToSay,Speaker.Faction == Raiders; StandingWithSpeaker <= -20,Back again? Brave or stupid.,1,10

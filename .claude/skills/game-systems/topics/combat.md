@@ -185,9 +185,12 @@ hit while otherwise idle. Looting a body's inventory is a related but separate s
 - `AttackTarget`'s out-of-range branch reuses the same `MoveToLocation` path as player move
   commands (EQS-refined destination), so any future movement-behavior change affects combat
   approach too.
-- **`UHealthComponent`'s four delegates now have a second consumer, and it wants the victim's
+- **`UHealthComponent`'s delegates now have three consumers, and two want the victim's
   identity.** `AStrategyUnit` binds them for its own behavior (retaliation, going inert); the HUD's
-  activity feed binds them through `USquadActivityWatcher` to write the fight record. Two things
+  activity feed binds them through `USquadActivityWatcher` to write the fight record; and the bark
+  director binds `OnDamaged`/`OnDowned`/`OnDied` through `UBarkUnitWatcher` for the `Hurt`,
+  `Downed` and `WitnessedDeath` barks (`dialog.md`) - the same one-watcher-per-unit shape, for the
+  same reason. Two things
   worth knowing before changing them:
   - **Three of the four carry no parameters** (`OnDowned`, `OnRecovered`, `OnDied`), so a listener
     cannot tell *who* the event was about. That is the entire reason the feed needs one watcher

@@ -173,8 +173,9 @@ documents what's actually built.
 - Loose items show their **3D mesh**, not their inventory icon. Every item type currently points
   at the same placeholder — a plain black 100-unit sphere, about half a pawn's height — so items
   on the ground are visible and clickable but tell each other apart only by position.
-- **Double-click a living NPC to interact with them.** If they are a trader and some player pawn
-  is close enough, their wares open beside that pawn's pack; otherwise nothing happens at all.
+- **Double-click a living NPC to interact with them.** If some player pawn is close enough they
+  say something (a greeting bark, or a "nothing to say" one - `dialog.md`), and if they are a
+  trader their wares open beside that pawn's pack. Out of reach is a *Too far away* refusal.
   Either way the double-click means *that person* — it never falls through to selecting everyone
   on screen, the same as double-clicking a chest or a body already does. Double-clicking **empty
   ground** still selects all on screen.
@@ -891,9 +892,9 @@ documents what's actually built.
     same pricing (sell side). The pawn window's pricing is set after `OpenInventoryForPawn`,
     which rebinds and therefore clears it
   - `AStrategyPlayerController::InteractWithNPC` — the "interact with this person" verb shared
-    by the double-click and the talk key: interactable, carries wares, and somebody is close
-    enough, or nothing happens. Where dialog goes when it exists, and deliberately carrying no
-    stub for it now
+    by the double-click, the talk key and the target panel: interactable, somebody close enough,
+    then a bark (`Server_RaiseInteractionBark`, which picks `TradeOpened` or `NothingToSay` on the
+    server) and, for a trader, the trade windows. See `dialog.md`
   - `AStrategyPlayerController::IsInteractableNPC` / `GetTraderStock` — the mirror of
     `IsLootableNPC`, and the trader lookup layered on top of it. Both static, both the single
     place their rule is written down
@@ -1157,11 +1158,9 @@ documents what's actually built.
 - **Real market pricing** — implement `IPricingProvider` and have `UTraderComponent` consult it
   instead of its own flat markup. Nothing in `TryTradeItem` or the UI reads a markup directly, so
   the swap is contained to that component.
-- **Dialog with a non-trader NPC** — `AStrategyPlayerController::InteractWithNPC` is the seam,
-  and its ordering is already settled: the double-click and the `T` key both reach it, an
-  interactable NPC with wares opens trade, and one without currently does nothing. There is
-  deliberately no stub to fill in — the branch is one `if` away from existing, and an empty hook
-  nobody implements against would be clutter in the meantime.
+- **Dialog with a non-trader NPC** — `AStrategyPlayerController::InteractWithNPC` is the seam.
+  Dialog Slice 1 filled the silent branch with a `NothingToSay` bark; Slice 2's conversations slot
+  in ahead of trade there (the order is in `Docs/roadmaps/dialog-roadmap.md`).
 - **A new interaction rule** (a faction refusing to deal, a merchant who only trades at certain
   hours) — extend `IsInteractableNPC`, which is the one place "may the player deal with this
   person" is written down, rather than adding a check per call site.

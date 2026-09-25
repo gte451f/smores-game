@@ -20,7 +20,7 @@ Amend this topic in the same change as any new binding.
 
 | Key | Action asset | Does |
 |---|---|---|
-| Left mouse | `IA_Strategy_SelectClick`, `_SelectHold`, `_SelectClickAdditive`, `_SelectAllDoubleClick` | Select; hold to drag a selection box; additive select; double-click a loose world item to pick it up, a container or a body to open it, a *living* NPC to interact with them (trade if they carry a trader component; dialog's future home; never on a hostile one), or empty ground to select all on screen |
+| Left mouse | `IA_Strategy_SelectClick`, `_SelectHold`, `_SelectClickAdditive`, `_SelectAllDoubleClick` | Select; hold to drag a selection box; additive select; double-click a loose world item to pick it up, a container or a body to open it, a *living* NPC to interact with them (they say a line, and trade opens if they carry a trader component; never on a hostile one), or empty ground to select all on screen |
 | Right mouse | `IA_Strategy_InteractClick` | Move order / interact at the cursor |
 | Middle mouse (hold) | `IA_Strategy_InteractHold` | Rotate the camera |
 | Mouse wheel | `IA_Strategy_Zoom` | Camera zoom |

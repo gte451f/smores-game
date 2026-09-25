@@ -9,7 +9,7 @@ assume this file is the whole picture:
 | Skill | Use it for |
 |---|---|
 | `game-design` | Design intent only: vision, pillars, and the desired end state of every major system. No implementation detail. |
-| `game-systems` | What's actually implemented and where it lives in C++: camera/selection, unit commands, inventory, combat, refusal messaging, keybinds, testing, module organization, multiplayer discipline. |
+| `game-systems` | What's actually implemented and where it lives in C++: camera/selection, unit commands, inventory, combat, dialog, refusal messaging, keybinds, testing, module organization, multiplayer discipline. |
 | `mcp-workflow` | Driving the editor through `unreal-mcp`: discovery workflow, token-discipline habits, known tool bugs. |
 
 ## Project Overview
@@ -92,20 +92,21 @@ before writing or changing gameplay state.** The short version:
 
 ### Module layout
 
-Seven runtime modules, each a sibling folder directly under `Source/`: the primary `smores`
-module plus `SmoresCore`, `SmoresCombat`, `SmoresItems`, `SmoresCharacters`, `SmoresUI`, and
-`SmoresEconomy`. `smores` holds only the Strategy game framework (game mode, player
-controller, player state, camera pawn), the main menu, and the unused template base classes
-— every gameplay domain lives in a feature module.
+Eight runtime modules, each a sibling folder directly under `Source/`: the primary `smores`
+module plus `SmoresCore`, `SmoresCombat`, `SmoresItems`, `SmoresCharacters`, `SmoresUI`,
+`SmoresEconomy`, and `SmoresDialog`. `smores` holds only the Strategy game framework (game mode,
+player controller, player state, camera pawn), the main menu, and the unused template base
+classes — every gameplay domain lives in a feature module.
 
-Dependency direction runs `smores` → `SmoresUI` → {`SmoresCharacters`, `SmoresEconomy`} →
-{`SmoresItems`, `SmoresCombat`} → `SmoresCore`, and never back. Two consequences worth
+Dependency direction runs `smores` → {`SmoresUI`, `SmoresDialog`} → {`SmoresCharacters`,
+`SmoresEconomy`} → {`SmoresItems`, `SmoresCombat`} → `SmoresCore`, and never back. (`SmoresUI`
+will depend on `SmoresDialog` once the conversation window exists.) Two consequences worth
 knowing before you write anything:
 
 - **Nothing depends on `smores`.** When a lower module needs behavior from
   `AStrategyPlayerController`, it declares a narrow interface in its own module and the
   controller implements it (`IStrategySelectionHost`, `IStrategyCameraCommands`,
-  `IInventoryMoveHost` — all in `SmoresUI`).
+  `IInventoryMoveHost` in `SmoresUI`; `IDialogHost` in `SmoresDialog`).
 - **New per-player or per-pawn state goes in a component in a feature module, never inline
   on a framework class** — and prefer such a component over a fourth interface when what
   the UI wants is per-player *state* rather than *behavior*.

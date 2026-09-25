@@ -3,14 +3,13 @@
 ## Purpose
 
 This is a **roadmap**, not a system reference: read it while implementing one of its slices, or
-when Jim points at it. The permanent record of how dialog works will live in the `game-systems`
-skill — a new `dialog.md` topic created by Slice 1 and extended by Slice 2 — and this file should
-be trimmed as each slice ships.
+when Jim points at it. The permanent record of how dialog works lives in the `game-systems`
+skill's `dialog.md` topic, created by Slice 1 and to be extended by Slice 2, and this file is
+trimmed as each slice ships. Sections marked **SHIPPED** have moved there and keep only a pointer.
 
-**Don't start before `game-data-roadmap.md` is complete.** That's Jim's sequencing call, and it
-matters for more than scheduling. Dialog reads character records (role, faction, definition id),
-faction standing, and the `Tags` that game-data Slice 5 adds to `USmoresDefinition`. All of those
-are the game-data layer's to build.
+> **Status: Slice 1 is built and committed, and awaits Jim's PIE look** (see its entry below).
+> Slice 2 waits on that look and on the Ink-or-Yarn decision. The game-data roadmap this one
+> depended on closed 2026-09-24.
 
 Dialog is a deliberate **area of improvement over Kenshi**, which is the reference game in most
 other respects. Barks matter, but so do NPC and recruit backstories, faction dealings, in-squad
@@ -69,128 +68,37 @@ Actually Split"), for two reasons:
   nothing reads dialog (only `SmoresUI`, to draw the window, and `smores`, to open it). That puts
   it near the top of the stack, like `SmoresAI` in the target map.
 
-Add `SmoresDialog` to the target module map in `unreal-module-organization.md` when Slice 1 creates
-it. Follow that topic's five-step registration checklist. Effects that need the player controller
+Slice 1 created it (registered per `unreal-module-organization.md`'s checklist, and added to its
+target module map), with `IDialogHost` as the controller seam. Today `SmoresUI` doesn't depend on it;
+the conversation window adds that edge. Effects that need the player controller
 (opening trade) go through a narrow interface declared in `SmoresDialog` and implemented by
 `AStrategyPlayerController`. That is the `IStrategySelectionHost` pattern, so nothing starts
 depending on `smores`.
 
-## The Loader
+## The Loader — SHIPPED (Slice 1)
 
-Runs once at game start, and again on demand (hot reload). It is the same code in the editor, in
-a packaged build and on a dedicated server.
+Folders and packages, `mod.json`, discovery and `Requires` ordering, parsing, validation with
+package/file/line reports, qualified ids, runtime string tables and translations, hot reload, and
+the multiplayer rules (every machine loads the same files; dialog crosses the network as ids;
+mismatch detectable, not enforced) are all built and documented in `dialog.md`.
 
-### Folders and packages
+What Slice 2 still owes the loader:
 
-A **package** is one folder with a manifest. The base game is package `core`. Every mod is another
-package.
-
-```
-Content/Dialog/core/            the base game, staged into the build as-is
-    mod.json
-    barks/*.csv
-    conversations/*             (Slice 2, in the chosen language)
-    localization/<culture>/*.csv
-Mods/<ModId>/                   one folder per mod, next to the installed game
-    mod.json
-    ...the same shape
-```
-
-- **Raw text files aren't packaged by default.** Unreal only cooks `.uasset`s, so `Content/Dialog`
-  needs adding to the project's list of directories staged as-is
-  (`DirectoriesToAlwaysStageAsUFS`). Check a packaged build actually contains it. This is the
-  step that fails silently, like the Asset Manager scan line in `game-data.md`.
-- **`mod.json`** carries: `Id` (the package's prefix), display name, version, the game version it
-  targets, and `Requires` (other package ids). Its exact field list is the slice's call.
-
-### Steps
-
-1. **Discover.** `core` first, then each folder under `Mods/`. A folder with no readable manifest
-   is skipped with an error.
-2. **Order.** `core`, then mods sorted so everything a mod `Requires` loads before it. A missing
-   requirement or a cycle skips the mods involved, with an error naming them.
-3. **Parse** each file into in-memory structs.
-4. **Validate** everything against the fact and effect lists and against every other loaded
-   package. Each problem is reported with package, file and line. **A broken entry is skipped,
-   not fatal**, and a broken mod never stops the game starting. The report goes to the log and a
-   one-line summary per package ("mod `lanterns`: loaded, 3 errors").
-5. **Index** for fast queries: barks by event, conversations by what they attach to.
-6. **Register text** as runtime string tables, one per package per culture (below).
-
-### Ids
-
-- **An id is written local to its package and qualified by the loader.** A writer types
-  `guard_greet`; the loader stores `lanterns.guard_greet`. A reference into another package is
-  written fully qualified. This makes collisions between mods impossible by construction rather
-  than by convention.
-- **Mods only add in v1.** Nothing can delete or replace a `core` entry. That turns out to be
-  enough to change what players see: a mod's more-specific bark wins the match, and a mod's
-  higher-priority conversation wins selection, without touching our files. Explicit replacement
-  can come later if modders genuinely need it (see Open Questions).
-- References to game content (a faction, a character definition, an item) use **definition ids**,
-  the same ids records and saves use (`game-data.md`'s id rule). A text file can't hold an asset
-  pointer. An id that doesn't resolve is a **validation warning, not an error**, the stance
-  `UPlayerStandingComponent` and `CreateRecord` already take for stripped mods. The `core` content
-  sweep (see Tests) turns it into an error for our own files.
-
-### Localization
-
-Every player-facing line is `FText` registered through Unreal's runtime string table registry
-(`FStringTableRegistry`), keyed by the qualified line id. Source-language text sits in the dialog
-files. Translations sit in `localization/<culture>/`, keyed by the same ids, and each mod ships
-its own. **This is the least-trodden part of the design.** Unreal's normal translation pipeline
-gathers text from assets and code, not from files loaded at runtime. So Slice 1 proves it end to
-end: switch culture in PIE and watch a bark change language. It doesn't wait for the full UI.
-
-### Hot reload
-
-`SmoresReloadDialog` reruns the whole load and prints the validation summary. A writer edits a
-file, types the command, and sees the change without restarting. Active conversations are ended
-first rather than migrated.
-
-### Multiplayer
-
-- **Every machine loads the same files.** The server needs them to decide what happens. Clients
-  need them to display it. **Over the network, dialog travels as ids, never text.** A client
-  resolves `lanterns.guard_greet` from its own loaded, translated copy, so each player reads their
-  own language.
-- **Mismatched dialog between host and client is detectable but not enforced here.** The loader
-  exposes the list of loaded packages and versions. Refusing a join over a mismatch is the session
-  roadmap's job (`SmoresOnlineSession`), because no join flow exists yet.
-- **Mods are data, not code.** A mod can only use the facts and effects the game exposes, which is
-  the stance `unreal-module-organization.md` already takes on content-only modding.
+- **`conversations/*` in each package**, in the chosen language's compiled format, parsed and
+  validated the same way barks are - header metadata in our condition language, broken entries
+  skipped with a report.
+- **Hot reload ends active conversations first** rather than migrating them.
+- **The loader rejects a compiled script older than its source**, in editor builds only (see the
+  Ink-or-Yarn criteria below).
 
 ## Facts, Conditions and Effects
 
-### Facts
+### Facts and the condition language — SHIPPED (Slice 1)
 
-A **fact** is a named question the game can answer at the moment of asking, like
-`Speaker.Faction`, `Listener.Role` or `StandingWithSpeaker`. They are registered in C++ with a
-name, a value type (number, name, or yes/no) and a function that answers it for a context. The
-context is:
-
-- **Speaker**: the NPC talking.
-- **Listener**: the squad member being spoken to, or the other participant in banter.
-- **Player**: the `PlayerState` whose squad this is.
-- **Event**: the bark's trigger, where one exists.
-
-**Only register a fact something can actually answer.** This is the refusal-reason rule from
-`refusals-and-feedback.md` applied to dialog. No `Speaker.Lineage` until lineage exists, no skill
-facts until skills exist. The registered list *is* the writer's and modder's reference, so a dead
-entry is a promise the game doesn't keep.
-
-### The condition language
-
-One small language, used everywhere selection happens (bark rules, conversation requirements, topic
-availability). It is a list of clauses, all of which must hold:
-
-```
-Speaker.Role == guard; StandingWithSpeaker <= -20; Event.Victim.Faction == Speaker.Faction
-```
-
-Comparisons, ids, numbers, and `Flag(name)`/`Seen(id)`-style calls. No `or`: write two rules.
-That keeps specificity countable (below). Parsed and checked at load time, so a typo in a fact
-name is a validation error with a line number, not a silent "never matches".
+The fact registry, the context (Speaker, Listener, Player, and the event's payload - `Event.Victim`
+today), the "only register a fact something can answer" rule, and the condition language itself
+(clauses joined by `;`, no `or`, checked at load time) are built and documented in `dialog.md`. The
+grammar already accepts the `Flag(name)` / `Seen(id)` call form; Slice 2 registers those two facts.
 
 **Our condition language owns selection even inside conversation scripts.** Ink and Yarn both have
 their own variables and expressions. Those are used for flow *inside* a conversation, reading
@@ -233,66 +141,64 @@ Per CLAUDE.md's slicing rules:
   playback modes, and ends in one PIE look. Splitting it would be "it's a different system", which
   CLAUDE.md lists as not a reason.
 
-### Before Slice 1: move the design into `game-design`
+### Before Slice 1: move the design into `game-design` — DONE
 
-The design decisions below (written ahead of time, barks plus rule-selected conversations,
-squad-scoped state, base-game-as-mod) are design intent, not implementation. They belong in
-`game-design`, as an expansion of `ai-and-behavior.md`'s "Barks and Dialogue" section or a new
-dialogue topic, before code is written against them. Check whether this has already happened.
+The design decisions now live in `game-design`'s new `dialogue.md`, and `ai-and-behavior.md`'s
+"Barks and Dialogue" section points at it (it used to say dialogue was "not a conversation system",
+which the conversations layer overrides).
 
-### Slice 1 — The loader, facts, and barks
+### Slice 1 — The loader, facts, and barks — **DONE** (awaiting Jim's PIE look)
 
-**Builds:**
+Shipped into a new `game-systems` topic, `dialog.md` (which also holds the writers' and modders'
+reference), with pointers from `hud-and-panels.md` (a new feed producer),
+`unreal-module-organization.md` (the new module), `multiplayer-discipline.md`, `factions.md`,
+`combat.md`, `inventory.md`, `input-and-keybinds.md`, `game-data.md` and `testing.md`. A new
+`SmoresDialog` module holds `USmoresDialogSubsystem` (the loader and library), the fact registry and
+condition language, bark selection, `UBarkDirectorComponent` (server-only, on `AStrategyGameState`)
+and `IDialogHost` (implemented by `AStrategyPlayerController`, whose `InteractWithNPC` now raises
+`TradeOpened` / `NothingToSay`). Content: `Content/Dialog/core` (27 barks, six French translations)
+and `Mods/example` (one more-specific bark). Execs: `SmoresReloadDialog`, `SmoresDialogReport`,
+`SmoresTestBark`, `SmoresSetCulture`. 23 new tests, 163 green. Verified in PIE by console: both
+packages load clean, the example mod's line wins the trader's greeting then falls back through core
+as it cools down, `SmoresSetCulture fr` turns the greeting French and `en` turns it back, and a bark
+reaches the feed. A packaged Win64 build was checked to contain `Content/Dialog` and to load it from
+the pak.
 
-- The `SmoresDialog` module, registered per the checklist.
-- `USmoresDialogSubsystem` (`UGameInstanceSubsystem`): the loader and the loaded library. It
-  survives map changes and exists on every machine. It has an in-memory entry point for tests
-  (load a package from strings), the same shape as `UWorldFactionComponent::InitializeFromDefinitions`.
-- The fact registry, the condition language (parser, validator, evaluator), and the facts the
-  bark events below need that current records can answer: role, definition id, faction, name,
-  life state, health fraction, `StandingWithSpeaker`, and the event's own payload.
-- The bark format. **CSV**, one row per line: id, event, conditions, text, weight, and a
-  per-speaker cooldown. It's writer-friendly (edits in a spreadsheet) and diffs line by line in git.
-- **Selection: most clauses matched wins.** A tie goes to the least recently used line, then
-  weight. Cooldowns are per speaker, so a guard doesn't repeat himself, but two guards can say the
-  same thing.
-- `UBarkDirectorComponent` on `AStrategyGameState`, server-only. It receives events, picks a
-  line, and delivers it to every player with a squad member within hearing range, through
-  `Client_NotifyActivity` on the COMMS tab (`hud-and-panels.md`'s "Adding a producer to the
-  activity feed"). Cooldown and recency state is transient and never saved.
-- **Events, all from signals that already exist**: `Hurt`, `Downed`, `WitnessedDeath` (allies
-  nearby), `TradeOpened`, and `NothingToSay`. `NothingToSay` fills the silent branch in
-  `AStrategyPlayerController::InteractWithNPC`, whose comment rightly refuses to fake "they have
-  nothing to say" with a refusal. A bark authored for that moment is the honest version. If the
-  danger-alerts roadmap has shipped, add `EngagementStarted` from its engagement state; if not,
-  don't invent one.
-- Execs: `SmoresReloadDialog`, `SmoresDialogReport` (packages, counts, errors), and
-  `SmoresTestBark <event>`, which fires an event on the targeted NPC and prints which rule won and
-  why. That last one answers "why did that line play?", the question that makes rule systems hard
-  to live with.
-- Content: a `core` bark set for the three existing definitions (Settler, Bandit, Trader), enough
-  that each event has a generic line and at least one more specific one. Plus **one example mod**
-  under `Mods/example/` that adds a single more-specific bark, which shows mod loading working
-  in PIE.
-- Localization proof: one bark translated into a second culture (placeholder text is fine),
-  visible after a culture switch.
+**Jim's PIE look still owes the design three answers**, each to be written back into
+`game-design`'s `dialogue.md`: do barks read right; do they fire too often (the knobs are
+`SpeakerQuietSeconds` 6 s, `HearingRange` 20 m and each row's cooldown); and is the feed enough, or
+do barks also want a floating line over the speaker.
 
-**Tests** (`testing.md`'s standing rule; this is counted and state-machine code):
+Notes worth carrying into Slice 2:
 
-- The condition language: parse, evaluate, reject unknown facts and bad syntax with a line number.
-- Specificity: the more specific rule wins, ties break as specified, cooldowns hold.
-- The loader: `Requires` ordering, a missing requirement, a cycle, duplicate ids within a package,
-  the same local id in two packages (legal), a broken row skipped while its neighbors load.
-- **The `core` content sweep**: the shipped base-game dialog loads with **zero** errors and at
-  least one bark per event. It's the dialog equivalent of `EveryAssetIsWellFormed`: count the
-  number, not the colour.
-
-**Verification:** Jim plays in PIE and judges whether barks read right, whether they fire too
-often, and whether the feed is the right place for them or they also want a floating line over
-the speaker (see Open Questions). Both answers get written back into `game-design`.
-
-**Ships into:** a new `game-systems` topic `dialog.md`; pointers from `hud-and-panels.md` (a new
-feed producer) and `unreal-module-organization.md` (the new module).
+- **Deviations from the sketch above, all deliberate:**
+  - **One string table per package, not one per package per culture.** Translations reach the
+    game through an `ILocalizedTextSource` registered with the localization manager, which is what
+    makes a string-table entry switch language live. Per-culture tables would each be a fixed
+    language. `dialog.md`'s localization section has the mechanism, including why every line must
+    be supplied on every load.
+  - **Ties are "least recently said by anyone", then a weighted pick.** Recency is per line and
+    global (a second guard avoids what the first just said); cooldowns are per speaker.
+  - **A per-speaker quiet time** (`SpeakerQuietSeconds`, 6 s) sits in front of selection, so a unit
+    in a fight doesn't bark on every hit until each line is cooling. Being spoken to ignores it.
+  - **Each event declares who it carries**, and a condition naming anyone else is a load error -
+    Downed has no listener, WitnessedDeath has a victim. This is what "a typo is an error, not a
+    silent never-matches" needed to cover people as well as fact names.
+  - **`WitnessedDeath` is raised by the nearest ally still standing**, allies being the same
+    player's squad or the same non-empty faction.
+  - **`SmoresTestBark` takes an optional name** (`SmoresTestBark TradeOpened Ada`), so a writer can
+    try a line without clicking anyone - and so an agent can drive it from the console.
+- **Traps hit:**
+  - `NewObject<UObject>()` as a stand-in identity trips an abstract-class ensure that fires once per
+    session - now in `testing.md`.
+  - The editor's culture preview refuses to start without a native game culture, and the project
+    has no localization target; the text source reports `en`.
+  - `FStringTable::SetSourceString` takes a third (notes) argument in editor builds only.
+  - A World Partition cell streaming in is a level being added, not a spawn, so the director
+    watches `LevelAddedToWorld` as well as `OnActorSpawned`.
+- **Open for later, not Slice 2's problem:** a packaged build ships English culture data only
+  (`InternationalizationPreset=English`), so it can't switch to French yet; every package's source
+  text is assumed English.
 
 ### Decision needed before Slice 2: Ink or Yarn
 
@@ -435,6 +341,7 @@ Settled during the conversation that produced this file. Don't reopen them witho
 ## Open Questions Worth Tracking
 
 - **Ink or Yarn.** Jim is reading up. See the criteria above. Blocks Slice 2 only.
+- **Barks: feel, frequency and placement** - the three questions Jim's Slice 1 PIE look answers.
 - **Text-loaded definitions.** Should mods be able to add character (and item, faction) definitions
   from text? This decides whether "a mod adds an NPC with dialog" is possible at all. It probably
   means the same loader grows a definitions path. That's a bigger modding decision than dialog.

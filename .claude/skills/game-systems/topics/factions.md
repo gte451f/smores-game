@@ -181,7 +181,9 @@ identity, so `SmoresCore` is its home today. `SmoresFactions` is worth cutting w
 
 ## Known Gaps
 
-- **Nothing reads standing.** By design for now — see Purpose.
+- **Nothing reads standing for behaviour.** By design for now — see Purpose. The one reader is
+  dialog: the `StandingWithSpeaker` fact lets a bark pick a warmer or colder line
+  (`dialog.md`). It changes what somebody *says*, never whether they trade or fight.
 - **Nothing is saved.** The records and standings are plain reflected structs holding ids, so the
   save system can serialize them unchanged, but no save exists. A new session re-seeds from the
   definitions.
@@ -189,7 +191,8 @@ identity, so `SmoresCore` is its home today. `SmoresFactions` is worth cutting w
 - **No crest/banner art.** The definition has a colour only. A crest belongs on
   `UFactionDefinition` (not the base — see `game-data.md` on presentation), and becomes a sweep
   requirement once one exists.
-- **Units have a faction, and nothing reads it.** Since game-data Slice 4 each unit's record holds
+- **Units have a faction, and nothing reads it for behaviour.** Dialog reads it to choose lines
+  (`Speaker.Faction`, and whose standing `StandingWithSpeaker` asks about). Since game-data Slice 4 each unit's record holds
   a `FactionId` from its character definition (`DA_Character_Bandit` → `Raiders`,
   `DA_Character_Trader` → `TradersGuild`, settlers none), copied to the actor as a replicated
   `AStrategyUnit::GetFactionId()`. Hostility still comes from the placeholder, not from this -

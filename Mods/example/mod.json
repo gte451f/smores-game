@@ -1,0 +1,7 @@
+{
+	"Id": "example",
+	"DisplayName": "Example mod - one more-specific bark",
+	"Version": "1.0.0",
+	"GameVersion": "0.0.0.1",
+	"Requires": ["core"]
+}

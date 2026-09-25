@@ -7,11 +7,11 @@ the standing rule for when a piece of work should add to it. The forward-looking
 still needs building, in what order, and the decisions behind it — lives in
 `Docs/roadmaps/testing-roadmap.md`.
 
-> **Status: the harness is built and Slices 1 and 2 have shipped.** 140 tests run green (one with a
+> **Status: the harness is built and Slices 1 and 2 have shipped.** 163 tests run green (one with a
 > warning - see the content sweeps below), covering `SmoresItems`, `SmoresEconomy`,
 > `UHealthComponent`, the content smoke tests, and (added by later roadmaps) the time-pace ladder,
 > the target panel's action assembly, the activity log, the definition layer, faction standing,
-> character records and loot tables.
+> character records, loot tables and dialog.
 > Only Slice 3 of
 > `Docs/roadmaps/testing-roadmap.md` remains. Everything below has been executed against this
 > project rather than written in advance.
@@ -55,10 +55,16 @@ them test smores.
 | Target-panel action assembly (per target kind, reach, hostility) | `smores` | ✅ 7 tests | HUD 2 |
 | Activity log ring buffer (eviction, shrink, filtering, broadcast, ids) | `SmoresCore` | ✅ 6 tests | HUD 3 |
 | `USmoresDefinitionLibrary` look-up and enumeration | `SmoresCore` | ✅ via the sweeps above | data 1 |
+| Dialog condition language (parse, evaluate, every kind of mistake rejected with its reason, subjects an event lacks, unknown content ids as warnings, line numbers) | `SmoresDialog` | ✅ 5 tests | dialog 1 |
+| Bark selection (most specific wins, least-recently-said before weight, weight on full ties, per-speaker cooldowns) | `SmoresDialog` | ✅ 4 tests | dialog 1 |
+| Dialog loader (CSV, `Requires` order, missing requirement, cycle, duplicate ids, same id in two packages, broken rows, bad manifests, translations, header order) | `SmoresDialog` | ✅ 10 tests | dialog 1 |
+| Dialog translations reaching the localization manager (culture fallback, every line supplied every time) | `SmoresDialog` | ✅ 1 test | dialog 1 |
+| Built-in dialog facts answered by real units | `smores` | ✅ 1 test | dialog 1 |
+| `Content/Dialog/core` and `Mods/example` (zero errors *and* warnings, a generic and a specific line per event, encoding, the example still outranks core) | `SmoresDialog` | ✅ 2 tests | dialog 1 |
 | Attack range / out-of-range branch | `SmoresCombat` | — | unclaimed |
 | Trade transaction ordering | `smores` | — | 3 |
 
-**140 tests.** Several rows came from the HUD and game-data rounds, not from the testing roadmap — a
+**163 tests.** Several rows came from the HUD, game-data and dialog rounds, not from the testing roadmap — a
 slice that ships numbers-and-state-machine code writes its own tests, whichever roadmap it came from.
 Update this table as slices ship; it is the quick answer to "is this already covered?"
 
@@ -445,6 +451,14 @@ other five passed on the identical mistake. Two habits follow:
 
 Both objects go through `KeepAlive` for the usual reason — neither has an owner, and a collect
 part-way through would pull them out from under the assertions.
+
+**The same trap, a second time: `NewObject<UObject>()` for a stand-in identity.** Found in dialog
+Slice 1, where the bark-selection tests wanted two distinct "speakers" only so an `FObjectKey` could
+tell them apart. `UObject` itself is marked abstract, so each construction raises the handled
+ensure *"Class which was marked abstract was trying to be loaded"* — once per session, so one of the
+four tests failed and three went yellow on the identical mistake. **When a test needs an object
+purely as an identity, spawn one**: `FSmoresTestWorld::SpawnOwner()` gives a real actor, which is
+also what a speaker is in play.
 
 ### `BeginPlay()` brings the project's real game mode up
 

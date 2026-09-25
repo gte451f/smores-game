@@ -25,7 +25,8 @@ public class smores : ModuleRules
 			"SmoresItems",
 			"SmoresCharacters",
 			"SmoresUI",
-			"SmoresEconomy"
+			"SmoresEconomy",
+			"SmoresDialog"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });

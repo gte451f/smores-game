@@ -1,0 +1,7 @@
+{
+	"Id": "core",
+	"DisplayName": "smores - base game",
+	"Version": "0.1.0",
+	"GameVersion": "0.0.0.1",
+	"Requires": []
+}

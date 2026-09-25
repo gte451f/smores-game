@@ -1,0 +1,8 @@
+Id,Text
+# Placeholder French for the trader greetings - the localization proof, not a real translation.,
+trade_generic,"L'argent d'abord. Les questions, jamais."
+trade_generic_sale,Tout est à vendre. Certaines choses deux fois.
+trade_trader,Qu'est-ce que ce sera ?
+trade_trader_guild,Prix de la Guilde. Pas de marchandage.
+trade_trader_friendly,Content de voir un visage qui paie.
+trade_trader_hostile,Ton argent se dépense. C'est tout ce qu'il fait.

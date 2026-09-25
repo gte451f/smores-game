@@ -1,0 +1,3 @@
+Id,Event,Conditions,Text,Weight,Cooldown
+# One bark, more specific than anything in the base game (three conditions to core's two), so it wins the trader's greeting whenever it is off cooldown - without touching core's files.,,,,,
+trader_settler_rope,TradeOpened,Speaker.Role == trader; Speaker.Faction == TradersGuild; Listener.Definition == Settler,"Settlers. Let me guess, rope?",1,30
