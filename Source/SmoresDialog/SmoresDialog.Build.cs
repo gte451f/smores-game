@@ -10,7 +10,7 @@ public class SmoresDialog : ModuleRules
 
 		// Dialog reads nearly everything below it and almost nothing reads dialog - see
 		// unreal-module-organization.md. SmoresEconomy joins this list with the first effect that
-		// touches a wallet (dialog Slice 2), not before.
+		// touches a wallet (dialog Slice 3), not before.
 		PublicDependencyModuleNames.AddRange(new string[] {
 			"Core",
 			"CoreUObject",

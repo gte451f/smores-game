@@ -17,7 +17,7 @@ class UDialogHost : public UInterface
  *
  *  The IStrategySelectionHost pattern (unreal-module-organization.md): nothing depends on the
  *  smores module, so SmoresDialog declares the narrow interface it needs and the controller
- *  implements it. Slice 1 needs two things; Slice 2's OpenTrade effect is expected to be the next.
+ *  implements it. Slice 1 needs two things; Slice 3's OpenTrade effect is expected to be the next.
  *
  *  Every call arrives on the server, one per player controller, and must not assume there is only
  *  one of those.

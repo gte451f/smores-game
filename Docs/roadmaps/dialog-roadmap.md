@@ -4,12 +4,13 @@
 
 This is a **roadmap**, not a system reference: read it while implementing one of its slices, or
 when Jim points at it. The permanent record of how dialog works lives in the `game-systems`
-skill's `dialog.md` topic, created by Slice 1 and to be extended by Slice 2, and this file is
+skill's `dialog.md` topic, created by Slice 1 and extended by each slice after it, and this file is
 trimmed as each slice ships. Sections marked **SHIPPED** have moved there and keep only a pointer.
 
-> **Status: Slice 1 is built and committed, and awaits Jim's PIE look** (see its entry below).
-> Slice 2 waits on that look and on the Ink-or-Yarn decision. The game-data roadmap this one
-> depended on closed 2026-09-24.
+> **Status: Slice 1 is DONE** - built, committed and PIE-checked by Jim 2026-09-24. **Slice 2
+> (floating bark text) is next**, and was added after that look; it needs one decision from Jim
+> before it starts (a proximity bark - see its entry). **Slice 3 (conversations)** waits on the
+> Ink-or-Yarn decision. The game-data roadmap this one depended on closed 2026-09-24.
 
 Dialog is a deliberate **area of improvement over Kenshi**, which is the reference game in most
 other respects. Barks matter, but so do NPC and recruit backstories, faction dealings, in-squad
@@ -62,7 +63,7 @@ smores → SmoresUI → SmoresDialog → {SmoresCharacters, SmoresEconomy} → {
 This is a real split, not a speculative one (per `unreal-module-organization.md`'s "When to
 Actually Split"), for two reasons:
 
-- **A third-party runtime arrives in Slice 2** (the Ink or Yarn plugin). Confining that dependency
+- **A third-party runtime arrives in Slice 3** (the Ink or Yarn plugin). Confining that dependency
   to one module means nothing else in the game links against it.
 - **Dialog reads nearly everything below it** (records, standing, wallets, inventory) and almost
   nothing reads dialog (only `SmoresUI`, to draw the window, and `smores`, to open it). That puts
@@ -82,7 +83,7 @@ package/file/line reports, qualified ids, runtime string tables and translations
 the multiplayer rules (every machine loads the same files; dialog crosses the network as ids;
 mismatch detectable, not enforced) are all built and documented in `dialog.md`.
 
-What Slice 2 still owes the loader:
+What Slice 3 still owes the loader:
 
 - **`conversations/*` in each package**, in the chosen language's compiled format, parsed and
   validated the same way barks are - header metadata in our condition language, broken entries
@@ -98,7 +99,7 @@ What Slice 2 still owes the loader:
 The fact registry, the context (Speaker, Listener, Player, and the event's payload - `Event.Victim`
 today), the "only register a fact something can answer" rule, and the condition language itself
 (clauses joined by `;`, no `or`, checked at load time) are built and documented in `dialog.md`. The
-grammar already accepts the `Flag(name)` / `Seen(id)` call form; Slice 2 registers those two facts.
+grammar already accepts the `Flag(name)` / `Seen(id)` call form; Slice 3 registers those two facts.
 
 **Our condition language owns selection even inside conversation scripts.** Ink and Yarn both have
 their own variables and expressions. Those are used for flow *inside* a conversation, reading
@@ -110,7 +111,7 @@ validator, and one place a modder looks.
 
 A fixed list of named actions a line or choice can trigger, each implemented in C++,
 **authority-only**, and validated at load time like facts. Slice 1 needs none (barks change
-nothing). Slice 2 registers only what its content uses: `SetFlag`, `ChangeStanding`, `TakeMoney`,
+nothing). Slice 3 registers only what its content uses: `SetFlag`, `ChangeStanding`, `TakeMoney`,
 `GiveMoney`, `OpenTrade`.
 
 An effect that could fail (`TakeMoney` with too little in the wallet) is checked *before* the
@@ -120,7 +121,7 @@ all-or-nothing.
 
 ## Implementation Order
 
-Two slices. Each follows the game-data roadmap's protocol:
+Three slices. Each follows the game-data roadmap's protocol:
 
 1. Read this entry, `dialog.md` (once Slice 1 creates it), and the source it names.
 2. C++ first. Both slices add `UCLASS`/`USTRUCT` types, so expect cold builds.
@@ -129,15 +130,19 @@ Two slices. Each follows the game-data roadmap's protocol:
 5. Jim looks at the result in PIE.
 6. Commit, move shipped content into `game-systems`, and mark the slice `DONE`.
 
-### Why two slices
+### Why three slices
 
 Per CLAUDE.md's slicing rules:
 
-- **1 → 2: a decision and a human look.** Slice 2 can't start until Jim has picked Ink or Yarn,
+- **1 → 3: a decision and a human look.** Slice 3 can't start until Jim has picked Ink or Yarn,
   and Slice 1 deliberately doesn't depend on that choice. Barks use our own format, so the loader
   and the whole bark layer get built and judged while the decision is still being made. Slice 1
   also ends in something Jim has to look at: whether barks read right, and how often they fire.
-- Everything inside Slice 2 (window conversations, topics, banter) is the same machinery in two
+- **2 exists because of that look.** Jim's Slice 1 PIE pass decided barks should also float over
+  the speaker. That is its own human look (size, height, duration, a fight's worth of speakers at
+  once) and it doesn't wait on Ink or Yarn either, so it can ship while the decision is open. Folding
+  it into Slice 3 would hold a ready piece of work hostage to an unmade choice.
+- Everything inside Slice 3 (window conversations, topics, banter) is the same machinery in two
   playback modes, and ends in one PIE look. Splitting it would be "it's a different system", which
   CLAUDE.md lists as not a reason.
 
@@ -147,7 +152,7 @@ The design decisions now live in `game-design`'s new `dialogue.md`, and `ai-and-
 "Barks and Dialogue" section points at it (it used to say dialogue was "not a conversation system",
 which the conversations layer overrides).
 
-### Slice 1 — The loader, facts, and barks — **DONE** (awaiting Jim's PIE look)
+### Slice 1 — The loader, facts, and barks — **DONE**
 
 Shipped into a new `game-systems` topic, `dialog.md` (which also holds the writers' and modders'
 reference), with pointers from `hud-and-panels.md` (a new feed producer),
@@ -164,12 +169,24 @@ as it cools down, `SmoresSetCulture fr` turns the greeting French and `en` turns
 reaches the feed. A packaged Win64 build was checked to contain `Content/Dialog` and to load it from
 the pak.
 
-**Jim's PIE look still owes the design three answers**, each to be written back into
-`game-design`'s `dialogue.md`: do barks read right; do they fire too often (the knobs are
-`SpeakerQuietSeconds` 6 s, `HearingRange` 20 m and each row's cooldown); and is the feed enough, or
-do barks also want a floating line over the speaker.
+**Jim's PIE pass, 2026-09-24:**
 
-Notes worth carrying into Slice 2:
+- **The right lines play, and repeat as they should**, for the bandits and the trader.
+- **`SmoresSetCulture fr` turns every trader line French and leaves the bandits in English** - as
+  built: only the six trader greetings were translated, which was the localization proof's whole
+  scope. Translating the rest is content work, not code.
+- **No bark fires on proximity.** Expected, and worth knowing why: Slice 1's five events are all
+  something happening *to* or *with* the speaker (a hit, a knockdown, a death, a shop opened, being
+  talked to). None fires because a squad simply came near, so outside a fight NPCs speak only when
+  spoken to. Whether to add one is the decision at the top of Slice 2.
+- **Floating text: yes** - barks should also appear over the speaker. And **a back-and-forth
+  conversation goes in its own panel**, which is Slice 3's window as already planned. Written into
+  `game-design`'s `dialogue.md`; Slice 2 builds the floating text.
+- **Frequency isn't judged yet**, since only interaction barks were seen. It carries into Slice 2's
+  look, where a fight's worth of floating lines will answer it (the knobs are `SpeakerQuietSeconds`
+  6 s, `HearingRange` 20 m and each row's cooldown).
+
+Notes worth carrying into the later slices:
 
 - **Deviations from the sketch above, all deliberate:**
   - **One string table per package, not one per package per culture.** Translations reach the
@@ -196,11 +213,80 @@ Notes worth carrying into Slice 2:
   - `FStringTable::SetSourceString` takes a third (notes) argument in editor builds only.
   - A World Partition cell streaming in is a level being added, not a spawn, so the director
     watches `LevelAddedToWorld` as well as `OnActorSpawned`.
-- **Open for later, not Slice 2's problem:** a packaged build ships English culture data only
+- **Open for later, not Slice 3's problem:** a packaged build ships English culture data only
   (`InternationalizationPreset=English`), so it can't switch to French yet; every package's source
   text is assumed English.
 
-### Decision needed before Slice 2: Ink or Yarn
+### Slice 2 — Floating bark text
+
+Added after Jim's Slice 1 PIE pass. **Barks only**: anything with back-and-forth is a conversation
+and gets Slice 3's window, never floating text (Jim's call, same pass).
+
+**Decision before starting - Jim's: add a proximity bark?** As things stand NPCs only speak when
+something happens to them or someone talks to them, so floating text would mostly decorate
+interactions the player started. The design names two barks that fire on approach - "a shopkeeper
+hawking goods, a guard challenging a loiterer" (`ai-and-behavior.md`) - and floating text is where
+they would read best. An **`Approached`** event would be the first:
+
+- raised by the director when one of a player's squad comes within `ApproachRange` (say 8 m) of an
+  NPC who is on their feet, having been outside it - on the way in, not every moment they stand
+  there - and no more than once per NPC per player per cooldown;
+- carrying Speaker (the NPC), Listener (the squad member who came near) and Player, like
+  `TradeOpened`;
+- checked on a slow timer (straight-line distance between each NPC and each squad member), which is
+  the seam real perception replaces later. **The honest limit**: it notices through walls, exactly
+  as `HearingRange` already does, until perception exists;
+- with core content for it - a generic line plus a trader's hawk and a bandit's challenge, since
+  the content sweep wants a generic and a specific line for every event.
+
+**Recommendation: include it.** Without it the slice is right but quiet. If Jim says no, the event
+waits for the AI roadmap's perception, and Slice 2 is floating text alone.
+
+**Builds:**
+
+- **`Client_NotifyBark` also carries the speaker** (the actor), so a client knows where to put the
+  line. The line still travels as its id. A speaker the client can't resolve (not relevant to it)
+  gets the feed line and no bubble.
+- **A bark bubble layer on the HUD**: `UBarkBubbleLayerWidget` in `SmoresUI`, a full-screen layer
+  hosted by `UStrategyUI` below every window, holding one `UBarkBubbleWidget` per speaker (plus its
+  WBP via MCP). Each frame it projects each speaker's head position to the screen through the owning
+  player controller and moves the bubble there.
+  - **A HUD layer rather than a damage-number-style actor**, for three reasons: it is
+    per-local-player by construction (only the players who heard a line see it, each in their own
+    language); keeping one bubble per speaker and stopping nearby bubbles overlapping needs every
+    bubble in one place; and it needs no widget class wired onto every unit Blueprint.
+    `ADamageNumberActor` stays as it is.
+  - **It must never take a click** (`HitTestInvisible`). This is a deliberate exception to
+    `hud-and-panels.md`'s "anything on the HUD that reads as a panel must be a `UHUDRegionWidget`":
+    that rule exists so panels *eat* clicks, and a bubble floats over the world - a click on it must
+    reach the unit underneath. Write the exception into that topic in the same change.
+- **The rules:**
+  - A new line from the same speaker replaces their bubble.
+  - A bubble lasts long enough to read - a floor plus a little per character, capped - in **real
+    time**, so 8x doesn't flash it past, then fades. It is an *event*, like the damage numbers; the
+    feed stays the *record* and keeps every line, unchanged.
+  - It follows the speaker as they move, and hides while they are off screen or behind the camera.
+    No edge-of-screen arrows: the feed already covers a line said out of sight.
+  - Bubbles near each other stack instead of overdrawing.
+  - Long lines wrap at a maximum width. The text is the line's string-table `FText`, so it follows
+    the culture like the feed does.
+  - Styling is the legible floor from `hud-and-panels.md` (dark translucent box, light text) until
+    the styling pass.
+- **Slice 3's ambient banter should use the same layer**, each line floating over whoever says it.
+  Noted there.
+
+**Tests:** whatever is pulled into a plain helper - the lifetime formula, one bubble per speaker, a
+replaced bubble's timer restarting, expiry. Placement and look are PIE. If `Approached` is in:
+entering fires once, standing inside doesn't fire again, leaving and coming back after the
+cooldown does, an incapacitated NPC never does, and one player's approach doesn't use up another's.
+
+**Verification:** Jim in PIE judges the bubble's height and size, how long it stays, what a fight
+with several people talking looks like, whether it reads at 4x and 8x, and - if `Approached` is in -
+how often people pipe up. The bark-frequency question Slice 1's look left open is answered here.
+
+**Ships into:** `dialog.md`; `hud-and-panels.md` (the new layer, and its click exception).
+
+### Decision needed before Slice 3: Ink or Yarn
 
 Jim's to make. These are the criteria that actually matter for *this* design, in order:
 
@@ -220,7 +306,7 @@ Jim's to make. These are the criteria that actually matter for *this* design, in
 Yarn Spinner 3's storylets overlap with our selection layer. That's fine and not a reason to pick
 Yarn: we keep our condition language for selection either way (see "The condition language").
 
-### Slice 2 — Conversations, topics and banter
+### Slice 3 — Conversations, topics and banter
 
 **Starts with a spike, and stops if it fails.** Build the chosen plugin on 5.8, load one compiled
 script from a loose file, and step through it on a server with no UI. If that doesn't work, stop
@@ -261,15 +347,17 @@ and bring the options back to Jim. Don't work around it silently.
   open it → else a trader → open trade directly (so a trader whose conversation a stripped mod
   removed still trades) → else the `NothingToSay` bark. The Talk button, `T` and the double-click
   all reach it already.
-- **The window**: `UConversationWidget` in `SmoresUI` plus its WBP via MCP. It shows the speaker's
+- **The window**: `UConversationWidget` in `SmoresUI` plus its WBP via MCP - its own panel, never
+  floating text, which Jim confirmed in Slice 1's PIE pass. It shows the speaker's
   name and portrait (portrait fallback rules from `hud-and-panels.md`), the current line, and the
   choices, with disabled ones showing their reason. Every line spoken also goes to the COMMS feed,
   which is the transcript the design promises in `player-interface.md`.
 - **Ambient playback**, the second mode of the same machinery. An `Ambient` conversation plays
-  without a window. Lines go to the feed with a reading delay between them. Used for **in-squad
-  banter**: a server-side director tries an eligible ambient conversation after an engagement ends
-  and at a slow cooldown while the squad is idle, casting its participants from that player's
-  squad members standing near each other. The validator rejects choices inside an ambient script.
+  without a window. Lines go to the feed with a reading delay between them, and float over each
+  speaker through Slice 2's bubble layer. Used for **in-squad banter**: a server-side director
+  tries an eligible ambient conversation after an engagement ends and at a slow cooldown while the
+  squad is idle, casting its participants from that player's squad members standing near each
+  other. The validator rejects choices inside an ambient script.
 - Content, one example of each shape:
   - a `core` trader greeting with a trade choice and a haggling-flavored topic (no real
     haggling; prices stay flat)
@@ -337,16 +425,19 @@ Settled during the conversation that produced this file. Don't reopen them witho
 - **Dialog crosses the network as ids**, and each client resolves text in its own language.
 - **Broken content is skipped with a report, never fatal.** Unknown game-content ids are warnings
   at runtime and errors in our own content sweep.
+- **Barks float over the speaker as well as going to the feed; a back-and-forth conversation gets
+  its own panel.** Jim's call after Slice 1's PIE pass, 2026-09-24. The floating text is an event
+  that fades; the feed is the record that doesn't.
 
 ## Open Questions Worth Tracking
 
-- **Ink or Yarn.** Jim is reading up. See the criteria above. Blocks Slice 2 only.
-- **Barks: feel, frequency and placement** - the three questions Jim's Slice 1 PIE look answers.
+- **Ink or Yarn.** Jim is reading up. See the criteria above. Blocks Slice 3 only.
+- **A proximity bark (`Approached`) in Slice 2, or wait for perception?** Jim's call before
+  Slice 2 starts; see its entry.
+- **How often barks fire.** Slice 1's look only saw interaction barks; Slice 2's look answers it.
 - **Text-loaded definitions.** Should mods be able to add character (and item, faction) definitions
   from text? This decides whether "a mod adds an NPC with dialog" is possible at all. It probably
   means the same loader grows a definitions path. That's a bigger modding decision than dialog.
-- **Floating bark text over the speaker, or the feed only?** The design says the feed. Jim's
-  Slice 1 look should settle whether that's enough.
 - **Does a single-player conversation pause the game?** Co-op can't, which argues for consistency.
   Kenshi doesn't pause either.
 - **Explicit replacement of `core` entries by mods.** Add-only may prove too limiting once modders

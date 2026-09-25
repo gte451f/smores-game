@@ -21,10 +21,13 @@ stark tone in `narrative-and-lore.md` and keeps every line translatable.
 ## Two Kinds of Dialogue
 
 - **Barks** are one-way lines, a sentence or two, said in passing: a trader greeting a customer,
-  a bandit going down, someone crying out when hit. They appear in the activity feed alongside the
-  combat log (`player-interface.md`). A bark never changes anything; it only tells the player
-  something.
-- **Conversations** are authored exchanges with choices, played in their own window. They're how
+  a bandit going down, someone crying out when hit. A bark **floats briefly over whoever said it**,
+  so it can be seen where it was said, and is **recorded in the activity feed** alongside the
+  combat log (`player-interface.md`), so it can't be missed. The floating line is an event that
+  fades; the feed is the record that doesn't. A bark never changes anything; it only tells the
+  player something.
+- **Conversations** are authored exchanges with choices, played in **their own panel** - never as
+  floating text, which is for single one-way lines only. They're how
   the player deals with a faction's representative, hears a character's history, or (later) takes
   on a quest. A conversation can change the world: standing, money, what a squad has learned.
 
@@ -90,9 +93,10 @@ edits a file and sees the change without restarting the game.
 
 ## Open Design Questions Worth Tracking
 
-- **Floating bark text over the speaker, or the feed only?** The feed is the record either way; the
-  question is whether a bark also needs to be seen where it was said.
 - **How often barks fire.** Too often and the feed is noise; too rarely and the world is mute.
+- **Do people speak up when a squad simply comes near** - a shopkeeper hawking, a guard challenging
+  (`ai-and-behavior.md`) - or only when something happens to them or someone talks to them? Real
+  noticing waits on perception; a distance-based stand-in would notice through walls.
 - **Hearing range, and whether it respects awareness** (walls, distance, noise) once perception
   exists (`ai-and-behavior.md`).
 - **Does a single-player conversation pause the game?** Co-op can't, which argues for consistency.

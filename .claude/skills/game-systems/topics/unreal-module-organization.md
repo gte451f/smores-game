@@ -316,7 +316,7 @@ better answer than a fourth interface.
 | `SmoresCombat` | Health/damage, melee resolution, disposition/aggro, incapacitation/capture | `SmoresCore`, `SmoresCharacters` | `combat.md` (both skills) |
 | `SmoresFactions` | Faction simulation, standing, territory, assault intelligence, military progression, and faction-level decision-making (relationships, settlement investment, raid/assault decisions) on its own slow clock | `SmoresCore`, `SmoresCharacters` | `factions-and-world-state.md` |
 | `SmoresAI` | Individual character behavior: roles/archetypes, perception, drives, goal selection, and the per-character job queue | `SmoresCore`, `SmoresCharacters`, `SmoresCombat`, `SmoresItems`, `SmoresFactions`, `SmoresWorld` | `ai-and-behavior.md`, `orders-and-jobs.md` |
-| `SmoresDialog` **(EXISTS)** | Dialog: the text-file loader (base game and mods through one path), the condition language and facts, barks, and (Slice 2) conversations, topics, banter and effects. Confines the Ink/Yarn runtime to one module | `SmoresCore`, `SmoresCombat`, `SmoresCharacters` today; `SmoresEconomy` with the first wallet effect | `dialogue.md`; `dialog.md` (current) |
+| `SmoresDialog` **(EXISTS)** | Dialog: the text-file loader (base game and mods through one path), the condition language and facts, barks, and (Slices 2-3) floating bark text, conversations, topics, banter and effects. Confines the Ink/Yarn runtime to one module | `SmoresCore`, `SmoresCombat`, `SmoresCharacters` today; `SmoresEconomy` with the first wallet effect | `dialogue.md`; `dialog.md` (current) |
 | `SmoresEconomy` **(EXISTS)** | **Value primitives only**: currency/wallet, pricing interface, traders and their stock | `SmoresCore`, `SmoresItems` | `economy.md` |
 | `SmoresMarkets` | Market simulation proper: supply/demand, emergent regional pricing, trade routes, caravans | `SmoresCore`, `SmoresItems`, `SmoresEconomy`, `SmoresFactions`, `SmoresWorld` | `economy.md` |
 | `SmoresWorld` | Map data, regions/biomes, POIs, fog of war/travel, wildlife, environmental events | `SmoresCore`, `SmoresFactions` (territory overlay) | `open-world.md`, `world-map-and-travel.md` |
@@ -333,7 +333,7 @@ tech/crafting are all still design-only per `game-design`).
 
 **Why `SmoresDialog` was cut when it was.** The second module cut for an ownership reason, and
 for two reasons that were real rather than predicted: a third-party runtime (the Ink or Yarn
-plugin, dialog Slice 2) is arriving, and confining it to one module means nothing else in the game
+plugin, dialog Slice 3) is arriving, and confining it to one module means nothing else in the game
 links against it; and dialog reads nearly everything below it while almost nothing reads dialog -
 the healthy top-of-stack shape `SmoresAI` will have. Standing it up cost the five-step checklist
 below and nothing else; the one new seam was `IDialogHost`, because the bark director has to reach

@@ -798,8 +798,8 @@ namespace SmoresDialog
 					continue;
 				}
 
-				// only what the loader understands; anything else (a README, Slice 2's scripts
-				// before Slice 2 exists) is left alone rather than reported
+				// only what the loader understands; anything else (a README, Slice 3's scripts
+				// before Slice 3 exists) is left alone rather than reported
 				const bool bIsManifest = RelativePath.Equals(DialogManifestFileName, ESearchCase::IgnoreCase);
 				const bool bIsCsv = RelativePath.EndsWith(TEXT(".csv"), ESearchCase::IgnoreCase)
 					&& (RelativePath.StartsWith(DialogBarksFolder, ESearchCase::IgnoreCase) || RelativePath.StartsWith(DialogLocalizationFolder, ESearchCase::IgnoreCase));

@@ -6,7 +6,8 @@ What characters say, and the machinery that picks it. Built by Slice 1 of
 `Docs/roadmaps/dialog-roadmap.md`: dialog read from plain text files at startup (the base game
 loaded exactly like a mod), a small condition language over a registered list of **facts**, and
 **barks** - one-way lines picked by "most specific match wins" and delivered to the activity feed.
-Conversations, topics and banter are Slice 2, still on the roadmap; they reuse everything here.
+Floating bark text is the roadmap's Slice 2, and conversations, topics and banter its Slice 3; both
+reuse everything here.
 
 The design intent is `game-design`'s `dialogue.md`. This topic is how it is built.
 
@@ -14,7 +15,7 @@ The design intent is `game-design`'s `dialogue.md`. This topic is how it is buil
 
 - **Barks appear in the activity feed**, on the COMMS tab (and LOG), in quotes, with the speaker's
   name as the line's source: *"Coin first. Questions never." - Merchant Ada*. Nothing floats over
-  anyone's head (an open question - see Known Gaps).
+  anyone's head yet - decided, and the roadmap's Slice 2 (see Known Gaps).
 - **When someone barks** - five moments, all from signals the game already had:
 
   | Event | When | Speaker | Who they're speaking to |
@@ -251,7 +252,7 @@ All in `SmoresDialog` (`Source/SmoresDialog/`), except the controller and GameSt
 | `DialogText.h` | `FDialogLocalizedTextSource`, `PublishDialogText` (string tables + text source), `GetPublishedLineText`, `SetDialogCulture` / `EndDialogCulturePreview` |
 | `SmoresDialogSubsystem.h` | `USmoresDialogSubsystem`, a `UGameInstanceSubsystem`: gathers from disk, loads, publishes the text, logs the report, broadcasts `OnLibraryLoaded`. Survives map changes and exists on every machine |
 | `BarkDirectorComponent.h` | `UBarkDirectorComponent` (server-only, on the GameState) and `UBarkUnitWatcher` - one per unit, the `USquadActivityWatcher` pattern, because three of `UHealthComponent`'s four delegates can't say whose they are |
-| `DialogHost.h` | `IDialogHost` - what dialog needs a player's controller to do: `IsSquadMemberWithin`, `DeliverBark`. The `IStrategySelectionHost` pattern; Slice 2's `OpenTrade` effect is the expected next member |
+| `DialogHost.h` | `IDialogHost` - what dialog needs a player's controller to do: `IsSquadMemberWithin`, `DeliverBark`. The `IStrategySelectionHost` pattern; Slice 3's `OpenTrade` effect is the expected next member |
 
 ### How a bark travels
 
@@ -343,16 +344,24 @@ from a map (`Tests/SmoresDialogTestFactory.h`), so a writer retuning a bark can'
 
 ## Known Gaps
 
-- **Conversations, topics, banter, dialog memory and effects are Slice 2** - see the roadmap. So is
-  the Ink-or-Yarn decision, which blocks only them.
+- **Conversations, topics, banter, dialog memory and effects are Slice 3** - see the roadmap. So is
+  the Ink-or-Yarn decision, which blocks only them. A conversation plays in its own panel, never as
+  floating text (Jim, after Slice 1's PIE pass).
 - **A packaged build can't switch to French yet.** `InternationalizationPreset=English` in
   `DefaultGame.ini` stages English culture data only, so `SmoresSetCulture fr` answers "this build
   doesn't know the culture". The proof is in PIE; a packaged build wants the preset (and
   `CulturesToStage`) widened the day a second language is real. The dialog files themselves stage
   regardless.
 - **Every package's source text is assumed English.** A mod written in German has no way to say so.
-- **Barks are feed-only.** Whether they also want a floating line over the speaker is the open
-  question from the roadmap, for Jim's PIE look.
+- **Barks are feed-only today.** Jim's Slice 1 PIE pass decided they should also float briefly over
+  the speaker; that is the roadmap's Slice 2, a HUD layer rather than a damage-number-style actor so
+  that two people talking at once don't overlap.
+- **Nothing barks on approach.** All five events are something happening to or with the speaker,
+  so outside a fight NPCs speak only when spoken to - which is how Slice 1's PIE pass read. An
+  `Approached` event is proposed in the roadmap's Slice 2, pending Jim's call.
+- **Only the trader greetings are translated.** The six French lines were the localization proof's
+  whole scope, so after `SmoresSetCulture fr` the bandits and everyone else still speak English.
+  Translating the rest is content work.
 - **The tuning numbers are guesses**: `HearingRange` 20 m, `WitnessRange` 15 m,
   `SpeakerQuietSeconds` 6 s, and every row's cooldown. All on the director or in the file.
 - **Hearing ignores walls and awareness.** Straight-line distance only, until perception exists
