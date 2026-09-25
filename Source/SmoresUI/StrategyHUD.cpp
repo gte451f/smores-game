@@ -65,6 +65,14 @@ void AStrategyHUD::ToggleActivityFeed()
 	}
 }
 
+void AStrategyHUD::ShowBarkBubble(const AActor* Speaker, const FText& Line)
+{
+	if (UIWidget)
+	{
+		UIWidget->ShowBarkBubble(Speaker, Line);
+	}
+}
+
 void AStrategyHUD::DrawHUD()
 {
 	// draw all debug information, etc.
@@ -147,9 +155,13 @@ void AStrategyHUD::DrawHUD()
 			// the rail early-outs unless the set of open panels actually changed.
 			UIWidget->RefreshNavRail();
 
-			// the feed's fade, which is a function of wall-clock time and so genuinely does have
-			// to be recomputed every frame - see UActivityFeedWidget::RefreshFeed
+			// the feed's rebuild, deferred to here so several lines posted in one frame cost one
+			// rebuild - see UActivityFeedWidget::RefreshFeed
 			UIWidget->RefreshActivityFeed();
+
+			// the bark bubbles follow their speakers and fade on wall-clock time, so they genuinely
+			// do move every frame - each one still compares before touching Slate
+			UIWidget->RefreshBarkBubbles();
 		}
 
 		// process each selected unit

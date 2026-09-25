@@ -7,14 +7,13 @@ when Jim points at it. The permanent record of how dialog works lives in the `ga
 skill's `dialog.md` topic, created by Slice 1 and extended by each slice after it, and this file is
 trimmed as each slice ships. Sections marked **SHIPPED** have moved there and keep only a pointer.
 
-> **Status: Slice 1 is DONE** - built, committed and PIE-checked by Jim 2026-09-24. **Slice 2
-> (floating bark text and proximity barks)** is ready to start. **Slice 3 (conversations) is
-> unblocked:** Jim chose **Yarn** on 2026-09-25, after a spike that played the same scene in Ink
-> and in Yarn from loose files (see "Decided: Yarn"). The spike's Yarn player, its tests and the
-> example scene are on branch **`spike/conversation-players`** (commits `a466c73` and `c1bffd2`),
-> not yet merged into `main`: work on that branch, or merge it first if Jim says so. The Yarn
-> plugin itself is local-only and never committed while the repo is public (`dialog.md`). The
-> game-data roadmap this one depended on closed 2026-09-24.
+> **Status: Slices 1 and 2 are DONE** - Slice 1 built, committed and PIE-checked by Jim
+> 2026-09-24; Slice 2 (floating bark text and proximity barks) built and PIE-checked by Jim
+> 2026-09-25. **Slice 3 (conversations) is next:** Jim chose **Yarn** on 2026-09-25, after a spike
+> that played the same scene in Ink and in Yarn from loose files (see "Decided: Yarn"). The spike's
+> Yarn player, its tests and the example scene (commits `a466c73` and `c1bffd2`) were merged into
+> `main` on 2026-09-25. The Yarn plugin itself is local-only and never committed while the repo is
+> public (`dialog.md`). The game-data roadmap this one depended on closed 2026-09-24.
 
 Dialog is a deliberate **area of improvement over Kenshi**, which is the reference game in most
 other respects. Barks matter, but so do NPC and recruit backstories, faction dealings, in-squad
@@ -262,83 +261,57 @@ Notes worth carrying into the later slices:
   (`InternationalizationPreset=English`), so it can't switch to French yet; every package's source
   text is assumed English.
 
-### Slice 2 — Floating bark text and proximity barks
+### Slice 2 — Floating bark text and proximity barks — **DONE**
 
-Added after Jim's Slice 1 PIE pass, and both halves are his calls from it. **Barks only float**:
-anything with back-and-forth is a conversation and gets Slice 3's window, never floating text. And
-**NPCs should speak up when a squad comes near**, not only when something happens to them or someone
-talks to them - the design's "a shopkeeper hawking goods, a guard challenging a loiterer"
-(`ai-and-behavior.md`), which is also what gives the floating text something to show outside a
-fight. The two are one slice because they are judged in one PIE look: how often people pipe up is
-only answerable once you can see them do it.
+Added after Jim's Slice 1 PIE pass, and both halves are his calls from it: **barks also float over
+the speaker** (anything with back-and-forth is a conversation and gets Slice 3's window, never
+floating text), and **NPCs speak up when a squad comes near**. One slice because they are judged
+in one look: how often people pipe up is only answerable once you can see them do it.
 
-**Builds:**
+Built 2026-09-25 and documented in `dialog.md` (Player Surface's event table and "Bark bubbles";
+C++ "How `Approached` is raised" and "How a bubble is drawn") and `hud-and-panels.md` (the new
+layer, and its click-shield exception in Core Rules). In short:
 
-- **`Client_NotifyBark` also carries the speaker** (the actor), so a client knows where to put the
-  line. The line still travels as its id. A speaker the client can't resolve (not relevant to it)
+- `Client_NotifyBark` carries the speaker as an actor reference; a client it doesn't resolve on
   gets the feed line and no bubble.
-- **A bark bubble layer on the HUD**: `UBarkBubbleLayerWidget` in `SmoresUI`, a full-screen layer
-  hosted by `UStrategyUI` below every window, holding one `UBarkBubbleWidget` per speaker (plus its
-  WBP via MCP). Each frame it projects each speaker's head position to the screen through the owning
-  player controller and moves the bubble there.
-  - **A HUD layer rather than a damage-number-style actor**, for three reasons: it is
-    per-local-player by construction (only the players who heard a line see it, each in their own
-    language); keeping one bubble per speaker and stopping nearby bubbles overlapping needs every
-    bubble in one place; and it needs no widget class wired onto every unit Blueprint.
-    `ADamageNumberActor` stays as it is.
-  - **It must never take a click** (`HitTestInvisible`). This is a deliberate exception to
-    `hud-and-panels.md`'s "anything on the HUD that reads as a panel must be a `UHUDRegionWidget`":
-    that rule exists so panels *eat* clicks, and a bubble floats over the world - a click on it must
-    reach the unit underneath. Write the exception into that topic in the same change.
-- **The rules:**
-  - A new line from the same speaker replaces their bubble.
-  - A bubble lasts long enough to read - a floor plus a little per character, capped - in **real
-    time**, so 8x doesn't flash it past, then fades. It is an *event*, like the damage numbers; the
-    feed stays the *record* and keeps every line, unchanged.
-  - It follows the speaker as they move, and hides while they are off screen or behind the camera.
-    No edge-of-screen arrows: the feed already covers a line said out of sight.
-  - Bubbles near each other stack instead of overdrawing.
-  - Long lines wrap at a maximum width. The text is the line's string-table `FText`, so it follows
-    the culture like the feed does.
-  - Styling is the legible floor from `hud-and-panels.md` (dark translucent box, light text) until
-    the styling pass.
-- **Slice 3's ambient banter should use the same layer**, each line floating over whoever says it.
-  Noted there.
-- **An `Approached` bark event** - the first bark that fires on proximity:
-  - raised by the director when one of a player's squad comes within `ApproachRange` (8 m to start)
-    of an NPC who is on their feet, having been outside it - **on the way in, not every moment they
-    stand there** - and then not again for that NPC and that player until `ApproachCooldownSeconds`
-    (a minute to start) has passed and the squad has left and come back. Squad members never raise
-    it at each other;
-  - carrying Speaker (the NPC), Listener (the squad member who came near) and Player, like
-    `TradeOpened`, so a line can depend on who walked up and on standing;
-  - subject to the speaker's quiet time and each line's cooldown like every other bark, so an NPC
-    who just spoke doesn't also greet;
-  - checked on a slow world-time timer on the director - straight-line distance between each NPC
-    and each squad member - with the inside/outside and last-fired state per NPC per player held in
-    the director's transient memory, never saved. **The honest limit**: it notices through walls,
-    exactly as `HearingRange` already does. The timer is the seam real perception replaces
-    (`ai-and-behavior.md`'s Awareness), with nothing else needing to change;
-  - a value on `EBarkEvent` and a row in `GetEventSubjects`, so the loader, the condition checks,
-    `SmoresTestBark Approached <Name>` and the writers' reference all pick it up;
-  - with core content: a generic line, plus at least a trader's hawk and a bandit's challenge -
-    the content sweep wants a generic and a more specific line for every event.
+- `UBarkBubbleLayerWidget` (`SmoresUI`), a full-screen `HitTestInvisible` layer bound on
+  `UStrategyUI` as `BarkBubbleLayer`, beneath the regions; `UBarkBubbleWidget` per bubble; WBPs
+  `WBP_BarkBubbleLayer` and `WBP_BarkBubble`. Rules in the plain `FBarkBubbleSchedule` /
+  `StackBoxes`: one bubble per speaker, 2 s + 0.06 s per character capped at 6 s then a 0.6 s fade,
+  real time, stack straight up, wrap at 260.
+- `EBarkEvent::Approached` (Speaker, Listener, Player), raised by the director's 0.5 s world-time
+  timer through the plain `FApproachTracker`: on the way in only, `ApproachRange` 8 m,
+  `ApproachCooldownSeconds` 60 plus a leave-and-return, never by a downed NPC or a squad member,
+  per NPC per player. Six `core` lines: two generic, a trader's hawk and a Traders Guild one, a
+  bandit's challenge, a hated-by-Raiders warning.
+- 9 new tests (5 `Smores.Dialog.Approach.*`, 4 `Smores.UI.BarkBubbles.*`); 176 green.
 
-**Tests:** whatever of the bubbles is pulled into a plain helper - the lifetime formula, one bubble
-per speaker, a replaced bubble's timer restarting, expiry; placement and look are PIE. For
-`Approached`, the edge-trigger as a plain helper too: entering fires once, standing inside doesn't
-fire again, leaving and coming back fires only after the cooldown, an incapacitated NPC never fires,
-a squad member never does, and one player's approach doesn't use up another's. The core content
-sweep picks up the new event on its own and fails until its lines exist.
+**Choices made while building, all small and all reversible:**
 
-**Verification:** Jim in PIE judges the bubble's height and size, how long it stays, what a fight
-with several people talking looks like, whether it reads at 4x and 8x, and how often people pipe up
-as the squad walks through - the bark-frequency question Slice 1's look left open. The knobs:
-`ApproachRange`, `ApproachCooldownSeconds`, `SpeakerQuietSeconds`, `HearingRange` and each row's
-cooldown.
+- **An approach counts once raised**, whether or not the NPC then said anything (quiet time, line
+  cooldown). An NPC who happened to be mid-bark doesn't greet that squad until they leave and come
+  back after the cooldown.
+- **First sight counts as an arrival**: a squad spawning, or an NPC streaming in, already within
+  range is greeted on the first check.
+- **Downed squad members still count as "the squad is here"**, so a squad that went down together
+  isn't greeted as newcomers when it gets up.
+- **Stacking keeps the bubble shown first in place** and lifts later ones straight up, in the order
+  speakers first spoke (a replacement keeps its slot), so a stack doesn't reshuffle every time
+  someone speaks. The cost: a newer line from a speaker lower on screen can sit above an older one.
 
-**Ships into:** `dialog.md` (the bubble layer, the new event in the event and subjects tables);
-`hud-and-panels.md` (the new layer, and its click exception).
+Before Jim's look, an agent's PIE smoke test walked squad members up to NPCs: Merchant Ada gave the
+Traders Guild hawk and three bandits their challenge, each within half a second, each in the feed,
+and a bubble showed over the speaker. No errors from game code.
+
+**Jim's PIE pass, 2026-09-25: "looks good".**
+
+- **Floating text on approach** for NPCs and the trader.
+- **Floating text from squad members during combat** (their `Hurt` and `Downed` lines).
+- **Nothing repeats while standing near an NPC for a long time** - the edge-trigger holds.
+- No changes asked for: bubble size, height and timing, and every tuning knob, stay at their
+  starting values. The knobs, for whenever that changes: `ApproachRange`, `ApproachCooldownSeconds`,
+  `SpeakerQuietSeconds`, `HearingRange`, each row's cooldown (director and `core.csv`), and the
+  layer's timing, `HeadClearance` and `StackGap` (`WBP_BarkBubbleLayer`).
 
 ### Decided: Yarn (2026-09-25)
 
@@ -546,7 +519,8 @@ Settled during the conversation that produced this file. Don't reopen them witho
 
 ## Open Questions Worth Tracking
 
-- **How often barks fire.** Slice 1's look only saw interaction barks; Slice 2's look answers it.
+- **How often barks fire.** Slice 2's look (approach barks, a fight's worth of `Hurt` lines) asked
+  for no retuning. Worth another look once fights are bigger and there is more content to say.
 - **Text-loaded definitions.** Should mods be able to add character (and item, faction) definitions
   from text? This decides whether "a mod adds an NPC with dialog" is possible at all. It probably
   means the same loader grows a definitions path. That's a bigger modding decision than dialog.

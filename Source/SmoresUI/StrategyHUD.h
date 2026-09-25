@@ -101,6 +101,15 @@ public:
 	 */
 	void ToggleActivityFeed();
 
+	/**
+	 *  Floats a bark over the person who said it.
+	 *
+	 *  Called by the player controller's Client_NotifyBark with the line already looked up in this
+	 *  machine's language - the same controller-to-HUD direction as ToggleActivityFeed, so no
+	 *  interface. The feed gets the line separately; this is only the moment of it.
+	 */
+	void ShowBarkBubble(const AActor* Speaker, const FText& Line);
+
 protected:
 
 	/** Draws the HUD */

@@ -2,22 +2,25 @@
 
 ## Purpose
 
-What characters say, and the machinery that picks it. Built by Slice 1 of
+What characters say, and the machinery that picks it. Built by Slices 1 and 2 of
 `Docs/roadmaps/dialog-roadmap.md`: dialog read from plain text files at startup (the base game
 loaded exactly like a mod), a small condition language over a registered list of **facts**, and
-**barks** - one-way lines picked by "most specific match wins" and delivered to the activity feed.
-Floating bark text is the roadmap's Slice 2, and conversations, topics and banter its Slice 3; both
-reuse everything here. Conversations are written in Yarn, and the player they will run on already
-exists - see "Conversations: the Yarn player".
+**barks** - one-way lines picked by "most specific match wins", delivered to the activity feed and
+floated briefly over the speaker's head, including the `Approached` bark NPCs say when a squad
+comes near. Conversations, topics and banter are the roadmap's Slice 3, and reuse everything here.
+Conversations are written in Yarn, and the player they will run on already exists - see
+"Conversations: the Yarn player".
 
 The design intent is `game-design`'s `dialogue.md`. This topic is how it is built.
 
 ## Player Surface
 
 - **Barks appear in the activity feed**, on the COMMS tab (and LOG), in quotes, with the speaker's
-  name as the line's source: *"Coin first. Questions never." - Merchant Ada*. Nothing floats over
-  anyone's head yet - decided, and the roadmap's Slice 2 (see Known Gaps).
-- **When someone barks** - five moments, all from signals the game already had:
+  name as the line's source: *"Coin first. Questions never." - Merchant Ada*. The feed is the
+  record, and keeps every line.
+- **And they float over the speaker's head** for a few seconds, then fade - see "Bark bubbles"
+  below. The bubble is the moment; the feed is the record.
+- **When someone barks** - six moments:
 
   | Event | When | Speaker | Who they're speaking to |
   |---|---|---|---|
@@ -26,6 +29,15 @@ The design intent is `game-design`'s `dialogue.md`. This topic is how it is buil
   | `WitnessedDeath` | an ally died near them | the nearest ally still standing | nobody (the dead one is `Event.Victim`) |
   | `TradeOpened` | a squad member opened their shop | the trader | the squad member at the counter |
   | `NothingToSay` | a squad member tried to talk to someone with no shop | the NPC | that squad member |
+  | `Approached` | one of a player's squad just came within 8 m | the NPC | the squad member who came near |
+
+- **`Approached` is the one bark that fires on proximity** - a trader hawking, a bandit warning you
+  off. It fires on the way in, not for as long as the squad stands there, and the same NPC won't
+  greet the same player's squad again until a minute (`ApproachCooldownSeconds`, world time) has
+  passed **and** the squad has left and come back. An NPC who is down doesn't greet anyone, and
+  squad members never raise it at each other or anyone else. In co-op each player's squad is
+  noticed separately. It is checked every half second of world time from straight-line distance,
+  so **it notices through walls** - accepted until perception exists.
 
 - **Who hears it**: every player with at least one squad member within 20 m (`HearingRange`) of
   the speaker. In co-op two players nearby both get the line, each in their own language.
@@ -37,6 +49,28 @@ The design intent is `game-design`'s `dialogue.md`. This topic is how it is buil
   now refuses with *Too far away* for a non-trader too, since a greeting is range-gated the same
   as a trade. A hostile NPC still refuses, unchanged.
 
+### Bark bubbles
+
+Every bark a player hears also floats over the speaker's head, in a dark translucent box with light
+text (the HUD's legible floor until the styling pass).
+
+- **Only the players who heard it see it**, each in their own language - the bubble is drawn from
+  the same line the feed gets.
+- **One bubble per speaker.** A new line from someone already showing one replaces it and restarts
+  its clock, keeping its place in a stack.
+- **It stays long enough to read, then fades**: 2 seconds, plus 0.06 s per character, capped at
+  6 seconds, then a 0.6 s fade. **Real time**, so neither 8x nor the paused tier changes how long a
+  line stays up.
+- **It follows the speaker** as they move, and hides while they are off screen or behind the
+  camera. No edge-of-screen arrows: the feed already has a line said out of sight.
+- **Bubbles near each other stack** instead of overdrawing: the one shown first keeps its place and
+  later ones move straight up above it. Nothing moves sideways.
+- **Long lines wrap** at 260 slate units.
+- **It never takes a click.** A click on a bubble reaches the unit underneath it.
+
+A conversation will never float: back-and-forth goes in Slice 3's window (Jim, after Slice 1's PIE
+pass). Slice 3's ambient banter will use these bubbles, one line over each speaker.
+
 ### Debug execs
 
 All on `AStrategyPlayerController`.
@@ -45,7 +79,7 @@ All on `AStrategyPlayerController`.
 |---|---|
 | `SmoresReloadDialog` | Re-reads every package from disk and logs the per-package summary. **The writer's loop**: edit a file, type this, hear the change without restarting. This machine only - every machine loads its own copy |
 | `SmoresDialogReport` | Every package (id, folder, version, requires, loaded or SKIPPED, counts), barks per event, and every problem. `SmoresDialogReport facts` adds the writers' reference: every fact and who each event carries |
-| `SmoresTestBark <Event> [Name]` | Fires an event on a unit and logs **every line considered and why it did or didn't win**, then the winner as this machine shows it, in the current culture. The unit is the one whose name contains `Name` (`SmoresTestBark TradeOpened Ada`), else the clicked NPC, else the first selected squad member. Cooldowns apply; quiet time doesn't. For `WitnessedDeath` the unit is treated as the one who died. Hops to the server |
+| `SmoresTestBark <Event> [Name]` | Fires an event on a unit and logs **every line considered and why it did or didn't win**, then the winner as this machine shows it, in the current culture. The unit is the one whose name contains `Name` (`SmoresTestBark Approached Ada`), else the clicked NPC, else the first selected squad member. Cooldowns apply; quiet time doesn't, and neither do `Approached`'s range and cooldown - the nearest squad member is the listener wherever they are. A line said this way reaches the feed and floats like any other. For `WitnessedDeath` the unit is treated as the one who died. Hops to the server |
 | `SmoresSetCulture <culture>` | Shows game text in another culture - `SmoresSetCulture fr`, then `en` to return. In the editor it previews game text without touching the editor's own menus, and the preview ends when play stops |
 
 ## Writing Dialog
@@ -98,7 +132,7 @@ hurt_trader,Hurt,Speaker.Role == trader,"I sell knives, I don't catch them.",1,1
   say) is ignored.
 - **`Id`** - letters, digits and `_`, unique within the package. Write it plain (`trade_generic`); the
   loader makes it `core.trade_generic`. Two mods can both have a `greet` and never collide.
-- **`Event`** - one of the five above.
+- **`Event`** - one of the six above.
 - **`Conditions`** - see below. Empty means "always": that's the line's generic fallback.
 - **`Text`** - the line, in English. **Text containing a comma needs "double quotes"**; a row with
   more fields than the header is refused rather than silently cut short.
@@ -147,8 +181,14 @@ Each event carries only some of those people, and a condition asking about anyon
 | `WitnessedDeath` | Speaker, Event.Victim |
 | `TradeOpened` | Speaker, Listener, Player |
 | `NothingToSay` | Speaker, Listener, Player |
+| `Approached` | Speaker, Listener, Player |
 
-`StandingWithSpeaker` needs the Player, so it works in `Hurt`, `TradeOpened` and `NothingToSay`.
+`StandingWithSpeaker` needs the Player, so it works in `Hurt`, `TradeOpened`, `NothingToSay` and
+`Approached`.
+
+**Give an `Approached` line a cooldown of a minute or so.** The event itself already waits
+`ApproachCooldownSeconds` per player; the row's cooldown is per speaker across every player, so it
+is what stops one NPC greeting each squad that passes with the same words.
 
 ### How a line is picked
 
@@ -240,7 +280,8 @@ talk to Merchant Ada, and her greeting is French.
 
 ## C++ Implementation
 
-All in `SmoresDialog` (`Source/SmoresDialog/`), except the controller and GameState glue.
+All in `SmoresDialog` (`Source/SmoresDialog/`), except the controller and GameState glue and the
+bubbles, which are HUD and live in `SmoresUI` (below).
 
 | File | Holds |
 |---|---|
@@ -252,8 +293,17 @@ All in `SmoresDialog` (`Source/SmoresDialog/`), except the controller and GameSt
 | `BarkSelection.h` | `FBarkMemory` (when each line was said, by whom) and `SmoresDialog::SelectBark` - pure, reads the memory and never writes it; `FBarkSelection` is the account `SmoresTestBark` prints |
 | `DialogText.h` | `FDialogLocalizedTextSource`, `PublishDialogText` (string tables + text source), `GetPublishedLineText`, `SetDialogCulture` / `EndDialogCulturePreview` |
 | `SmoresDialogSubsystem.h` | `USmoresDialogSubsystem`, a `UGameInstanceSubsystem`: gathers from disk, loads, publishes the text, logs the report, broadcasts `OnLibraryLoaded`. Survives map changes and exists on every machine |
-| `BarkDirectorComponent.h` | `UBarkDirectorComponent` (server-only, on the GameState) and `UBarkUnitWatcher` - one per unit, the `USquadActivityWatcher` pattern, because three of `UHealthComponent`'s four delegates can't say whose they are |
-| `DialogHost.h` | `IDialogHost` - what dialog needs a player's controller to do: `IsSquadMemberWithin`, `DeliverBark`. The `IStrategySelectionHost` pattern; Slice 3's `OpenTrade` effect is the expected next member |
+| `BarkDirectorComponent.h` | `UBarkDirectorComponent` (server-only, on the GameState) and `UBarkUnitWatcher` - one per unit, the `USquadActivityWatcher` pattern, because three of `UHealthComponent`'s four delegates can't say whose they are. Also the approach timer (`CheckApproaches`) and its knobs `ApproachRange` (800 cm), `ApproachCooldownSeconds` (60) and `ApproachCheckSeconds` (0.5) |
+| `ApproachTracker.h` | `FApproachTracker` - `Approached`'s edge-trigger as a plain value type: given where every NPC and every squad member stands, which squads just arrived. Per NPC per player; see "How `Approached` is raised" |
+| `DialogHost.h` | `IDialogHost` - what dialog needs a player's controller to do: `IsSquadMemberWithin`, `DeliverBark` (line id, speaker, speaker's name). The `IStrategySelectionHost` pattern; Slice 3's `OpenTrade` effect is the expected next member |
+
+In `SmoresUI`:
+
+| File | Holds |
+|---|---|
+| `BarkBubbleSchedule.h` | `FBarkBubbleTiming` (the lifetime formula), `FBarkBubbleSchedule` (one bubble per speaker, the clock, the fade, expiry) and `SmoresBarkBubbles::StackBoxes` - all plain, all tested |
+| `BarkBubbleLayerWidget.h` | `UBarkBubbleLayerWidget` - the full-screen, click-through layer: projects each speaker's head through the owning player's view every frame, stacks, and places a pooled `UBarkBubbleWidget` per bubble |
+| `BarkBubbleWidget.h` | `UBarkBubbleWidget` - one bubble: a bound `LineText` and the wrap width (`MaxTextWidth`, 260) |
 
 ### How a bark travels
 
@@ -265,14 +315,54 @@ All in `SmoresDialog` (`Source/SmoresDialog/`), except the controller and GameSt
    `SelectBark` over the event's lines. `WitnessedDeath` tries each ally within `WitnessRange`
    (15 m), nearest first, until one has a line. Allies are the same player's squad, or the same
    non-empty faction - two unaffiliated strangers are not allies.
+   Approach: the director's own timer (below).
 3. **Delivery.** `Deliver` asks every player controller, through `IDialogHost`, whether any of its
    squad is within `HearingRange`, and calls `DeliverBark` on those that are.
-   `AStrategyPlayerController` forwards to `Client_NotifyBark(LineId, SpeakerName)`.
+   `AStrategyPlayerController` forwards to `Client_NotifyBark(LineId, Speaker, SpeakerName)`. The
+   speaker travels as an actor reference, so a client the speaker isn't relevant to receives null.
 4. **Display.** On the client, `USmoresDialogSubsystem::GetLineText` resolves the id through the
-   string table, and `PostActivity(Comms, ...)` puts it in the feed.
+   string table, and `PostActivity(Comms, ...)` puts it in the feed. If the speaker resolved, the
+   same `FText` goes to `AStrategyHUD::ShowBarkBubble` -> `UStrategyUI` -> `UBarkBubbleLayerWidget`,
+   the controller-to-HUD direction `ToggleActivityFeed` already uses, so no interface.
 
 A line is recorded as said (cooldowns start) whether or not anyone was in earshot - the speaker
 said it; nobody happened to hear.
+
+### How `Approached` is raised
+
+- **`UBarkDirectorComponent::CheckApproaches`** runs on a looping world-time timer
+  (`ApproachCheckSeconds`, 0.5 s), server-only. One `TActorIterator<AStrategyUnit>` pass builds the
+  tracker's input: every unit as a possible speaker (on their feet or not, squad member or not), and
+  each player's squad - every `AStrategyPlayerUnit` grouped by its owning controller's player state,
+  **downed members included**, so a squad that went down together hasn't "left" and isn't greeted
+  as newcomers when it gets up.
+- **`FApproachTracker::Update`** keeps, per (NPC, player), whether that squad was inside
+  `ApproachRange` last time and when the NPC was last approached by them. An approach is the squad
+  going from outside to inside, to an NPC on their feet, with `ApproachCooldownSeconds` passed
+  since the last one; the listener is the nearest member inside. It remembers only pairs that
+  differ from "outside, free to fire", and forgets any NPC or player missing from an update.
+- **Each approach goes through `RaiseEvent`** with the NPC, the listener and the player -
+  quiet time and line cooldowns included. It counts as used the moment it is raised, whether or
+  not a line came out.
+- **Straight-line distance is the seam.** Real perception (`ai-and-behavior.md`'s Awareness)
+  replaces how "inside" is decided; the tracker's rules don't change.
+
+### How a bubble is drawn
+
+- **`UBarkBubbleLayerWidget::ShowBark`** hands the line to `FBarkBubbleSchedule::Show`, which
+  replaces the speaker's bubble or appends one. Nothing is drawn yet.
+- **`RefreshBubbles`**, pushed every frame from `AStrategyHUD::DrawHUD` like every other region:
+  prunes expired bubbles (and any whose speaker is gone); projects each speaker's head - actor
+  location plus the collision half-height plus `HeadClearance` (40 cm) - through
+  `UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition`; skips anything behind the camera or
+  off the layer; builds a box per bubble, centred over the speaker with its bottom edge there;
+  runs `StackBoxes` in the order speakers first spoke; then moves each widget and sets its opacity.
+- **Widgets are pooled.** The Nth widget draws the Nth visible bubble and the rest are collapsed;
+  a widget only re-lays itself out when its bubble's `Serial` changes, i.e. a new line. Position
+  and opacity are compared before they touch Slate, per `hud-and-panels.md`'s per-frame rule.
+- **The clock is `FPlatformTime::Seconds()`**, wall-clock like the feed's timestamps.
+- **The layer and every bubble are `HitTestInvisible`** - the one deliberate exception to the HUD's
+  click-shield rule, written up in `hud-and-panels.md`.
 
 ### Registration and packaging
 
@@ -297,21 +387,30 @@ said it; nobody happened to hear.
 
 ## Blueprint / Asset Dependencies
 
-None to wire. `UBarkDirectorComponent` is a native default subobject of `AStrategyGameState`, so
-`BP_StrategyGameState` has it with no Blueprint change, and the subsystem creates itself.
+The director and subsystem need nothing: `UBarkDirectorComponent` is a native default subobject of
+`AStrategyGameState`, so `BP_StrategyGameState` has it with no Blueprint change, and the subsystem
+creates itself.
+
+The bubbles, all under `Content/Variant_Strategy/UI/`:
+
+| Asset | Parent | Bound names |
+|---|---|---|
+| `WBP_BarkBubble` | `UBarkBubbleWidget` | `LineText`, inside a dark translucent `Border` |
+| `WBP_BarkBubbleLayer` | `UBarkBubbleLayerWidget` | `BubbleCanvas` (the root canvas); plus the `BubbleWidgetClass` default, which must point at `WBP_BarkBubble` or barks reach the feed and nothing floats (it warns once) |
+| `UI_Strategy` | `UStrategyUI` | `BarkBubbleLayer` - a `WBP_BarkBubbleLayer` stretched over the whole screen, painted beneath the six regions |
 
 ## Content
 
 | File | Holds |
 |---|---|
 | `Content/Dialog/core/mod.json` | the base game's manifest, id `core` |
-| `Content/Dialog/core/barks/core.csv` | 27 barks for the three existing definitions (Settler, Bandit, Trader): every event has a generic line and at least one more specific one. Placeholder writing in the austere tone of `narrative-and-lore.md` |
+| `Content/Dialog/core/barks/core.csv` | 33 barks for the three existing definitions (Settler, Bandit, Trader): every event has a generic line and at least one more specific one - for `Approached`, two generic, a trader's hawk (plus a Traders Guild one), a bandit's challenge and a hated-by-Raiders warning. Placeholder writing in the austere tone of `narrative-and-lore.md` |
 | `Content/Dialog/core/localization/fr/barks.csv` | the six trader greetings in placeholder French - the localization proof |
 | `Mods/example/` | one bark (three clauses, more specific than anything in core) for a Traders Guild trader greeting a Settler, plus its French. Wins Merchant Ada's greeting whenever it's off its 30 s cooldown, without touching core |
 
 ## Testing
 
-27 tests - 23 dialog plus the spike's 4 (`testing.md` has the run commands):
+36 tests - 28 dialog, 4 bark-bubble and the spike's 4 (`testing.md` has the run commands):
 
 - `Smores.Dialog.Condition.*` (5) - parse and evaluate; each kind of mistake rejected with its
   reason; subjects an event lacks; unknown content ids as warnings; errors carrying their line.
@@ -325,6 +424,14 @@ None to wire. `UBarkDirectorComponent` is a native default subobject of `AStrate
   test's text).
 - `Smores.Dialog.Facts.AnswerFromRealUnits` (in `smores`, which has the concrete unit stand-in) -
   every built-in fact read off real units, a real player state and a real condition.
+- `Smores.Dialog.Approach.*` (5) - `FApproachTracker`: entering fires once (with the nearest member
+  as listener) and standing inside never again; coming back waits for the cooldown *and* a leave; a
+  downed NPC and a squad member never fire; each player and each NPC separately; memory stays
+  bounded to who is near whom.
+- `Smores.UI.BarkBubbles.*` (4, in `SmoresUI`) - the lifetime formula (floor, per character, cap);
+  one bubble per speaker, a replacement restarting its clock and keeping its place; the fade and
+  expiry, and a destroyed speaker's bubble dropped; overlapping bubbles stacking straight up while
+  bubbles side by side stay put. Placement on screen and the look are PIE.
 - **`Smores.Content.Dialog.CoreLoadsWithZeroProblems`** - the core content sweep: zero errors *and
   zero warnings*, every event with a bark, a generic line and a more specific one, no text mangled
   by a wrong encoding, at least one translation. `Smores.Content.Dialog.ExampleModLoadsCleanly`
@@ -345,7 +452,13 @@ from a map (`Tests/SmoresDialogTestFactory.h`), so a writer retuning a bark can'
   reads, and (for a name) its content domain or fixed vocabulary. Only when something can answer it.
 - **A new bark event**: a value on `EBarkEvent`, its row in `GetEventSubjects`, and a caller that
   raises it on the server through `UBarkDirectorComponent::RaiseEvent`. Add at least a generic
-  line in `core.csv` in the same change - the content sweep requires one per event.
+  line in `core.csv` in the same change - the content sweep requires one per event. `Approached`
+  is the worked example of an event with no signal of its own: the director makes one on a timer.
+- **Real perception for `Approached`**: replace how `CheckApproaches` decides a squad is inside
+  (today straight-line distance). `FApproachTracker` takes "who is inside" as input and needn't
+  change.
+- **Something else that floats**: `UStrategyUI::ShowBarkBubble` takes any actor and any `FText`;
+  Slice 3's ambient banter is the expected next caller.
 - **New lines, a new translation, a new mod**: content only - see Writing Dialog.
 - **Something else the director needs from a controller**: a method on `IDialogHost`.
 
@@ -478,26 +591,37 @@ yet; `InteractWithNPC` is unchanged.
   language is decided (Yarn) and its player works (above), but nothing in the game offers a
   conversation yet. A conversation plays in its own panel, never as floating text (Jim, after
   Slice 1's PIE pass).
+- **How often barks fire is judged only lightly.** Jim's Slice 2 PIE pass (2026-09-25) saw
+  approach barks from NPCs and the trader, squad members barking in a fight, and no repeats while
+  standing near someone, and asked for no retuning. Bigger fights and more content may change
+  that; the knobs are `ApproachRange`, `ApproachCooldownSeconds`, `SpeakerQuietSeconds`,
+  `HearingRange`, each row's cooldown, and the layer's timing, `HeadClearance` and `StackGap`.
 - **A packaged build can't switch to French yet.** `InternationalizationPreset=English` in
   `DefaultGame.ini` stages English culture data only, so `SmoresSetCulture fr` answers "this build
   doesn't know the culture". The proof is in PIE; a packaged build wants the preset (and
   `CulturesToStage`) widened the day a second language is real. The dialog files themselves stage
   regardless.
 - **Every package's source text is assumed English.** A mod written in German has no way to say so.
-- **Barks are feed-only today.** Jim's Slice 1 PIE pass decided they should also float briefly over
-  the speaker; that is the roadmap's Slice 2, a HUD layer rather than a damage-number-style actor so
-  that two people talking at once don't overlap.
-- **Nothing barks on approach.** All five events are something happening to or with the speaker,
-  so outside a fight NPCs speak only when spoken to - which is how Slice 1's PIE pass read. An
-  `Approached` event (distance-based, so it will notice through walls until perception exists) is
-  planned in the roadmap's Slice 2 - Jim's call.
+- **A bubble ignores walls and terrain.** It is drawn over everything in the world, so a speaker
+  behind a wall still shows their bubble where the wall is - the HUD-layer choice's trade-off, and
+  the same through-walls honesty as hearing.
+- **A stacked bubble can end up above someone else's.** Stacking only ever moves up, and the
+  bubble shown first keeps its place, so a newer line from a speaker lower on screen can sit above
+  an older one. PIE will say whether that reads.
+- **First sight counts as an arrival.** A squad that spawns, or an NPC that streams in, already
+  within `ApproachRange` gets greeted on the first check, because an unseen pair counts as outside.
+- **An approach is used up whether or not a line came out.** An NPC in its quiet time when the
+  squad arrives says nothing, and won't greet that squad until they leave and come back after the
+  cooldown.
 - **Only the trader greetings are translated.** The six French lines were the localization proof's
   whole scope, so after `SmoresSetCulture fr` the bandits and everyone else still speak English.
   Translating the rest is content work.
 - **The tuning numbers are guesses**: `HearingRange` 20 m, `WitnessRange` 15 m,
-  `SpeakerQuietSeconds` 6 s, and every row's cooldown. All on the director or in the file.
-- **Hearing ignores walls and awareness.** Straight-line distance only, until perception exists
-  (`ai-and-behavior.md`).
+  `SpeakerQuietSeconds` 6 s, `ApproachRange` 8 m, `ApproachCooldownSeconds` 60 s, every row's
+  cooldown, and the bubbles' 2 s + 0.06 s per character, capped at 6 s. The director's are on the
+  director; the bubbles' are on `WBP_BarkBubbleLayer`.
+- **Hearing and approaching ignore walls and awareness.** Straight-line distance only, until
+  perception exists (`ai-and-behavior.md`).
 - **`WitnessedDeath` only happens through `SmoresKillNPC`**, since nothing in combat kills yet
   (`combat.md`). `SmoresTestBark WitnessedDeath <Name>` exercises it directly.
 - **Whether a line already in the feed re-translates when the culture changes hasn't been

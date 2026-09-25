@@ -33,7 +33,13 @@ enum class EBarkEvent : uint8
 	TradeOpened,
 
 	/** A squad member tried to talk to the speaker, who has no shop and nothing else to offer */
-	NothingToSay
+	NothingToSay,
+
+	/**
+	 *  One of a player's squad just came within the director's ApproachRange of the speaker - on the
+	 *  way in, not for as long as they stand there. The first bark that fires on proximity.
+	 */
+	Approached
 };
 
 /**

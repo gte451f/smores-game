@@ -13,6 +13,7 @@ class UTimePaceWidget;
 class UTargetPanelWidget;
 class USquadBarWidget;
 class UActivityFeedWidget;
+class UBarkBubbleLayerWidget;
 class AStrategyUnit;
 struct FStrategyTargetInfo;
 
@@ -64,6 +65,14 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UActivityFeedWidget> ActivityFeedRegion;
 
+	/**
+	 *  Barks floating over whoever said them. Not a region: a full-screen, click-through layer that
+	 *  sits beneath the regions in the WBP (so first in its canvas). Name it "BarkBubbleLayer" to
+	 *  auto-bind.
+	 */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UBarkBubbleLayerWidget> BarkBubbleLayer;
+
 public:
 
 	/** Sets the number of units selected */
@@ -89,6 +98,12 @@ public:
 
 	/** Expands or collapses the activity feed. The `L` key's route in, via AStrategyHUD. */
 	void ToggleActivityFeed();
+
+	/** Floats Line over Speaker, replacing any bark they are already showing. Forwarded to the bubble layer. */
+	void ShowBarkBubble(const AActor* Speaker, const FText& Line);
+
+	/** Moves, fades and retires the bark bubbles. Pushed every frame by the HUD. */
+	void RefreshBarkBubbles();
 
 	/** Blueprint handler to update unit count sub-widgets */
 	UFUNCTION(BlueprintImplementableEvent, Category="UI", meta = (DisplayName="Update Units Count"))

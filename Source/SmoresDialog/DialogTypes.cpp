@@ -106,7 +106,8 @@ namespace SmoresDialog
 			EBarkEvent::Downed,
 			EBarkEvent::WitnessedDeath,
 			EBarkEvent::TradeOpened,
-			EBarkEvent::NothingToSay
+			EBarkEvent::NothingToSay,
+			EBarkEvent::Approached
 		};
 
 		return Events;
@@ -150,6 +151,11 @@ namespace SmoresDialog
 
 		case EBarkEvent::TradeOpened:
 		case EBarkEvent::NothingToSay:
+			return EDialogSubject::Speaker | EDialogSubject::Listener | EDialogSubject::Player;
+
+		case EBarkEvent::Approached:
+			// the listener is the squad member who came near, and the player is theirs - so a line
+			// can depend on who walked up and on standing, like TradeOpened
 			return EDialogSubject::Speaker | EDialogSubject::Listener | EDialogSubject::Player;
 
 		default:

@@ -39,3 +39,12 @@ nothing_generic,NothingToSay,,Move along.,1,0
 nothing_generic_busy,NothingToSay,,Not now.,1,0
 nothing_bandit,NothingToSay,Speaker.Definition == Bandit,"Keep walking, if you like your teeth.",1,10
 nothing_raider_hated,NothingToSay,Speaker.Faction == Raiders; StandingWithSpeaker <= -20,Back again? Brave or stupid.,1,10
+#,,,,,
+# --- Approached: one of a player's squad just came near the speaker (8 m). Listener is the squad member who came near.,,,,,
+# Fires on the way in only; the same NPC won't greet the same squad again for a minute and until they've left and come back.,,,,,
+approach_generic,Approached,,Road's long. Watch your step.,1,60
+approach_generic_strangers,Approached,,Hm. Strangers.,1,60
+approach_trader,Approached,Speaker.Role == trader,"Water, rope, blades. Come and look.",1,60
+approach_trader_guild,Approached,Speaker.Role == trader; Speaker.Faction == TradersGuild,Guild stock. Honest weight. Step up.,1,90
+approach_bandit,Approached,Speaker.Definition == Bandit,That's close enough.,1,60
+approach_raider_hated,Approached,Speaker.Faction == Raiders; StandingWithSpeaker <= -20,"You again. Turn around, while you still can.",1,60

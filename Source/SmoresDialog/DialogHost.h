@@ -38,6 +38,10 @@ public:
 	 *  text, and the client looks the line up in its own loaded, translated copy - so in co-op each
 	 *  player reads it in their own language. SpeakerName is a character's name, not dialog, and
 	 *  travels as it is.
+	 *
+	 *  Speaker is who said it, so the client can float the line over them. It travels as an actor
+	 *  reference: a client the speaker isn't relevant to receives null, and gets the feed line
+	 *  without a bubble.
 	 */
-	virtual void DeliverBark(FName LineId, const FText& SpeakerName) = 0;
+	virtual void DeliverBark(FName LineId, AActor* Speaker, const FText& SpeakerName) = 0;
 };

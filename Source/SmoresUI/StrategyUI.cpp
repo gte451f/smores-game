@@ -8,6 +8,7 @@
 #include "TargetPanelWidget.h"
 #include "SquadBarWidget.h"
 #include "ActivityFeedWidget.h"
+#include "BarkBubbleLayerWidget.h"
 #include "StrategyTargetInfo.h"
 
 void UStrategyUI::SetSelectedUnitsCount(int32 Count)
@@ -83,5 +84,21 @@ void UStrategyUI::ToggleActivityFeed()
 	if (ActivityFeedRegion)
 	{
 		ActivityFeedRegion->ToggleExpanded();
+	}
+}
+
+void UStrategyUI::ShowBarkBubble(const AActor* Speaker, const FText& Line)
+{
+	if (BarkBubbleLayer)
+	{
+		BarkBubbleLayer->ShowBark(Speaker, Line);
+	}
+}
+
+void UStrategyUI::RefreshBarkBubbles()
+{
+	if (BarkBubbleLayer)
+	{
+		BarkBubbleLayer->RefreshBubbles();
 	}
 }

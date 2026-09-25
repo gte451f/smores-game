@@ -861,8 +861,8 @@ public:
 	/** True if any unit this controller owns is within Range of Location. Server-side. */
 	virtual bool IsSquadMemberWithin(const FVector& Location, float Range) const override;
 
-	/** A bark this player's squad could hear - forwards the id to Client_NotifyBark */
-	virtual void DeliverBark(FName LineId, const FText& SpeakerName) override;
+	/** A bark this player's squad could hear - forwards the id and the speaker to Client_NotifyBark */
+	virtual void DeliverBark(FName LineId, AActor* Speaker, const FText& SpeakerName) override;
 
 	//~ End IDialogHost interface
 
@@ -875,9 +875,13 @@ public:
 	 *  dialog) logs it and posts nothing. Reliable, like Client_NotifyActivity: the director's quiet
 	 *  time keeps the rate low, and NothingToSay is the only answer a player gets to talking to
 	 *  someone.
+	 *
+	 *  The line goes to the feed (the record) and floats over Speaker (the event - see
+	 *  UBarkBubbleLayerWidget). A speaker this client can't resolve - not relevant to it, so it
+	 *  arrives null - gets the feed line and no bubble.
 	 */
 	UFUNCTION(Client, Reliable)
-	void Client_NotifyBark(FName LineId, const FText& SpeakerName);
+	void Client_NotifyBark(FName LineId, AActor* Speaker, const FText& SpeakerName);
 
 	/**
 	 *  Server-side half of InteractWithNPC's bark: re-checks the same gates the client ran

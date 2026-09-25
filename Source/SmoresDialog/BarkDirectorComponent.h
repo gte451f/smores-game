@@ -7,6 +7,8 @@
 #include "Math/RandomStream.h"
 #include "DialogTypes.h"
 #include "BarkSelection.h"
+#include "ApproachTracker.h"
+#include "TimerManager.h"
 #include "BarkDirectorComponent.generated.h"
 
 class AStrategyUnit;
@@ -64,9 +66,10 @@ protected:
  *  **Its memory is transient and never saved** - which line was said when, and by whom, in
  *  FBarkMemory. A reload of the dialog files clears it.
  *
- *  Events arrive two ways: health events from every unit's UHealthComponent, through one
- *  UBarkUnitWatcher per unit (found at BeginPlay, and as units spawn); and interaction events
- *  (TradeOpened, NothingToSay) raised by the player controller's server RPC.
+ *  Events arrive three ways: health events from every unit's UHealthComponent, through one
+ *  UBarkUnitWatcher per unit (found at BeginPlay, and as units spawn); interaction events
+ *  (TradeOpened, NothingToSay) raised by the player controller's server RPC; and Approached, from
+ *  this component's own slow timer comparing where every NPC and every squad member stands.
  */
 UCLASS(ClassGroup = (Smores), meta = (BlueprintSpawnableComponent))
 class SMORESDIALOG_API UBarkDirectorComponent : public UActorComponent
@@ -117,6 +120,29 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Barks", meta = (ClampMin = 0, Units = "s"))
 	float SpeakerQuietSeconds = 6.0f;
 
+	/**
+	 *  How close one of a player's squad has to come to an NPC for the NPC to notice, in cm - the
+	 *  Approached bark. Straight-line distance, so it notices through walls, as HearingRange does.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Barks|Approach", meta = (ClampMin = 0, Units = "cm"))
+	float ApproachRange = 800.0f;
+
+	/**
+	 *  After an NPC is approached by a player's squad, how long before that NPC can be approached by
+	 *  that player again, in world seconds. The squad must also have left and come back - see
+	 *  FApproachTracker. Per NPC and per player: one squad's approach never uses up another's.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Barks|Approach", meta = (ClampMin = 0, Units = "s"))
+	float ApproachCooldownSeconds = 60.0f;
+
+	/**
+	 *  How often approaches are checked, in world seconds. Slow on purpose: nobody notices a greeting
+	 *  half a second late, and the check compares every NPC with every squad member. Read at
+	 *  BeginPlay; 0 turns Approached off.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Barks|Approach", meta = (ClampMin = 0, Units = "s"))
+	float ApproachCheckSeconds = 0.5f;
+
 	/** Called by the unit watchers */
 	void HandleUnitHurt(AStrategyUnit* Unit, AActor* DamageInstigator);
 	void HandleUnitDowned(AStrategyUnit* Unit);
@@ -142,7 +168,14 @@ protected:
 	void HandleLevelAdded(ULevel* Level, UWorld* World);
 
 	/** Sends a said line to every player with a squad member within HearingRange of Speaker */
-	void Deliver(FName LineId, const AActor* Speaker) const;
+	void Deliver(FName LineId, AActor* Speaker) const;
+
+	/**
+	 *  The approach timer: where does every NPC and every squad member stand, and has any squad just
+	 *  come within ApproachRange of anyone? Raises Approached for each new arrival FApproachTracker
+	 *  reports. Authority only.
+	 */
+	void CheckApproaches();
 
 	/** The player whose squad Unit belongs to, or null for anyone else's */
 	static APlayerState* GetOwningPlayerState(const AActor* Unit);
@@ -161,6 +194,11 @@ protected:
 	TArray<TObjectPtr<UBarkUnitWatcher>> Watchers;
 
 	FBarkMemory Memory;
+
+	/** Who is inside ApproachRange of whom, and when each NPC was last approached by each player. Transient, like Memory. */
+	FApproachTracker Approaches;
+
+	FTimerHandle ApproachTimerHandle;
 
 	/** Breaks weight ties. Seeded from the world seed so a session is repeatable, though nothing requires it to be. */
 	FRandomStream Stream;

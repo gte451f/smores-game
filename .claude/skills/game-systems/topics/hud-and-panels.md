@@ -137,6 +137,14 @@ hurt that unit — see Core Rules. **Barks are the exception, and a deliberate o
 "Finish it, then." reaches a squad standing nearby. Barks arrive in quotes, with the speaker as the
 line's source.
 
+### Bark bubbles
+
+What people say also floats briefly over their heads - a dark translucent box with light text that
+follows the speaker, fades after a few seconds, and stacks with its neighbours rather than
+overdrawing them. It is a full-screen layer painted **beneath** the six regions, and it never takes
+a click. The rules (one per speaker, how long a line stays, stacking) belong to dialog and are in
+`dialog.md`'s "Bark bubbles"; the feed still records every line.
+
 ### What the rail is not
 
 The rail mirrors keys; it does not add capability. Asking for the inventory with no pawn selected
@@ -175,6 +183,15 @@ coincidence (see Core Rules).
   canvas to the game viewport — being *visible* is not the same as *consuming*. `UHUDRegionWidget`
   is the only thing in the HUD that consumes, so a box on the HUD has to be one.
   `UHUDPlaceholderRegionWidget` exists solely so that an empty region is still a real region.
+- **The bark bubble layer is the one deliberate exception: it must never take a click.**
+  `UBarkBubbleLayerWidget` is a plain `UUserWidget`, not a region, and it and every bubble on it are
+  `HitTestInvisible`. The rule above exists so that *panels* eat clicks; a bubble floats over the
+  world, next to the unit that said it, and a click there means that unit - select it, target it,
+  right-click to walk to it. A bubble that ate the click would put a dead spot over exactly the
+  person the player is looking at. So the test is not "is it drawn on the HUD" but "does it read as
+  a panel": anything that does is a region and consumes; anything that floats over the world is
+  hit-test invisible and consumes nothing. The layer is painted beneath the regions, so a region
+  still shields its own rectangle even with a bubble behind it.
 - **The release is deliberately not swallowed**, the same as for windows. Enhanced Input never saw
   the press the HUD ate, so an action bound on release has nothing to complete; eating a release
   whose press the viewport *did* see would leave that button stuck down in `UPlayerInput`.
@@ -383,6 +400,26 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
   `AGameStateBase`** rather than casting to `AStrategyGameState`, because `SmoresUI` cannot
   include anything from `smores` — and doesn't need to, since `AGameStateBase` is an engine type
   exactly like the `APlayerState` the wallet hangs off.
+- **`AStrategyHUD::ShowBarkBubble`** - the player controller's route in for a bark bubble, forwarded
+  through `UStrategyUI::ShowBarkBubble` to the layer. The same controller-to-HUD direction as
+  `ToggleActivityFeed`, so no interface. `DrawHUD` pushes `RefreshBarkBubbles` every frame.
+
+### The bark bubble layer
+
+- **`UBarkBubbleLayerWidget`** - bound on `UStrategyUI` as `BarkBubbleLayer` (`BindWidgetOptional`,
+  like the regions). A full-screen canvas (`BubbleCanvas`) holding a pool of `UBarkBubbleWidget`s
+  created from `BubbleWidgetClass`. **Not a `UHUDRegionWidget`** - see Core Rules for why it is the
+  exception. Every frame it projects each speaker's head through the owning player's view and
+  places their bubble there; the rules it applies (`FBarkBubbleSchedule`, `StackBoxes`) are plain
+  helpers in `BarkBubbleSchedule.h`, tested, and described in `dialog.md`.
+- **A HUD layer rather than a world-space actor like `ADamageNumberActor`**, for three reasons:
+  it is per local player by construction (only the players who heard a line see it, each in their
+  own language); one bubble per speaker and stacking need every bubble in one place; and it needs
+  no widget component wired onto every unit Blueprint. The damage numbers stay as they are.
+- **It follows the per-frame compare rule** - position and opacity are compared before touching
+  Slate, and a bubble only re-lays itself out when it gets a new line.
+- **`UBarkBubbleWidget`** - one bubble, spawned from `BubbleWidgetClass`: `LineText` and the wrap
+  width. Like `UActivityEntryWidget` it is not a region and not a control.
 
 ### The regions
 
@@ -558,9 +595,11 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
 - **`PostActivity` / `Client_NotifyActivity`** — the local and server-to-client routes into the
   feed, shaped exactly like `NotifyRefusal` / `Client_NotifyRefusal` and for the same reasons.
 - **`Client_NotifyBark`** — the feed's third server-to-client route, and the one that does *not*
-  carry worded text: the server sends a bark's **line id** and the speaker's name, and the client
-  resolves the words from its own loaded, translated dialog before calling `PostActivity`. Dialog
-  crosses the network as ids so each co-op player reads a bark in their own language (`dialog.md`).
+  carry worded text: the server sends a bark's **line id**, the speaker (an actor reference) and the
+  speaker's name, and the client resolves the words from its own loaded, translated dialog before
+  calling `PostActivity` - and, when the speaker resolved on this client, `ShowBarkBubble` on the
+  HUD. Dialog crosses the network as ids so each co-op player reads a bark in their own language
+  (`dialog.md`).
   `NotifyRefusal` now posts as well as raising the line, with its own repeat suppression.
 - **`ToggleActivityFeedKeyPressed`** — goes controller → `AStrategyHUD::ToggleActivityFeed` →
   `UStrategyUI` → the region, **not** through `IStrategyHUDCommands`. `smores` already depends on
@@ -573,7 +612,7 @@ All under `Content/Variant_Strategy/UI/`:
 
 | Asset | Parent | Bound names |
 |---|---|---|
-| `UI_Strategy` | `UStrategyUI` | All six regions: `NavRail`, `ResourceStrip`, `TimePaceRegion`, `TargetPanelRegion`, `SquadBarRegion`, `ActivityFeedRegion`. **Its EventGraph is now empty** — see below |
+| `UI_Strategy` | `UStrategyUI` | All six regions: `NavRail`, `ResourceStrip`, `TimePaceRegion`, `TargetPanelRegion`, `SquadBarRegion`, `ActivityFeedRegion`; plus `BarkBubbleLayer`, stretched full-screen and painted beneath the regions. **Its EventGraph is now empty** — see below |
 | `WBP_NavRail` | `UNavRailWidget` | `SquadButton`, `InventoryButton`, `MapButton`, `ResearchButton`, `HelpButton` |
 | `WBP_ResourceStrip` | `UResourceStripWidget` | `GoldText` |
 | `WBP_TimePace` | `UTimePaceWidget` | `PauseButton`, `NormalButton`, `DoubleButton`, `QuadrupleButton`, `PaceText` |
@@ -583,6 +622,8 @@ All under `Content/Variant_Strategy/UI/`:
 | `WBP_SquadPortrait` | `USquadPortraitWidget` | `PortraitButton`, `PortraitImage`, `InitialsText`, `NameText`, `HealthBar`, `SelectionRing` |
 | `WBP_ActivityFeed` | `UActivityFeedWidget` | `LogTabButton`, `SquadTabButton`, `QuestsTabButton`, `CommsTabButton`, `EntryBox`, `EmptyText`; plus the `EntryWidgetClass` property, which must point at `WBP_ActivityEntry` or the feed silently shows no lines |
 | `WBP_ActivityEntry` | `UActivityEntryWidget` | `MessageText`, `SourceText` |
+| `WBP_BarkBubbleLayer` | `UBarkBubbleLayerWidget` | `BubbleCanvas`; plus the `BubbleWidgetClass` property, which must point at `WBP_BarkBubble` or barks reach the feed and nothing floats |
+| `WBP_BarkBubble` | `UBarkBubbleWidget` | `LineText` |
 | `WBP_HUDPlaceholderRegion` | `UHUDPlaceholderRegionWidget` | `LabelText`; no instances left in `UI_Strategy` — kept for the next region that arrives before its contents |
 | `WBP_SquadPanel` | `USquadPanelWidget` | `TitleText`, `CloseButton`, `TitleBarDragHandle`, `ResizeHandle`, `BodyText` |
 | `WBP_MapPanel` | `UMapPanelWidget` | as above |
@@ -699,6 +740,8 @@ deliberately short.
   has to make until a squad gets that big.
 - **Nothing decides what *demands* acknowledgement.** The feed remembers; dismissal semantics
   belong to `notifications-and-alerts.md`, still a placeholder topic.
+- **`WBP_BarkBubbleLayer`'s `BubbleWidgetClass` is another single point of failure** of the same
+  shape: cleared, barks still reach the feed and nothing floats. It warns once, on the first bark.
 - **`PortraitWidgetClass` and `EntryWidgetClass` are silent single points of failure**, the same
   shape as `WBP_TargetPanel`'s `ActionWidgetClass` and `BP_StrategyGameMode`'s `GameStateClass`:
   clear one and that region draws its chrome and nothing else. Each logs one warning naming

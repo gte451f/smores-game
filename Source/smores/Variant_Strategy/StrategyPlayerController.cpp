@@ -1387,12 +1387,12 @@ bool AStrategyPlayerController::IsSquadMemberWithin(const FVector& Location, flo
 	return false;
 }
 
-void AStrategyPlayerController::DeliverBark(FName LineId, const FText& SpeakerName)
+void AStrategyPlayerController::DeliverBark(FName LineId, AActor* Speaker, const FText& SpeakerName)
 {
-	Client_NotifyBark(LineId, SpeakerName);
+	Client_NotifyBark(LineId, Speaker, SpeakerName);
 }
 
-void AStrategyPlayerController::Client_NotifyBark_Implementation(FName LineId, const FText& SpeakerName)
+void AStrategyPlayerController::Client_NotifyBark_Implementation(FName LineId, AActor* Speaker, const FText& SpeakerName)
 {
 	const USmoresDialogSubsystem* Dialog = USmoresDialogSubsystem::Get(this);
 	const FText Line = Dialog ? Dialog->GetLineText(LineId) : FText::GetEmpty();
@@ -1409,6 +1409,13 @@ void AStrategyPlayerController::Client_NotifyBark_Implementation(FName LineId, c
 	// quoted, so speech reads differently from the feed's other news ("Is down")
 	PostActivity(EActivityCategory::Comms, EActivitySeverity::Normal,
 		FText::Format(LOCTEXT("BarkFeedLine", "\u201C{0}\u201D"), Line), SpeakerName);
+
+	// ...and briefly over the speaker's head. The feed keeps the line; the bubble is only the moment
+	// of it, and a speaker this machine doesn't know about simply doesn't get one.
+	if (IsValid(Speaker) && StrategyHUD)
+	{
+		StrategyHUD->ShowBarkBubble(Speaker, Line);
+	}
 }
 
 void AStrategyPlayerController::AttackKeyPressed(const FInputActionValue& Value)

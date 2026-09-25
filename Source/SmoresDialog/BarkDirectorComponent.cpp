@@ -121,6 +121,13 @@ void UBarkDirectorComponent::BeginPlay()
 	{
 		LibraryLoadedHandle = Dialog->OnLibraryLoaded.AddUObject(this, &UBarkDirectorComponent::HandleLibraryLoaded);
 	}
+
+	// world time, so the check keeps pace with the simulation: at 8x it runs eight times as often in
+	// real time, exactly as the squad walks eight times as fast
+	if (ApproachCheckSeconds > 0.0f)
+	{
+		World->GetTimerManager().SetTimer(ApproachTimerHandle, this, &UBarkDirectorComponent::CheckApproaches, ApproachCheckSeconds, /*bLoop*/ true);
+	}
 }
 
 void UBarkDirectorComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -128,6 +135,7 @@ void UBarkDirectorComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (UWorld* World = GetWorld())
 	{
 		World->RemoveOnActorSpawnedHandler(ActorSpawnedHandle);
+		World->GetTimerManager().ClearTimer(ApproachTimerHandle);
 	}
 
 	FWorldDelegates::LevelAddedToWorld.Remove(LevelAddedHandle);
@@ -400,7 +408,7 @@ FName UBarkDirectorComponent::SayIfAny(const FDialogContext& Context, AActor* Sp
 	return Winner->Id;
 }
 
-void UBarkDirectorComponent::Deliver(FName LineId, const AActor* Speaker) const
+void UBarkDirectorComponent::Deliver(FName LineId, AActor* Speaker) const
 {
 	const UWorld* World = GetWorld();
 
@@ -421,8 +429,74 @@ void UBarkDirectorComponent::Deliver(FName LineId, const AActor* Speaker) const
 
 		if (Host && Host->IsSquadMemberWithin(Location, HearingRange))
 		{
-			Host->DeliverBark(LineId, SpeakerName);
+			// the speaker goes too, so the client can float the line over them - as an actor
+			// reference, which a client the speaker isn't relevant to receives as null
+			Host->DeliverBark(LineId, Speaker, SpeakerName);
 		}
+	}
+}
+
+void UBarkDirectorComponent::CheckApproaches()
+{
+	const AActor* Owner = GetOwner();
+	UWorld* World = GetWorld();
+
+	if (!Owner || !Owner->HasAuthority() || !World)
+	{
+		return;
+	}
+
+	// everyone who might be approached, and every player's squad, gathered in one pass. The arrays
+	// beside them map the tracker's indices back to the actors an event needs.
+	TArray<FApproachSpeaker> Speakers;
+	TArray<AStrategyUnit*> SpeakerUnits;
+
+	TArray<FApproachSquad> Squads;
+	TArray<APlayerState*> SquadPlayers;
+	TArray<TArray<AStrategyPlayerUnit*>> SquadMembers;
+
+	for (TActorIterator<AStrategyUnit> It(World); It; ++It)
+	{
+		AStrategyUnit* Unit = *It;
+		AStrategyPlayerUnit* PlayerUnit = Cast<AStrategyPlayerUnit>(Unit);
+
+		FApproachSpeaker& Speaker = Speakers.AddDefaulted_GetRef();
+		Speaker.Key = FObjectKey(Unit);
+		Speaker.Location = Unit->GetActorLocation();
+		Speaker.bCanSpeak = !Unit->IsIncapacitated();
+		Speaker.bIsSquadMember = PlayerUnit != nullptr;
+
+		SpeakerUnits.Add(Unit);
+
+		// a squad member counts toward "the squad is here" whatever state they're in - a squad whose
+		// members are all down hasn't left, and shouldn't be greeted as newcomers when they get up
+		APlayerState* Player = GetOwningPlayerState(PlayerUnit);
+
+		if (!Player)
+		{
+			continue;
+		}
+
+		int32 SquadIndex = SquadPlayers.Find(Player);
+
+		if (SquadIndex == INDEX_NONE)
+		{
+			SquadIndex = SquadPlayers.Add(Player);
+			Squads.AddDefaulted_GetRef().Player = FObjectKey(Player);
+			SquadMembers.AddDefaulted();
+		}
+
+		Squads[SquadIndex].MemberLocations.Add(Unit->GetActorLocation());
+		SquadMembers[SquadIndex].Add(PlayerUnit);
+	}
+
+	const TArray<FApproach> Arrivals = Approaches.Update(Speakers, Squads, ApproachRange, World->GetTimeSeconds(), ApproachCooldownSeconds);
+
+	// quiet time and line cooldowns apply as for every other bark, so an NPC who just spoke doesn't
+	// also greet - which is why this is RaiseEvent's default and not bIgnoreQuietTime
+	for (const FApproach& Arrival : Arrivals)
+	{
+		RaiseEvent(EBarkEvent::Approached, SpeakerUnits[Arrival.SpeakerIndex], SquadMembers[Arrival.SquadIndex][Arrival.MemberIndex], SquadPlayers[Arrival.SquadIndex]);
 	}
 }
 
