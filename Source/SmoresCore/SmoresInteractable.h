@@ -58,9 +58,28 @@ public:
 	virtual FText GetExamineText() const = 0;
 
 	/**
-	 *  Shared body for every implementer's IsInRangeOf: a plain centre-to-centre distance test
-	 *  against the thing's own interaction sphere. Each type sizes that sphere itself, so reach
-	 *  stays per-type while the test itself is written once.
+	 *  Shared body for every implementer's IsInRangeOf: Other is inside the thing's own
+	 *  interaction sphere (centre to centre) **and** nothing solid stands between them - see
+	 *  HasClearReach. Each type sizes that sphere itself, so reach stays per-type while the test
+	 *  itself is written once.
 	 */
 	static bool IsActorWithinSphere(const AActor* InteractableActor, const USphereComponent* RangeSphere, const AActor* Other);
+
+	/**
+	 *  True if no wall stands between Other and the thing - a line from Other's centre to a point
+	 *  just above the thing's origin, blocked by world-static geometry only (walls, rocks, a shut
+	 *  door's leaf), never by other people or by either actor itself.
+	 *
+	 *  Distance alone let a squad member standing outside a closed storeroom loot the chest through
+	 *  its back wall: a shut door blocks the walk, so the walk ends as close as it can get, and the
+	 *  chest's 3 m reach went straight through the wall. With this, that walk ends out of reach, and
+	 *  the order gives up with Can't get there until someone opens the door.
+	 */
+	static bool HasClearReach(const AActor* InteractableActor, const AActor* Other);
+
+	/**
+	 *  How far above the thing's origin the clear-reach line ends. A chest's or a door's origin sits
+	 *  on the floor, and a line ending exactly there could graze it; a unit's is already at its hips.
+	 */
+	static constexpr float ReachLineHeight = 50.0f;
 };

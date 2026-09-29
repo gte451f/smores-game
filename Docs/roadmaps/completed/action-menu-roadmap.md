@@ -13,7 +13,7 @@ and `testing.md` updated alongside. The design intent is `game-design`'s `player
 > Jim the same day: right-click opens the menu, choosing an action walks the squad member over,
 > Examine works, a door opens and closes from a double-click and from the menu, Pawn 2's Nimble
 > Settler description shows in Examine, and the placeholders appear under their rules (Kidnap only
-> once the NPC is down). His checkpoint calls are below. 215 automated tests pass (18 of them from
+> once the NPC is down). His checkpoint calls are below. 216 automated tests pass (19 of them from
 > this slice).
 
 ## Slice 1 — The Action Menu — SHIPPED
@@ -64,6 +64,13 @@ and `testing.md` updated alongside. The design intent is `game-design`'s `player
   squad member who comes to **talk or trade**. The lead unit of a move order still takes the best
   EQS point (`MoveToLocation`'s `bLeadUnit`).
 - **Examine is worth having as a window**, not just a feed line.
+- **Pickpocket's odds differ between the two pawns**, as intended. Knock out's don't, also as
+  intended: it reads Strength, and only Pawn 2's Agility was raised.
+- **Found after the close: reach went through walls.** A shut door blocked the walk as it should,
+  so the pawn stopped outside the storeroom's back wall - still within the chest's 3 m reach, which
+  was distance only, so the chest opened through the wall. Reach now also needs a clear line
+  (`ISmoresInteractable::HasClearReach`, a world-static trace), so that walk ends with *Can't get
+  there* until the door is opened. One test added (216).
 
 ## Not in This Roadmap
 

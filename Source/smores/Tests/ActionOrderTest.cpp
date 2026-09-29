@@ -12,6 +12,7 @@
 #include "SmoresInteractable.h"
 #include "Tests/SmoresTestWorld.h"
 #include "Tests/SmoresItemTestFactory.h"
+#include "Components/BoxComponent.h"
 #include "Engine/World.h"
 
 /*
@@ -562,6 +563,97 @@ bool FSmoresWorldDoorTest::RunTest(const FString& Parameters)
 	Door->SetOpen(true);
 
 	TestFalse(TEXT("Off-authority, SetOpen changes nothing"), Door->IsOpen());
+
+	TestWorld.ForwardErrors(this);
+
+	return true;
+}
+
+/** A bare wall for a test world: an actor whose root is a blocking box, world-static like a level's walls */
+static AActor* SmoresActionOrderTest_SpawnWall(FSmoresTestWorld& TestWorld, const FVector& Location, const FVector& Extent)
+{
+	AActor* Wall = TestWorld.SpawnOwner();
+
+	if (!Wall)
+	{
+		return nullptr;
+	}
+
+	UBoxComponent* Box = NewObject<UBoxComponent>(Wall);
+	Box->SetBoxExtent(Extent);
+	Box->SetCollisionProfileName(TEXT("BlockAll"));
+
+	Wall->SetRootComponent(Box);
+	Box->RegisterComponent();
+
+	Wall->SetActorLocation(Location);
+
+	return Wall;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSmoresReachThroughWallTest,
+	"Smores.Strategy.Interactable.ReachNeedsAClearLine",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FSmoresReachThroughWallTest::RunTest(const FString& Parameters)
+{
+	FSmoresTestWorld TestWorld;
+	FSmoresActionOrderRig Rig;
+
+	ATestStrategyContainer* Chest = SmoresActionOrderTest_Spawn<ATestStrategyContainer>(TestWorld, FVector::ZeroVector);
+	ATestStrategyPlayerUnit* Bystander = SmoresActionOrderTest_Spawn<ATestStrategyPlayerUnit>(TestWorld, FVector(100.0f, 0.0f, 0.0f));
+
+	if (!TestNotNull(TEXT("Chest spawned"), Chest) || !TestNotNull(TEXT("Bystander spawned"), Bystander)
+		|| !TestTrue(TEXT("Rig built"), SmoresActionOrderTest_Build(TestWorld, Rig, FVector(200.0f, 0.0f, 0.0f))))
+	{
+		return true;
+	}
+
+	// two metres from a chest whose reach is a little over three - and another unit standing between
+	// them, which is a person, not a wall
+	TestTrue(TEXT("Within reach with nothing solid in the way, a person between or not"), Chest->IsInRangeOf(Rig.Pawn));
+
+	// the storeroom Jim found: the chest is close, but on the other side of a wall
+	AActor* Wall = SmoresActionOrderTest_SpawnWall(TestWorld, FVector(150.0f, 0.0f, 0.0f), FVector(10.0f, 300.0f, 300.0f));
+
+	if (!TestNotNull(TEXT("Wall spawned"), Wall))
+	{
+		return true;
+	}
+
+	TestFalse(TEXT("A wall between them puts the chest out of reach, however close"), Chest->IsInRangeOf(Rig.Pawn));
+
+	// so an order ends the way it should behind a shut door: the walk can't get any closer, and
+	// the order gives up rather than looting through the wall
+	Rig.Order->IssueOrder(Chest, StrategyTargetAction::Loot());
+
+	TestEqual(TEXT("Standing beside the wall doesn't count as being there - the unit sets off"), *Rig.WalkCount, 1);
+	TestEqual(TEXT("...and nothing is looted"), Rig.Host->PerformCount, 0);
+
+	Rig.Order->HandleApproachFinished();
+	Rig.Order->HandleApproachFinished();
+	Rig.Order->HandleApproachFinished();
+
+	TestTrue(TEXT("Every walk ending at the wall, the order gives up with Can't get there"),
+		!Rig.Order->HasOrder() && Rig.Host->LastEnd == EActionOrderEnd::CannotReach && Rig.Host->PerformCount == 0);
+
+	// a shut door is a wall too
+	Wall->Destroy();
+
+	ATestWorldDoor* Door = SmoresActionOrderTest_Spawn<ATestWorldDoor>(TestWorld, FVector(0.0f, 500.0f, 0.0f));
+
+	if (!TestNotNull(TEXT("Door spawned"), Door))
+	{
+		return true;
+	}
+
+	TestTrue(TEXT("With the wall gone, the chest is in reach again"), Chest->IsInRangeOf(Rig.Pawn));
+
+	// the door's own parts are ignored by its reach line, the way every target's are
+	Rig.Pawn->SetActorLocation(FVector(0.0f, 700.0f, 0.0f));
+
+	TestTrue(TEXT("A door is reachable from beside it"), Door->IsInRangeOf(Rig.Pawn));
 
 	TestWorld.ForwardErrors(this);
 

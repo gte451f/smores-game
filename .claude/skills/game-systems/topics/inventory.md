@@ -801,7 +801,9 @@ documents what's actually built.
     range check previously took a narrower `const AStrategyUnit*`; the interface widened it to
     `const AActor*`, which is what let one helper serve pawn, container and pickup alike
   - `ISmoresInteractable::IsActorWithinSphere` (static, `SmoresCore`) — the single copy of the
-    distance test every implementer forwards to, each passing its own `InteractionRange` sphere.
+    reach test every implementer forwards to, each passing its own `InteractionRange` sphere: inside
+    the sphere, **and** a clear line (`HasClearReach`, a world-static trace from the reacher's centre
+    to just above the holder's origin), so nothing is looted or traded through a wall.
     It moved up from `IInventoryHolder` when doors needed reach too; `IInventoryHolder` derives
     from `ISmoresInteractable`, so every holder is interactable (see `action-menu.md`)
   - `AStrategyPlayerController::FindHolderActorAtLocation` — the shared body of every

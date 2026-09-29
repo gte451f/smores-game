@@ -37,6 +37,10 @@ highlight (rather than hold-to-open) is his confirmed choice.
   rules and walked over to; on arrival the feed says *"Is ready to pickpocket Bandit - not built
   yet"*. Jim adds placeholders on purpose, to judge the menu's spacing when it's full.
 - **Someone talked to turns to face the squad member** who came to talk or trade.
+- **Reach needs a clear line, not just distance.** A squad member can't loot a chest, open a door
+  or talk to someone through a wall or a shut door, however close they stand. So a chest behind a
+  shut door gives *Can't get there*: the walk stops at the nearest spot outside, which is out of
+  reach, until someone opens the door. People in the way don't count as walls.
 - **Something going wrong on the way is said.** *Can't get there* when no path reaches it; a feed
   line when the squad member went down, stopped to fight back, or found the target gone. The
   player's own new order (a move, an attack, another action) cancels the walk silently.
@@ -131,7 +135,9 @@ about it replicates, because what the player sees is the unit walking.
    from the target's centre to the unit's edge (`ApproachAcceptanceRadius`, 100); the target's own
    size is left out because an actor's bounds can include its reach sphere.
 3. **Arrive** (`HandleApproachFinished`). Within the target's own reach
-   (`ISmoresInteractable::IsInRangeOf`) → act. Otherwise walk again, up to `MaxRetries` (2) times,
+   (`ISmoresInteractable::IsInRangeOf`: inside its interaction sphere *and* `HasClearReach` - no
+   world-static geometry, such as a wall or a shut door's leaf, on the line between the two; found
+   after the PIE check, when a pawn looted the storeroom chest through its back wall) → act. Otherwise walk again, up to `MaxRetries` (2) times,
    then fail **CannotReach**. A walk that can't even start fails CannotReach at once, and "already
    at goal" (which makes no request, so reports nothing) is treated as an arrival on the spot.
 4. **Act** (`Act`). The order ends first, then the host re-checks the entry through the same rules
