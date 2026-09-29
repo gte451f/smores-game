@@ -16,6 +16,15 @@ information stays diegetic or disappears — mirroring `world-map-and-travel.md`
 no-danger-shading stance on the map itself. The main screen should never tell the player
 something their squad hasn't actually observed.
 
+**Numbers about your own squad are known; numbers about the world are not** (decided
+2026-09-29). The player already sees each squad member's attributes and skills, so showing what
+those numbers *do* is a quality-of-life courtesy rather than a leak. A squad member's chance of
+picking a lock or a pocket can therefore be shown as a number, even though it is worked out
+against a particular target. What is never shown as a number is the other side: an NPC's skills
+and attributes, a lock's difficulty, a target's awareness. Those surface only as imperfect words —
+*a difficult lock*, *an easy lock*, *looks alert* — which is the diegetic stance applied to things
+the squad can size up but not measure. Examining an NPC describes them; it never lists their stats.
+
 ## Always-On HUD
 
 ### Squad Roster and Divisions
@@ -112,6 +121,32 @@ only owns that they're reachable from a menu during active play.
   or NPC in the world rather than as a fixed screen-space element. This is the diegetic
   counterpart to the mostly non-diegetic frame elements above.
 
+### Right-Click Action Menu
+
+Right-clicking empty ground moves the selected squad. Right-clicking a *thing* — a person, a
+creature, a body, a container, a door, an item on the ground — opens a short menu of what the
+squad can do to it: talk, trade, loot, open, examine, attack, heal, and the illicit verbs such as
+pickpocket and kidnap. **What the cursor is over is shown before the click**: the thing under it
+lights up, so the player always knows which of the two right-clicks they are about to make. This
+is the RTS "smart right-click" convention, with a menu in place of a single default action because
+a person offers too many verbs for one click to guess.
+
+- **The menu lists what applies to that kind of thing** — people get the social and illicit verbs,
+  creatures and objects don't. An action that applies but can't be used right now still shows,
+  with the reason, the way the target panel's row does.
+- **Choosing an action sends one squad member to walk over and do it** — the selected member
+  nearest the target, and the menu names who. Attack is the exception and commits everyone
+  selected. Every other route to the same action (the target panel, its key, a double-click)
+  walks over too, so there is one behaviour to learn rather than one per gesture.
+- **Actions whose outcome depends on who attempts them show a success chance**, and it changes
+  with which squad member would go — a skilled thief and a clumsy one read differently on the same
+  mark. A number is fine here because it comes from the squad member's own skill, which the player
+  already knows (see Diegetic vs. Non-Diegetic Philosophy).
+- **Examine is the one action that never walks anywhere** — looking costs nothing. It describes
+  what the squad can see, in words, and never lists a target's numbers.
+- **The world keeps running while the menu is open.** It never pauses on the player's behalf, in
+  keeping with `notifications-and-alerts.md`.
+
 ## Deliberate Exclusions
 
 - **No persistent quest/objective tracker or quest markers.** The Codex is explicitly not
@@ -122,9 +157,12 @@ only owns that they're reachable from a menu during active play.
   the map's no-danger-shading rule (`world-map-and-travel.md`) — if any off-screen
   contact indicator exists at all, it should convey presence/direction only, never a
   threat assessment, mirroring the mini-map's distant-pin treatment.
-- **No numeric optimization overlays** (DPS meters, hidden-stat readouts). Tooltips
-  (`player-experience.md`) explain what a stat *is*, never how to optimize it — the main
-  screen holds to the same line.
+- **No numeric optimization overlays** (DPS meters, readouts of an NPC's or object's hidden
+  stats). Tooltips (`player-experience.md`) explain what a stat *is*, never how to optimize it —
+  the main screen holds to the same line. **The one carve-out** is the success chance of an action
+  a squad member is about to attempt, which is built from numbers the player already knows (see
+  Diegetic vs. Non-Diegetic Philosophy). It answers "should Hana try this?", not "what's the best
+  build?".
 
 ## Open Design Questions Worth Tracking
 
@@ -142,3 +180,8 @@ only owns that they're reachable from a menu during active play.
   UI pass once art direction exists.
 - Relationship to `notifications-and-alerts.md`'s full trigger list once that topic is
   designed.
+- **An exact success chance can be worked backwards.** A player who knows Hana's skill and sees
+  her exact chance against a lock can, in principle, work out the lock's number — the very thing
+  the known-vs-hidden rule keeps off screen. Accepted for now as the price of the quality-of-life
+  gain. If it ever matters, showing the chance in coarse steps (every 5% or 10%) blunts it without
+  giving the number up.
