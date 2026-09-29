@@ -68,6 +68,12 @@ lighting the nearest button would be a quiet lie about what the world is doing.
 
 Pausing remembers the speed it interrupted, so unpausing returns there rather than to 1×.
 
+**In a multiplayer session the pace is locked at 1×, pause included.** The strip stays on screen
+and reads "1x", every button is disabled, and hovering the strip says *Time runs at 1x for everyone
+in a multiplayer session.* `Space`, `-` and `=` do nothing — the server refuses them — and say
+nothing either (see Known Gaps). A host alone in a co-op session is locked too; the rule keys off
+the session being networked, never off how many players are in it (`player-experience.md`).
+
 ### Target panel
 
 Whatever the player last clicked: its name, what it is and how it feels about you
@@ -103,6 +109,15 @@ camera height and rotation: it moves you over the unit, it doesn't reset your fr
 
 No unit has a portrait picture today, so every tile draws the unit's initials on a plain disc.
 That is the designed fallback, and it is what the wireframe itself shows.
+
+**A portrait flashes when that squad member enters danger.** A red badge with a "!" pulses in the
+tile's corner for two seconds, then goes (Jim's PIE pass, 2026-09-29: the duration is right). It fires once when the unit enters a fight it wasn't
+already in, and again if the fight gets worse — health falling to half, or the unit going down or
+being killed. The hits in between are silent: the health bar underneath is the running readout,
+and the flash only marks the moment things changed. It never pauses, slows or moves the camera, and
+there is nothing to dismiss (`notifications-and-alerts.md`). A unit enters danger when it is
+**ordered to attack** — so a squad sent in on one `H` press flashes together — or when something
+hostile **targets** it (see `combat.md`; how early being attacked counts is a setting on the unit).
 
 ### Activity feed
 
@@ -248,12 +263,36 @@ coincidence (see Core Rules).
   - **Stepping clamps, it never wraps.** `=` held down at 8× stays at 8×. A ladder that wrapped
     would drop the player from top speed to frozen, which is the kind of bug nobody reproduces on
     purpose.
-  - **Any player may change it.** That is what the code does with no extra work, and it is
-    deliberately provisional. Host-only and slowest-request-wins are each one `if` in `SetPace`
-    away, and want a real co-op session to judge.
+  - **In a networked session nobody may change it** — every tier but 1× is refused, pause
+    included, and a host alone in the session is no exception (`player-experience.md`, decided).
+    The refusal is `UTimePaceComponent::SetPace`'s, because every route in (the buttons, `Space`,
+    the `-`/`=` ladder) already funnels through it: one gate, not one per caller. The rule itself
+    is the static `IsPaceAllowed(Pace, NetMode)`, so a test can assert the networked half without a
+    net driver. `BeginPlay` also drops a non-1× authored starting tier to 1× once networked. The
+    widget disabling its buttons is courtesy, not the gate.
   - **The tier to resume to lives on the component, not the controller that paused.** In co-op one
     player can pause and another unpause; they have to arrive at the same speed, and they would
     not if each controller remembered its own.
+- **The danger flash is presentation; the danger is combat's.** Whether a unit is in a fight,
+  and when that is worth flashing, is decided on the server by `UCombatComponent` (`combat.md`) and
+  arrives on every machine as `OnDangerSignal`. The portrait only reacts, and the rules it owns are
+  all about looking right:
+  - **The subscription follows the unit, not the widget.** A portrait handed a different unit
+    (the roster changed) drops the old subscription and any flash still running for it — a tile
+    must never finish flashing on behalf of someone who has moved.
+  - **Every signal restarts the flash.** An escalation landing mid-flash is new information, and
+    has to read as a fresh start rather than vanish into the tail of the last one.
+  - **Wall-clock, like the bark bubbles.** The flash is for the player's eyes, so it lasts two
+    real seconds at 8× as at 1×. (The *engagement* it announces runs on game time — see
+    `combat.md`.)
+  - **Never colour alone, never ring-shaped** (`notifications-and-alerts.md`'s accessibility
+    section). `DangerMarker` is a badge with a glyph in the tile's corner, so it differs from the
+    selection ring in shape and place as well as colour. Its pulse is capped below 3 Hz, the usual
+    photosensitivity ceiling. It is `HitTestInvisible` while shown, so a click on a flashing
+    portrait still selects the unit.
+  - **Driven by the frame push, like everything else here.** `SetUnit` runs every frame, so it
+    advances the pulse and retires the flash *before* its own nothing-changed early-out. No
+    `NativeTick`.
 - **A widget never guesses at the result of a request.** The pace buttons don't repaint
   themselves on click — they ask, and the next frame's push moves the readout. A button that
   updated optimistically would show a tier the world wasn't running at whenever the request was
@@ -473,7 +512,9 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
   `UTimePaceComponent::GetPaceLabel`, so a tier is named in one place. Nothing here reads the
   component directly — the tier arrives through the HUD's push, which is what lets a client whose
   GameState hasn't replicated in yet simply show nothing rather than needing a null check of its
-  own.
+  own. The push carries the lock too (`SetPace(Pace, bLocked)`): locked, every button is disabled
+  and the *strip* carries `LockedToolTip` — on the strip rather than the buttons because it stays
+  enabled, and a tooltip is only any use where the pointer can still raise one.
 - **`UTargetPanelWidget`** — name, classification line, health bar and the action row, rebuilt
   from `FStrategyTargetInfo`. It keeps its action buttons in `ActionWidgets` and resizes that row
   rather than rebuilding it, since the row usually keeps its shape while its contents change. It
@@ -495,7 +536,15 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
   (`GetInitials` takes the first letter of up to two whitespace-separated words, so "Pawn 1" reads
   as "P1" — which is what the wireframe's placeholder discs show). `SelectionRing` is set `Hidden`
   rather than `Collapsed`, so its absence can't change the tile's size and slide the whole bar
-  sideways on every selection.
+  sideways on every selection. It also runs the danger flash: `WatchUnitCombat` binds
+  `HandleDangerSignal` to the unit's `UCombatComponent::OnDangerSignal` (a native delegate, so
+  `AddUObject`), and `UpdateDangerFlash` pulses `DangerMarker`'s render opacity on a cosine and
+  hides it after `DangerFlashSeconds`. Tunables, all `EditAnywhere` on the WBP: `DangerFlashSeconds`
+  (2s), `DangerPulseHz` (2, clamped below 3), `DangerPulseMinOpacity` (0.3; 1 gives a steady
+  badge). The cosmetic half is `BP_DangerFlash(Signal)` / `BP_DangerFlashEnded`, with
+  `IsDangerFlashing`, `GetDangerFlashProgress` (0-1, for a timing curve) and `GetLastDangerSignal`
+  to read from Blueprint. `NativeDestruct` unsubscribes and forgets the unit, so a re-added tile
+  subscribes again on its next `SetUnit`.
 - **`UActivityFeedWidget`** — the tabs and the visible lines. Reads `USmoresActivityLog`,
   subscribes to `OnEntryAdded` to mark itself dirty, and does the rebuild on the HUD's per-frame
   push (see Core Rules for why it is worth the round trip). `NativeDestruct` unbinds:
@@ -524,7 +573,9 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
   static ladder helpers (`GetPaceLadder`, `GetDilationForPace`, `GetPaceLabel`, `StepPace`). The
   helpers are static and world-free deliberately: the tier arithmetic is the part that can be
   wrong in a way nobody notices, so it is the part that gets tested. Both stored tiers are
-  `UPROPERTY(Replicated)`; `SetPace` is authority-gated.
+  `UPROPERTY(Replicated)`; `SetPace` is authority-gated and refuses whatever the static
+  `IsPaceAllowed(Pace, NetMode)` refuses. `IsPaceLocked()` is `GetNetMode() != NM_Standalone`,
+  valid on every machine without replication, since a client knows its own net mode.
 - **`AStrategyGameState`** (`smores`, `Variant_Strategy/`) — hosts that component and owns no
   state of its own, the same shape as `AStrategyPlayerState`. The GameState is Unreal's
   composition root for state shared by everyone in a session, which is exactly what pace is.
@@ -658,7 +709,7 @@ All under `Content/Variant_Strategy/UI/`:
 | `WBP_TargetPanel` | `UTargetPanelWidget` | `NameText`, `ClassificationText`, `HealthBar`, `ActionBox`; plus the `ActionWidgetClass` property, which must point at `WBP_TargetAction` or the row silently shows nothing |
 | `WBP_TargetAction` | `UTargetActionWidget` | `ActionButton`, `LabelText`, `ReasonText` |
 | `WBP_SquadBar` | `USquadBarWidget` | `PortraitBox`, `SelectionCountText`; plus the `PortraitWidgetClass` property, which must point at `WBP_SquadPortrait` or the bar silently shows no portraits |
-| `WBP_SquadPortrait` | `USquadPortraitWidget` | `PortraitButton`, `PortraitImage`, `InitialsText`, `NameText`, `HealthBar`, `SelectionRing` |
+| `WBP_SquadPortrait` | `USquadPortraitWidget` | `PortraitButton`, `PortraitImage`, `InitialsText`, `NameText`, `HealthBar`, `SelectionRing`, `DangerMarker` (the danger badge: a 22×22 `USizeBox`, authored `Hidden`, last child of `PortraitStack` so it paints over the disc and ring, top-right aligned; inside it `DangerMarkerBadge`, a red-orange rounded-square `UBorder` with a dark outline, holding `DangerMarkerGlyph`, a bold near-white "!"; both `HitTestInvisible`) |
 | `WBP_ActivityFeed` | `UActivityFeedWidget` | `LogTabButton`, `SquadTabButton`, `QuestsTabButton`, `CommsTabButton`, `EntryBox`, `EmptyText`; plus the `EntryWidgetClass` property, which must point at `WBP_ActivityEntry` or the feed silently shows no lines |
 | `WBP_ActivityEntry` | `UActivityEntryWidget` | `MessageText`, `SourceText` |
 | `WBP_BarkBubbleLayer` | `UBarkBubbleLayerWidget` | `BubbleCanvas`; plus the `BubbleWidgetClass` property, which must point at `WBP_BarkBubble` or barks reach the feed and nothing floats |
@@ -784,8 +835,25 @@ deliberately short.
 - **The portrait bar has no answer for a large squad.** The wireframe shows nine and stops, and
   roughly seven tiles fit the authored slot. Scroll, shrink or wrap is a layout decision nobody
   has to make until a squad gets that big.
-- **Nothing decides what *demands* acknowledgement.** The feed remembers; dismissal semantics
-  belong to `notifications-and-alerts.md`, still a placeholder topic.
+- **Nothing demands acknowledgement, by design.** `notifications-and-alerts.md` settles it: the
+  feed is the durable record and never fades, and the danger flash is missable on purpose, so
+  there is nothing to dismiss. A separate notification *history* is still an open question there.
+- **The danger flash has one surface of the design's three.** The division switcher and the map
+  are meant to flash when a unit's portrait isn't on screen; divisions don't exist and the map is a
+  stub, so there is nothing to flash yet. The bar shows the whole squad today, so nothing is lost.
+- **The danger flash adds no activity-feed line, deliberately.** The SQUAD tab already records
+  "Took damage from X", "Is down" and "Has been killed" for every squad member, which answers
+  "what happened to Hana" in full; an "entered danger" line on top would be noise. The one thing
+  the feed never shows is being *targeted* without being hit — which, if the attacker never lands
+  a blow, is correctly nothing.
+- **A pace key pressed in co-op is refused silently.** The strip explains the lock (it reads 1x,
+  its buttons are disabled, its tooltip says why), but `Space`, `-` and `=` raise no refusal line.
+  A seventh `ESmoresRefusalReason` would fix it, and wants a real co-op session to judge whether
+  anyone presses them.
+- **In co-op the flash reaches a client only for units it can see on the network.** The signal is a
+  multicast, so it follows net relevancy: a squad member far from a client's view (past its cull
+  distance) wouldn't flash there. The same limit applies to that unit's health bar, and to the bar
+  listing the unit at all, so it is one question for the first real co-op session, not three.
 - **`WBP_BarkBubbleLayer`'s `BubbleWidgetClass` is another single point of failure** of the same
   shape: cleared, barks still reach the feed and nothing floats. It warns once, on the first bark.
 - **`PortraitWidgetClass` and `EntryWidgetClass` are silent single points of failure**, the same

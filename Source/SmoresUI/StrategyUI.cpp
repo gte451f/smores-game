@@ -45,11 +45,11 @@ void UStrategyUI::SetTargetInfo(const FStrategyTargetInfo& TargetInfo)
 	}
 }
 
-void UStrategyUI::SetPace(EGamePace Pace)
+void UStrategyUI::SetPace(EGamePace Pace, bool bLocked)
 {
 	if (TimePaceRegion)
 	{
-		TimePaceRegion->SetPace(Pace);
+		TimePaceRegion->SetPace(Pace, bLocked);
 	}
 }
 

@@ -12,6 +12,17 @@
 
 void USquadPortraitWidget::SetUnit(AStrategyUnit* InUnit, bool bInSelected)
 {
+	// the danger subscription follows the unit, not the widget - a portrait handed a different
+	// unit must stop hearing about the old one, and must not finish flashing on its behalf
+	if (Unit.Get() != InUnit)
+	{
+		WatchUnitCombat(InUnit);
+	}
+
+	// ahead of the early-out below: the flash has to keep pulsing and run out on frames where
+	// nothing else about the portrait changes, which is nearly all of them
+	UpdateDangerFlash();
+
 	float NewHealthFraction = 0.0f;
 	bool bNewHasHealth = false;
 
@@ -155,7 +166,107 @@ void USquadPortraitWidget::RefreshPortraitDisplay()
 		SelectionRing->SetVisibility(bSelected ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Hidden);
 	}
 
+	if (DangerMarker)
+	{
+		// Hidden for the same reason as the ring, and never hit-testable: the badge sits over the
+		// button, and a click on a flashing portrait still has to select the unit
+		DangerMarker->SetVisibility(IsDangerFlashing() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Hidden);
+	}
+
 	BP_UpdatePortrait();
+}
+
+float USquadPortraitWidget::GetDangerFlashProgress() const
+{
+	if (!IsDangerFlashing() || DangerFlashSeconds <= 0.0f)
+	{
+		return 0.0f;
+	}
+
+	return FMath::Clamp(static_cast<float>((FPlatformTime::Seconds() - DangerFlashStartTime) / DangerFlashSeconds), 0.0f, 1.0f);
+}
+
+void USquadPortraitWidget::WatchUnitCombat(AStrategyUnit* InUnit)
+{
+	if (UCombatComponent* OldCombat = WatchedCombat.Get())
+	{
+		OldCombat->OnDangerSignal.Remove(DangerSignalHandle);
+	}
+
+	DangerSignalHandle.Reset();
+	WatchedCombat = nullptr;
+
+	StopDangerFlash();
+
+	UCombatComponent* NewCombat = IsValid(InUnit) ? InUnit->GetCombat() : nullptr;
+
+	if (!NewCombat)
+	{
+		return;
+	}
+
+	DangerSignalHandle = NewCombat->OnDangerSignal.AddUObject(this, &USquadPortraitWidget::HandleDangerSignal);
+	WatchedCombat = NewCombat;
+}
+
+void USquadPortraitWidget::HandleDangerSignal(AActor* SignalUnit, EDangerSignal Signal)
+{
+	// every signal restarts the flash, whether or not one is still running - an escalation landing
+	// mid-flash is new information, and has to be seen as a fresh start rather than lost in the tail
+	// of the last one
+	DangerFlashStartTime = FPlatformTime::Seconds();
+	LastDangerSignal = Signal;
+
+	if (DangerMarker)
+	{
+		DangerMarker->SetRenderOpacity(1.0f);
+		DangerMarker->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
+
+	BP_DangerFlash(Signal);
+}
+
+void USquadPortraitWidget::UpdateDangerFlash()
+{
+	if (!IsDangerFlashing())
+	{
+		return;
+	}
+
+	const double Elapsed = FPlatformTime::Seconds() - DangerFlashStartTime;
+
+	if (Elapsed >= DangerFlashSeconds)
+	{
+		StopDangerFlash();
+		return;
+	}
+
+	if (DangerMarker && DangerPulseHz > 0.0f)
+	{
+		// a cosine so each pulse starts at full strength - the moment the signal lands is the moment
+		// the badge is most visible, rather than half a pulse later
+		const float Wave = 0.5f + 0.5f * FMath::Cos(static_cast<float>(Elapsed) * DangerPulseHz * UE_TWO_PI);
+
+		DangerMarker->SetRenderOpacity(FMath::Lerp(DangerPulseMinOpacity, 1.0f, Wave));
+	}
+}
+
+void USquadPortraitWidget::StopDangerFlash()
+{
+	if (!IsDangerFlashing())
+	{
+		return;
+	}
+
+	DangerFlashStartTime = -1.0;
+
+	if (DangerMarker)
+	{
+		DangerMarker->SetRenderOpacity(1.0f);
+		DangerMarker->SetVisibility(ESlateVisibility::Hidden);
+	}
+
+	BP_DangerFlashEnded();
 }
 
 void USquadPortraitWidget::NativeConstruct()
@@ -169,4 +280,14 @@ void USquadPortraitWidget::NativeConstruct()
 
 	// SetUnit may well have run before this widget was constructed
 	RefreshPortraitDisplay();
+}
+
+void USquadPortraitWidget::NativeDestruct()
+{
+	// stop listening, and forget the unit so that if this widget is ever re-added the next SetUnit
+	// counts as a new unit and subscribes again
+	WatchUnitCombat(nullptr);
+	Unit = nullptr;
+
+	Super::NativeDestruct();
 }

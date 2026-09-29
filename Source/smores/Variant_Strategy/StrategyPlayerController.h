@@ -797,8 +797,8 @@ private:
 	 *
 	 *  The pace lives on the GameState, which a client cannot RPC because it doesn't own it - but
 	 *  it does own this controller, so the ask travels here and the server hands it to
-	 *  UTimePaceComponent::SetPace. Nothing is gated per player today: any player may change the
-	 *  pace, which is a provisional call recorded in game-systems/hud-and-panels.md.
+	 *  UTimePaceComponent::SetPace. Nothing is gated here: SetPace owns the one rule, which is that
+	 *  a networked session stays at 1x whoever asks (game-systems/hud-and-panels.md).
 	 */
 	UFUNCTION(Server, Reliable)
 	void Server_RequestPace(EGamePace Pace);

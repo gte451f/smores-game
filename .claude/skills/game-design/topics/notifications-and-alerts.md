@@ -92,9 +92,14 @@ channel stops meaning anything.
 
 - The full trigger list beyond squad danger is not written. The current position is that
   nothing else reaches the flash channel, which is a deliberate floor, not an oversight.
-- What exactly counts as "entering danger" — being targeted, being hit, or being detected
-  by something hostile — is a tuning question that needs eyes on it in play.
-- What counts as escalation worth re-flashing, beyond a character going down.
+- **Answered in play (2026-09-29): joining a fight is entering danger.** A character flashes
+  when it is sent into a fight *or* when something hostile turns on it. Squad members ordered in
+  together flash together — being on the attacking side of a fight is still being in one, and
+  a flash that waited for the enemy to pick somebody would only ever tell the player about the
+  one it picked. Whether being attacked counts from being *targeted* or only from being *hit* is
+  still a tuning setting, currently targeted; being *detected* waits on a perception system.
+- **Answered in play (2026-09-29): escalation is a serious wound or going down.** Falling to
+  half health re-flashes, and so does going down or being killed. Nothing else does yet.
 - Whether a notification *history* separate from the activity feed is warranted, or whether
   the feed's own persistence is the whole answer. Currently leaning on the feed.
 - How the flash behaves for a group the player has no on-screen representation of at all —

@@ -21,10 +21,11 @@
  *  AWorldSettings::TimeDilation replicates on its own, so clients follow without this component
  *  doing anything on their end.
  *
- *  **Any player may change the pace.** That is what the code does with no extra work, and it is
- *  a deliberately provisional call - see game-systems/hud-and-panels.md. The
- *  alternatives (host only, slowest request wins) are one `if` in SetPace away and want a real
- *  co-op session to judge.
+ *  **In a networked session nobody may change the pace at all** - every tier but 1x is refused,
+ *  pause included (game-design's player-experience.md, decided). The gate is here rather than
+ *  on the controller because every route in - the widget buttons, `Space`, the `-`/`=` ladder -
+ *  already funnels through SetPace, so one check covers all of them. It keys off the net mode,
+ *  never the player count: a host alone in a listen-server session is locked too, deliberately.
  *
  *  The ladder helpers are all static and world-free on purpose: the tier arithmetic is the part
  *  that can be wrong in a way nobody notices, so it is the part that gets tested.
@@ -62,6 +63,15 @@ public:
 	static FText GetPaceLabel(EGamePace Pace);
 
 	/**
+	 *  Whether a session running under NetMode may be moved to Pace.
+	 *
+	 *  1x is always allowed; anything else only in a standalone session. Static and world-free for
+	 *  the same reason the ladder helpers are - a test world is always standalone, so this is the
+	 *  only way the networked half of the rule can be asserted at all.
+	 */
+	static bool IsPaceAllowed(EGamePace Pace, ENetMode NetMode);
+
+	/**
 	 *  The tier Steps rungs away from Pace, clamped at both ends of the ladder.
 	 *
 	 *  Clamping rather than wrapping is the whole point: `=` held down at 8x should stay at 8x,
@@ -88,8 +98,17 @@ public:
 	EGamePace GetResumePace() const { return ResumePace; }
 
 	/**
+	 *  True when this session is networked, so the pace is held at 1x. Valid on every machine: a
+	 *  client knows its own net mode without being told, so nothing here needs replicating.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Time Pace")
+	bool IsPaceLocked() const;
+
+	/**
 	 *  Sets the pace and applies it to the world. **Authority only** - a client calling this does
 	 *  nothing at all, by design; the route in is Server_RequestPace on the player controller.
+	 *  Refused, silently, for any tier IsPaceAllowed says no to - the pace strip is what explains
+	 *  the lock to the player, by reading 1x and offering nothing to press.
 	 */
 	void SetPace(EGamePace NewPace);
 

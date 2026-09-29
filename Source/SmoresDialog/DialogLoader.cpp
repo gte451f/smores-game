@@ -19,7 +19,9 @@ namespace
 	const TCHAR* const DialogManifestFileName = TEXT("mod.json");
 	const TCHAR* const DialogBarksFolder = TEXT("barks/");
 	const TCHAR* const DialogLocalizationFolder = TEXT("localization/");
-	const TCHAR* const DialogConversationsFolder = TEXT("conversations/");
+	// not DialogConversationsFolder: ConversationLoader.cpp has one by that name, and a unity build
+	// that puts both files in one translation unit merges their anonymous namespaces
+	const TCHAR* const DialogLoaderConversationsFolder = TEXT("conversations/");
 
 	bool IsValidDialogPackageId(const FString& Id)
 	{
@@ -690,8 +692,8 @@ namespace SmoresDialog
 				const bool bIsManifest = RelativePath.Equals(DialogManifestFileName, ESearchCase::IgnoreCase);
 				const bool bIsCsv = RelativePath.EndsWith(TEXT(".csv"), ESearchCase::IgnoreCase)
 					&& (RelativePath.StartsWith(DialogBarksFolder, ESearchCase::IgnoreCase) || RelativePath.StartsWith(DialogLocalizationFolder, ESearchCase::IgnoreCase)
-						|| RelativePath.StartsWith(DialogConversationsFolder, ESearchCase::IgnoreCase));
-				const bool bIsConversation = RelativePath.StartsWith(DialogConversationsFolder, ESearchCase::IgnoreCase)
+						|| RelativePath.StartsWith(DialogLoaderConversationsFolder, ESearchCase::IgnoreCase));
+				const bool bIsConversation = RelativePath.StartsWith(DialogLoaderConversationsFolder, ESearchCase::IgnoreCase)
 					&& (RelativePath.EndsWith(TEXT(".yarn"), ESearchCase::IgnoreCase) || RelativePath.EndsWith(TEXT(".yarnc"), ESearchCase::IgnoreCase));
 
 				if (!bIsManifest && !bIsCsv && !bIsConversation)

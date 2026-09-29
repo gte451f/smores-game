@@ -132,10 +132,10 @@ void AStrategyHUD::DrawHUD()
 			UIWidget->SetTargetInfo(SelectionHost->GetSelectionTargetInfo());
 
 			// the simulation's speed, read off the GameState the same way the wallet is read off
-			// the player state
+			// the player state - and whether it is held at 1x, which a networked session always is
 			if (const UTimePaceComponent* TimePace = GetTimePace())
 			{
-				UIWidget->SetPace(TimePace->GetPace());
+				UIWidget->SetPace(TimePace->GetPace(), TimePace->IsPaceLocked());
 			}
 
 			// the quick-access resource readout, read straight off this player's own wallet -

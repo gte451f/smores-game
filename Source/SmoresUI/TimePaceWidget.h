@@ -27,6 +27,11 @@ class UTextBlock;
  *  UTimePaceComponent and pushes it through UStrategyUI every frame. Nothing here reads the
  *  component directly, so a client whose GameState hasn't replicated in yet simply shows nothing
  *  rather than needing a null check of its own.
+ *
+ *  **In a networked session the strip stays on screen, reads 1x, and offers nothing to press**
+ *  (game-design's player-interface.md). Hiding it would leave a player looking for the control
+ *  with nothing to tell them why it went. Every button is disabled and the strip's tooltip says
+ *  why; the refusal itself is UTimePaceComponent's, so a disabled button is courtesy, not the gate.
  */
 UCLASS(abstract)
 class SMORESUI_API UTimePaceWidget : public UHUDRegionWidget
@@ -63,16 +68,23 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Time Pace")
 	FLinearColor InactiveButtonTint = FLinearColor::White;
 
+	/** The strip's tooltip while the pace is locked - the explanation for buttons that do nothing */
+	UPROPERTY(EditAnywhere, Category = "Time Pace")
+	FText LockedToolTip = NSLOCTEXT("TimePaceWidget", "PaceLockedToolTip", "Time runs at 1x for everyone in a multiplayer session.");
+
 	/** The tier the HUD last pushed in */
 	EGamePace Pace = EGamePace::Normal;
+
+	/** True while the session is networked and the pace is held at 1x */
+	bool bLocked = false;
 
 public:
 
 	/** The tiers this strip has a button for, left to right */
 	static const TArray<EGamePace>& GetStripPaces();
 
-	/** Sets the tier currently running, repainting only if it actually changed. Pushed every frame. */
-	void SetPace(EGamePace NewPace);
+	/** Sets the tier currently running and whether it is locked, repainting only if either changed. Pushed every frame. */
+	void SetPace(EGamePace NewPace, bool bNewLocked);
 
 	/** Blueprint handler for anything beyond the bound readout and tints */
 	UFUNCTION(BlueprintImplementableEvent, Category = "UI", meta = (DisplayName = "Update Pace"))
@@ -83,6 +95,10 @@ protected:
 	/** The tier currently running */
 	UFUNCTION(BlueprintPure, Category = "UI")
 	EGamePace GetPace() const { return Pace; }
+
+	/** True while the session is networked and nobody may change the pace */
+	UFUNCTION(BlueprintPure, Category = "UI")
+	bool IsPaceLocked() const { return bLocked; }
 
 	/** The readout text for the current tier ("Paused", "1x", "4x") */
 	UFUNCTION(BlueprintPure, Category = "UI")

@@ -21,15 +21,16 @@ const TArray<EGamePace>& UTimePaceWidget::GetStripPaces()
 	return StripPaces;
 }
 
-void UTimePaceWidget::SetPace(EGamePace NewPace)
+void UTimePaceWidget::SetPace(EGamePace NewPace, bool bNewLocked)
 {
 	// the HUD pushes this every frame, so do nothing at all in the overwhelmingly common case
-	if (Pace == NewPace)
+	if (Pace == NewPace && bLocked == bNewLocked)
 	{
 		return;
 	}
 
 	Pace = NewPace;
+	bLocked = bNewLocked;
 
 	RefreshPaceDisplay();
 }
@@ -95,8 +96,16 @@ void UTimePaceWidget::RefreshPaceDisplay()
 		if (UButton* Button = GetButtonForPace(StripPace))
 		{
 			Button->SetBackgroundColor(StripPace == Pace ? ActiveButtonTint : InactiveButtonTint);
+
+			// every button, 1x included - "offers nothing to press" is the design's wording, and a
+			// live 1x button next to three dead ones would read as a partial fault
+			Button->SetIsEnabled(!bLocked);
 		}
 	}
+
+	// on the strip rather than the buttons, because the strip stays enabled and a tooltip is
+	// only any use where the pointer can still raise one
+	SetToolTipText(bLocked ? LockedToolTip : FText::GetEmpty());
 
 	BP_UpdatePace();
 }

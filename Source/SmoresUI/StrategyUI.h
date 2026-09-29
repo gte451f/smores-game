@@ -84,8 +84,8 @@ public:
 	/** Sets everything the target panel draws. Forwarded to that region, which owns the display. */
 	void SetTargetInfo(const FStrategyTargetInfo& TargetInfo);
 
-	/** Sets the simulation's current speed. Forwarded to the pace strip, which owns the readout. */
-	void SetPace(EGamePace Pace);
+	/** Sets the simulation's current speed, and whether it is held at 1x. Forwarded to the pace strip, which owns the readout. */
+	void SetPace(EGamePace Pace, bool bLocked);
 
 	/** Sets the owning player's gold balance. Forwarded to the resource strip, which owns the readout. */
 	void SetGold(int32 NewGold);

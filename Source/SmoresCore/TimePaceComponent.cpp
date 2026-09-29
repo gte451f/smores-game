@@ -65,6 +65,18 @@ FText UTimePaceComponent::GetPaceLabel(EGamePace Pace)
 	}
 }
 
+bool UTimePaceComponent::IsPaceAllowed(EGamePace Pace, ENetMode NetMode)
+{
+	// real time is the one tier a shared world can always run at. Everything else - pause
+	// included, which is a time change like any other - is single-player only.
+	return Pace == EGamePace::Normal || NetMode == NM_Standalone;
+}
+
+bool UTimePaceComponent::IsPaceLocked() const
+{
+	return GetNetMode() != NM_Standalone;
+}
+
 EGamePace UTimePaceComponent::StepPace(EGamePace Pace, int32 Steps)
 {
 	const TArray<EGamePace>& Ladder = GetPaceLadder();
@@ -96,6 +108,12 @@ void UTimePaceComponent::SetPace(EGamePace NewPace)
 		return;
 	}
 
+	// the multiplayer lock. See IsPaceAllowed - this is the one gate every route in passes.
+	if (!IsPaceAllowed(NewPace, GetNetMode()))
+	{
+		return;
+	}
+
 	// remember where to come back to *before* moving, so unpausing restores the speed that was
 	// running rather than whatever the default happens to be
 	if (NewPace == EGamePace::Paused)
@@ -117,6 +135,14 @@ void UTimePaceComponent::BeginPlay()
 	// actually take effect rather than being a number nothing read.
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
+		// a level authored to start at some other tier still starts at 1x once it's networked -
+		// the lock covers where the world begins, not just what players ask for afterwards
+		if (!IsPaceAllowed(Pace, GetNetMode()))
+		{
+			Pace = EGamePace::Normal;
+			ResumePace = EGamePace::Normal;
+		}
+
 		ApplyDilation();
 	}
 }

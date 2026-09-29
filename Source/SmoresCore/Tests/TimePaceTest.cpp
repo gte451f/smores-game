@@ -222,4 +222,60 @@ bool FSmoresTimePaceWithoutAuthorityIsSilentTest::RunTest(const FString& Paramet
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSmoresTimePaceLockedWhenNetworkedTest,
+	"Smores.Core.TimePace.LockedAtRealTimeWhenNetworked",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FSmoresTimePaceLockedWhenNetworkedTest::RunTest(const FString& Parameters)
+{
+	const TArray<EGamePace>& Ladder = UTimePaceComponent::GetPaceLadder();
+
+	// single-player: every tier, no exemptions
+	for (EGamePace Pace : Ladder)
+	{
+		TestTrue(*FString::Printf(TEXT("%s is allowed standalone"), *SmoresTimePaceTest_PaceName(Pace)),
+			UTimePaceComponent::IsPaceAllowed(Pace, NM_Standalone));
+	}
+
+	// Networked: 1x and nothing else, whichever side of the connection is asking. A listen server
+	// is in the list on purpose - a host alone in a co-op session is locked too, because the rule
+	// keys off the net mode and never off how many players happen to be connected.
+	const ENetMode NetworkedModes[] = { NM_ListenServer, NM_DedicatedServer, NM_Client };
+
+	for (ENetMode NetMode : NetworkedModes)
+	{
+		for (EGamePace Pace : Ladder)
+		{
+			TestEqual(*FString::Printf(TEXT("%s under net mode %d"), *SmoresTimePaceTest_PaceName(Pace), static_cast<int32>(NetMode)),
+				UTimePaceComponent::IsPaceAllowed(Pace, NetMode), Pace == EGamePace::Normal);
+		}
+	}
+
+	// the one worth naming on its own: pause is inside the lock, not an exemption from it
+	TestFalse(TEXT("Pause is refused in a networked session"), UTimePaceComponent::IsPaceAllowed(EGamePace::Paused, NM_ListenServer));
+
+	// and the real component, in the test world - which is standalone, so it must accept. The
+	// networked refusal can't be driven end to end without a net driver, which is why the rule
+	// above is a static the component's gate calls rather than logic inlined in SetPace.
+	FSmoresTestWorld TestWorld;
+
+	UTimePaceComponent* TimePace = TestWorld.SpawnComponent<UTimePaceComponent>();
+
+	if (!TestNotNull(TEXT("Pace component created"), TimePace))
+	{
+		return true;
+	}
+
+	TestFalse(TEXT("A standalone world is not locked"), TimePace->IsPaceLocked());
+
+	TimePace->SetPace(EGamePace::Quadruple);
+
+	TestTrue(TEXT("...so a non-1x request is accepted"), TimePace->GetPace() == EGamePace::Quadruple);
+
+	TestWorld.ForwardErrors(this);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

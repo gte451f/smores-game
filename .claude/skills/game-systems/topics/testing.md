@@ -7,9 +7,10 @@ the standing rule for when a piece of work should add to it. The forward-looking
 still needs building, in what order, and the decisions behind it — lives in
 `Docs/roadmaps/testing-roadmap.md`.
 
-> **Status: the harness is built and Slices 1 and 2 have shipped.** 189 tests run green (one with a
+> **Status: the harness is built and Slices 1 and 2 have shipped.** 197 tests run green (one with a
 > warning - see the content sweeps below), covering `SmoresItems`, `SmoresEconomy`,
-> `UHealthComponent`, the content smoke tests, and (added by later roadmaps) the time-pace ladder,
+> `UHealthComponent`, the content smoke tests, and (added by later roadmaps) the time-pace ladder
+> and its multiplayer lock, combat engagement (the danger flash's state),
 > the target panel's action assembly, the activity log, the definition layer, faction standing,
 > character records, loot tables, and dialog (barks, the approach trigger, the floating bark
 > bubbles, conversations, their effects and the squad's dialog memory).
@@ -53,6 +54,8 @@ them test smores.
 | Every `USmoresDefinition` asset under `Content/` (base rules, id uniqueness, id look-up, enumerability) | `SmoresCore` | ✅ 4 tests | data 1 |
 | Both maps still load | `smores` | ✅ 1 test | 2 |
 | Time-pace ladder (tiers, dilation, stepping, clamping, authority) | `SmoresCore` | ✅ 6 tests | HUD 2 |
+| Time-pace multiplayer lock (every tier standalone, only 1x networked, pause inside the lock) | `SmoresCore` | ✅ 1 test | danger 1 |
+| Combat engagement (one signal per fight, escalation, timeout and re-entry, the Hit trigger, a knockdown from clear, attacking engages the attacker, restores silent) | `SmoresCombat` | ✅ 7 tests | danger 1 |
 | Target-panel action assembly (per target kind, reach, hostility) | `smores` | ✅ 7 tests | HUD 2 |
 | Activity log ring buffer (eviction, shrink, filtering, broadcast, ids) | `SmoresCore` | ✅ 6 tests | HUD 3 |
 | `USmoresDefinitionLibrary` look-up and enumeration | `SmoresCore` | ✅ via the sweeps above | data 1 |
@@ -71,7 +74,7 @@ them test smores.
 | Attack range / out-of-range branch | `SmoresCombat` | — | unclaimed |
 | Trade transaction ordering | `smores` | — | 3 |
 
-**189 tests.** Several rows came from the HUD, game-data and dialog rounds, not from the testing roadmap — a
+**197 tests.** Several rows came from the HUD, game-data, dialog and danger-alert rounds, not from the testing roadmap — a
 slice that ships numbers-and-state-machine code writes its own tests, whichever roadmap it came from.
 Update this table as slices ship; it is the quick answer to "is this already covered?"
 
@@ -587,17 +590,30 @@ least one before checking anything — the same "check the number, not the colou
 
 ## Known Gaps
 
-- **`UCombatComponent` has no tests and belongs to no slice.** Most of it isn't reachable (see
-  below), but three branches are: an attack on a target beyond `AttackRange`, an attack after
-  `NotifyOwnerDowned`, and `ClearCurrentAttackTarget`. `AttackRange` is `protected`, so reaching it
-  wants a test-only subclass in the same module rather than a new accessor. It is catalogued in
-  `Docs/roadmaps/testing-roadmap.md` but no slice claimed it.
+- **`UCombatComponent`'s attack branches have no tests and belong to no slice.** Its engagement
+  state is covered (`CombatEngagementTest.cpp`), and three attack branches are reachable but
+  untested: an attack on a target beyond `AttackRange`, an attack after `NotifyOwnerDowned`, and
+  `ClearCurrentAttackTarget`. It is catalogued in `Docs/roadmaps/testing-roadmap.md` but no slice
+  claimed it.
+  - **The in-range swing is reachable without a mesh after all**, which the engagement tests
+    found: an attacker with no `AttackMontages` runs `AttackTarget` → `PerformAttack`, which
+    records the target and returns before touching an anim instance, and `ApplyAttackDamage` is
+    then exactly what the hit-frame notify would call. Two plain actors at the origin are always
+    in range. **To put one out of range, give it a root first**: a bare `AActor` from
+    `SpawnOwner()` has no root component, so `SetActorLocation` returns false and moves nothing.
+    `AttackingEngagesTheAttacker` registers a `USceneComponent` as the root, then moves it. What stays unreachable is the montage itself and the loop that `OnMontageEnded`
+    drives.
+  - **A protected `EditAnywhere` setting is set by reflection, not a new setter.**
+    `SmoresEngagementTest_SetDangerTrigger` finds `DangerTrigger` with `FindFProperty` and writes
+    it the way the Details panel would, and the test asserts the lookup succeeded so a rename
+    fails loudly instead of quietly testing the default. The same works for `AttackRange`; it
+    beats a test-only subclass, which would need an unguarded `UCLASS` header of its own.
 - **The off-authority path is untestable** until multiplayer is wired up. Asserting "this mutator
   no-ops on a client" needs an actor whose role is not `ROLE_Authority`, which needs a net driver.
   The gate is asserted positively instead — the mutator runs when it should.
-- **`UCombatComponent`'s attack swing is untestable** — `PerformAttack` plays a montage on the
-  owner's anim instance, which needs a skeletal mesh, a skeleton and authored montage assets. Only
-  the out-of-range branch, which never reaches a montage, is reachable from a test.
+- **`UCombatComponent`'s montage is untestable** — `PerformAttack` plays it on the owner's anim
+  instance, which needs a skeletal mesh, a skeleton and authored montage assets. Everything up to
+  that call is reachable (see above).
 - **`AStrategyPlayerController` is expensive to test.** Selection, input, window management and
   the trade transaction all meet there and none of it separates cleanly. That is the price of the
   controller being where variant-specific glue lives; `Docs/roadmaps/testing-roadmap.md` Slice 3 takes one

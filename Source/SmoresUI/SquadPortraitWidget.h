@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "CombatComponent.h"
 #include "SquadPortraitWidget.generated.h"
 
 class AStrategyUnit;
@@ -17,8 +18,8 @@ class UWidget;
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnSquadPortraitClicked, AStrategyUnit*, bool);
 
 /**
- *  One circular portrait in the squad bar: a face (or initials), a name, a health ring, and a
- *  selection ring.
+ *  One circular portrait in the squad bar: a face (or initials), a name, a health ring, a
+ *  selection ring, and the danger flash.
  *
  *  Deliberately **not** a UHUDRegionWidget - it lives inside one, exactly like
  *  UTargetActionWidget. Its UButton consumes its own press, and anything that lands in the gaps
@@ -34,6 +35,17 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(FOnSquadPortraitClicked, AStrategyUnit*, bo
  *  The consequence worth knowing: the first click of a double-click *does* select, immediately.
  *  That is wanted - a portrait click should never feel like it's waiting to see what you do next -
  *  and it means the camera cut is purely additive to a selection that already happened.
+ *
+ *  **The danger flash** fires when this unit's UCombatComponent signals - entering a hostile
+ *  engagement, or it getting worse (game-design's notifications-and-alerts.md). The portrait
+ *  subscribes to its own unit, because it is the thing that stands for that unit on screen. It is
+ *  brief and marks only the transition; the health bar underneath is the ongoing readout. It is
+ *  timed on wall-clock rather than world time, like the bark bubbles, so it lasts as long at 8x as
+ *  at 1x - the flash is for the player's eyes, not the simulation.
+ *
+ *  It must never be colour alone, and never confusable with the selection ring: the C++ half shows
+ *  and pulses DangerMarker, which the WBP draws as a badge with a glyph in the corner rather than
+ *  anything ring-shaped, and BP_DangerFlash is the cosmetic half for styling and timing curves.
  */
 UCLASS(abstract)
 class SMORESUI_API USquadPortraitWidget : public UUserWidget
@@ -67,6 +79,30 @@ protected:
 	TObjectPtr<UWidget> SelectionRing;
 
 	/**
+	 *  The danger flash's icon, shown and pulsed only while it runs. Name it "DangerMarker" to
+	 *  auto-bind. It carries the non-colour half of the alert, so it must be a *shape* - a badge with
+	 *  a glyph - and must not read as a second selection ring.
+	 */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> DangerMarker;
+
+	/** How long the danger flash runs, in real seconds. Brief by design - see the class comment. */
+	UPROPERTY(EditAnywhere, Category = "Squad Portrait|Danger", meta = (ClampMin = 0.1, Units = "s"))
+	float DangerFlashSeconds = 2.0f;
+
+	/**
+	 *  How many times a second DangerMarker pulses while the flash runs. Capped below 3 - the
+	 *  common photosensitivity guideline is no more than three flashes a second, and this is exactly
+	 *  the kind of signal the accessibility baseline exists to catch.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Squad Portrait|Danger", meta = (ClampMin = 0, ClampMax = 2.9, Units = "Hz"))
+	float DangerPulseHz = 2.0f;
+
+	/** DangerMarker's opacity at the bottom of each pulse. 1 turns the pulse off and leaves a steady badge. */
+	UPROPERTY(EditAnywhere, Category = "Squad Portrait|Danger", meta = (ClampMin = 0, ClampMax = 1))
+	float DangerPulseMinOpacity = 0.3f;
+
+	/**
 	 *  How long after a click a second click still counts as "and focus the camera".
 	 *
 	 *  0.5s matches IA_Strategy_SelectAllDoubleClick's RepeatDelay and Windows' own system-wide
@@ -92,6 +128,18 @@ protected:
 	/** FPlatformTime::Seconds() of the last click, for the focus gesture above. Negative until the first. */
 	double LastClickTime = -1.0;
 
+	/** The unit's combat component this portrait is listening to, if any */
+	TWeakObjectPtr<UCombatComponent> WatchedCombat;
+
+	/** The subscription to WatchedCombat's OnDangerSignal */
+	FDelegateHandle DangerSignalHandle;
+
+	/** FPlatformTime::Seconds() the running danger flash started at. Negative while none is running. */
+	double DangerFlashStartTime = -1.0;
+
+	/** Why the most recent danger flash fired */
+	EDangerSignal LastDangerSignal = EDangerSignal::Entered;
+
 public:
 
 	/** Fired when the player clicks this portrait. The bool is true for the camera-focus gesture. */
@@ -107,6 +155,14 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "UI", meta = (DisplayName = "Update Portrait"))
 	void BP_UpdatePortrait();
 
+	/** Blueprint handler for the cosmetic half of a danger flash starting - fires again if a new signal restarts one */
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI", meta = (DisplayName = "Danger Flash"))
+	void BP_DangerFlash(EDangerSignal Signal);
+
+	/** Blueprint handler for the danger flash running out */
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI", meta = (DisplayName = "Danger Flash Ended"))
+	void BP_DangerFlashEnded();
+
 protected:
 
 	/** Up to two initials from the unit's name, for a unit with no portrait texture */
@@ -121,13 +177,38 @@ protected:
 	UFUNCTION(BlueprintPure, Category = "UI")
 	bool IsUnitSelected() const { return bSelected; }
 
+	/** True while a danger flash is running */
+	UFUNCTION(BlueprintPure, Category = "UI")
+	bool IsDangerFlashing() const { return DangerFlashStartTime >= 0.0; }
+
+	/** How far through the running danger flash, 0-1, or 0 if none is - the input for a BP timing curve */
+	UFUNCTION(BlueprintPure, Category = "UI")
+	float GetDangerFlashProgress() const;
+
+	/** Why the most recent danger flash fired */
+	UFUNCTION(BlueprintPure, Category = "UI")
+	EDangerSignal GetLastDangerSignal() const { return LastDangerSignal; }
+
 	UFUNCTION()
 	void HandleClicked();
 
 	/** Pushes the current unit and state into every bound widget and the BP hook */
 	void RefreshPortraitDisplay();
 
+	/** Moves the danger subscription to InUnit's combat component, dropping any flash that belonged to the old unit */
+	void WatchUnitCombat(AStrategyUnit* InUnit);
+
+	/** Bound to the watched unit's UCombatComponent::OnDangerSignal */
+	void HandleDangerSignal(AActor* SignalUnit, EDangerSignal Signal);
+
+	/** Pulses DangerMarker and ends the flash once it has run its course. Driven by SetUnit's per-frame push. */
+	void UpdateDangerFlash();
+
+	/** Ends a running danger flash, if there is one */
+	void StopDangerFlash();
+
 	//~ Begin UUserWidget interface
 	virtual void NativeConstruct() override;
+	virtual void NativeDestruct() override;
 	//~ End UUserWidget interface
 };

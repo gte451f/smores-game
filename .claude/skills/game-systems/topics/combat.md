@@ -32,6 +32,11 @@ hit while otherwise idle. Looting a body's inventory is a related but separate s
   — is an undecided design question (`character-death-and-permadeath.md` in the game-design skill
   is still a placeholder). The state and the transition are built so that looting a body had
   something real to gate on; whoever settles that rule calls `Kill()`.
+- **A unit entering danger flashes its portrait** (`hud-and-panels.md`). Once when it enters a
+  fight it wasn't already in — by being ordered to attack, or by something hostile targeting it —
+  again when it falls to half health, and again when it goes down or is killed; never once per hit.
+  A squad sent in on one `H` press flashes together. A fight ends ten seconds (game time) after the
+  last attack by or against the unit.
 
 ## Core Rules
 
@@ -112,6 +117,53 @@ hit while otherwise idle. Looting a body's inventory is a related but separate s
   it. Every one of those guards reads `IsIncapacitated()`, so Dead inherited the whole set for
   free rather than needing a parallel check added at each site.
 
+### Engagement and the danger signal
+
+`UCombatComponent` also knows whether its owner is **in a hostile engagement** — the state behind
+the danger flash. The design is `notifications-and-alerts.md`'s: the engagement is the unit, not
+the hit.
+
+- **Attacking is entering.** `AttackTarget` engages its *own* owner (`JoinEngagement`) after its
+  validity checks and before the range branch, so a unit is in the fight from the moment it is sent
+  in, not from whenever something swings back. Jim's PIE call (2026-09-29): two squad members
+  ordered in together must flash together, and before this only the one the enemy picked did. The
+  loop re-enters `AttackTarget` every swing, which keeps an attacker's fight alive even against a
+  target that never fights back. A consequence worth knowing: a squad member already attacking
+  does *not* flash again when the enemy turns on it — it is already in that fight.
+- **Hostile attention arrives through one door**, `NoteHostileAttention(Attacker, Kind)`, called
+  by the *attacker's* component: `AttackTarget` reports `Targeted` (after its validity checks,
+  before the range branch, so being walked towards counts), and `ApplyAttackDamage` reports `Hit`
+  once the damage has landed, and only if the target was standing when the swing connected. The
+  auto-attack loop calls `AttackTarget` before every swing, which is what keeps a fight alive.
+- **How early being attacked counts is `DangerTrigger`**, an `EditAnywhere` setting: `Targeted`
+  (default) lets either kind of attention start an engagement; `Hit` lets only a landed hit start
+  one. Either kind *keeps* an existing one going, and the trigger never gates a unit's own attacks.
+  "Detected" needs a perception system that doesn't exist.
+- **Entering from clear signals `Entered`.** Everything while engaged is silent.
+- **Leaving is a timeout** — `EngagementTimeoutSeconds` (10s) after the last attention, on the
+  world timer, so game time: faster at high pace, frozen while paused. It ends silently.
+- **Escalation re-arms.** While engaged, health falling to `WoundedHealthFraction` (0.5; 0 turns
+  it off) signals `Wounded` once, re-armed by climbing back above it (recovery) or by a new
+  engagement; going Downed or being killed signals `Down`. A unit that enters a fight already
+  below the floor doesn't owe a `Wounded` until it climbs back and falls again.
+- **Escalation reads `UHealthComponent`, it doesn't copy it.** The component binds its owner's
+  `OnDamaged` (the floor check), `OnDowned`/`OnDied` and `OnRecovered` in `BeginPlay`, on the server
+  only, and computes the health fraction when asked.
+- **A knockdown outside an engagement is silent, on purpose.** Either the hit that did it is about
+  to report itself as the fight's start — which is why `ApplyAttackDamage` reports *after*
+  `TakeDamage`, so a one-hit knockdown signals once (`Entered`) rather than twice — or nothing
+  hostile happened at all: `RestoreState` broadcasts `OnDowned`/`OnDied` for a unit loaded from its
+  record already down, and a save loading must not flash the squad bar.
+- **State is server truth; the signal is an event.** `bEngaged` is `UPROPERTY(Replicated)` and
+  every mutation is authority-gated. The signal goes out as `Multicast_DangerSignal` (reliable),
+  which runs on the server and every client — the same route as `Multicast_PlayAttackMontage` —
+  and broadcasts `OnDangerSignal(Unit, Signal)` locally. Combat never learns a HUD exists.
+- **`OnDangerSignal` is native and carries the unit**, unlike the health delegates. Native so the
+  portrait can `AddUObject` and a test can bind a lambda; carrying the unit so a future listener on
+  many units (the division switcher, the map) needs no per-unit watcher object.
+- **It applies to every unit**, NPCs included, since every `AStrategyUnit` has a combat component.
+  Only player units have a portrait to flash; an NPC's engagement state is simply unread today.
+
 ## C++ Implementation
 
 - **Primary classes:** `UHealthComponent`, `AStrategyUnit`, `AStrategyPlayerUnit` (inherits
@@ -122,6 +174,14 @@ hit while otherwise idle. Looting a body's inventory is a related but separate s
     manage the recovery timer
   - `UHealthComponent::Kill` — the one transition into `Dead`; authority-only and terminal
   - `UHealthComponent::IsIncapacitated` — Downed-or-Dead, the query nearly all gameplay uses
+  - `UCombatComponent::NoteHostileAttention` — the one entry for hostile attention; starts or
+    refreshes an engagement per `DangerTrigger`. Public, so a future damage source (a trap, a
+    ranged weapon) can report itself the same way
+  - `UCombatComponent::JoinEngagement` — private; enters from clear or pushes a running
+    engagement's end back. `AttackTarget` calls it for the attacker itself
+  - `UCombatComponent::IsEngaged` — replicated engagement state
+  - `UCombatComponent::OnDangerSignal` / `Multicast_DangerSignal` — the flash-worthy event,
+    `EDangerSignal { Entered, Wounded, Down }`
   - `UHealthComponent::RestoreState` — puts the component into a stored health and state, the
     way a character record hands its condition back to its actor. Authority-only; broadcasts the
     delegate of the state it *enters* (so a unit restored Dead goes inert through its ordinary
@@ -168,6 +228,10 @@ hit while otherwise idle. Looting a body's inventory is a related but separate s
   a corrupted/glitched attack animation, regardless of which montage asset played, because two
   montages targeting different slots can stomp each other's pose on the same `AnimInstance`.
 - `AttackRange`, `MaxHealth`, `DownedDurationSeconds` are `EditAnywhere` and tunable per-Blueprint.
+- The danger tunables live on the unit Blueprint's `Combat` component, under **Combat | Danger**:
+  `DangerTrigger` (Targeted / Hit), `EngagementTimeoutSeconds` (10), `WoundedHealthFraction`
+  (0.5). They matter on the *victim* — `BP_PlayerUnit` is where "what counts as danger for my
+  squad" is set.
 - Strategy player controller Blueprint assigns `AttackAction` to an `IA_*` input asset, bound to a
   key in the mouse mapping context.
 
@@ -185,13 +249,14 @@ hit while otherwise idle. Looting a body's inventory is a related but separate s
 - `AttackTarget`'s out-of-range branch reuses the same `MoveToLocation` path as player move
   commands (EQS-refined destination), so any future movement-behavior change affects combat
   approach too.
-- **`UHealthComponent`'s delegates now have three consumers, and two want the victim's
+- **`UHealthComponent`'s delegates now have four consumers, and two want the victim's
   identity.** `AStrategyUnit` binds them for its own behavior (retaliation, going inert); the HUD's
-  activity feed binds them through `USquadActivityWatcher` to write the fight record; and the bark
+  activity feed binds them through `USquadActivityWatcher` to write the fight record; the bark
   director binds `OnDamaged`/`OnDowned`/`OnDied` through `UBarkUnitWatcher` for the `Hurt`,
   `Downed` and `WitnessedDeath` barks (`dialog.md`) - the same one-watcher-per-unit shape, for the
-  same reason. Two things
-  worth knowing before changing them:
+  same reason; and the owner's own `UCombatComponent` binds all four for the engagement's
+  escalation (server only, and it needs no identity - it only ever listens to its own owner). Two
+  things worth knowing before changing them:
   - **Three of the four carry no parameters** (`OnDowned`, `OnRecovered`, `OnDied`), so a listener
     cannot tell *who* the event was about. That is the entire reason the feed needs one watcher
     object per unit rather than four handlers on the player controller. Adding the owner as a

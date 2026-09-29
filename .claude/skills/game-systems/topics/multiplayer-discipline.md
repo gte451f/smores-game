@@ -107,6 +107,8 @@ Read these rather than re-deriving the pattern:
 | Session-wide state that is deliberately **not** replicated, because a client knowing it would be a leak | `UWorldSeedComponent` on `AStrategyGameState` - every roll that reads it is authority-only, and a client holding the seed could work out every chest's contents before opening one; see `game-data.md` |
 | Client → own controller → authoritative component | `Server_RequestPace`, `Server_MoveUnits`, `Server_MoveInventoryItem` |
 | Server → owning client, for a decision only the server could make | `Client_NotifyRefusal`, `Client_NotifyActivity` |
+| Server-decided state replicated, and the *moment* it changed sent separately as an event to every machine | `UCombatComponent`: `bEngaged` is `Replicated`, `Multicast_DangerSignal` carries the flash; see `combat.md` |
+| A session rule keyed off the net mode, which every machine knows without being told | `UTimePaceComponent::IsPaceLocked` / `IsPaceAllowed` - the multiplayer pace lock |
 | Session-wide, server-only logic that fans out to *every* player it concerns, through a narrow controller interface - no singleton, no multicast | `UBarkDirectorComponent` (GameState) → `IDialogHost::DeliverBark` on each player controller whose squad is in earshot → `Client_NotifyBark`; see `dialog.md` |
 | Authored content crossing the network **as an id**, resolved on each client from its own copy, so each player reads it in their own language | `Client_NotifyBark(LineId, ...)` + `USmoresDialogSubsystem::GetLineText` |
 | Definition data every machine loads for itself rather than receiving | `USmoresDialogSubsystem` (a `UGameInstanceSubsystem`) - dialog files loaded on server and clients alike |
