@@ -15,7 +15,8 @@ see "When to Actually Split" below.
 
 Eight runtime modules: `smores` (`Source/smores/smores.Build.cs`, the primary/game
 module), `SmoresCore` (stood up as an empty proving module alongside the first real split, now
-holding `ESmoresRefusalReason`, `UTimePaceComponent`, `USmoresActivityLog`, the
+holding `ESmoresRefusalReason`, `ISmoresInteractable` (reach, name and examine text for anything
+the squad acts on - `IInventoryHolder` derives from it), `UTimePaceComponent`, `USmoresActivityLog`, the
 `USmoresDefinition` base plus its look-up library, the payload-agnostic
 `UWeightedTableDefinition` and `UWorldSeedComponent` (see `game-data.md`), and the faction storage
 layer — `UFactionDefinition`, `UWorldFactionComponent`, `UPlayerStandingComponent`; see
@@ -24,12 +25,14 @@ layer — `UFactionDefinition`, `UWorldFactionComponent`, `UPlayerStandingCompon
 `DamageNumberWidget`, `AnimNotify_AttackHit`, plus a small `IAttackDamageDealer` interface),
 `SmoresItems` (`UItemDefinition`, `UItemModifierDefinition`, `ULootTableDefinition`,
 `FInventoryItem`/`FInventoryEntry`/`UInventoryComponent`, `UEquipmentComponent`,
-`AStrategyContainer`, `AStrategyChest`, `AWorldItem`, `IInventoryHolder`), `SmoresCharacters` (`AStrategyUnit`, `AStrategyPlayerUnit`,
+`AStrategyContainer`, `AStrategyChest`, `AWorldItem`, `AWorldDoor` - a door, here only until a
+world/building module exists - and `IInventoryHolder`), `SmoresCharacters` (`AStrategyUnit`, `AStrategyPlayerUnit`,
 `UCharacterDefinition`, `FCharacterRecord`/`FCharacterAttributes`, `UCharacterRecordComponent` - the
-record store on the GameState; see `game-data.md`), `SmoresUI`
+record store on the GameState; see `game-data.md` - and `UActionOrderComponent` with its narrow
+`IActionOrderHost`, the walk-over-to-act order; see `action-menu.md`), `SmoresUI`
 (`AStrategyHUD`, `UStrategyUI`, `UStrategyTouchControls`, `UWindowWidget`, `UInventoryWidget`,
 `UInventoryCellWidget`, `UInventoryItemWidget`, `UEquipmentWidget`/`UEquipmentSlotWidget`,
-`UInventoryDragDropOperation`, plus `IStrategySelectionHost`/`IStrategyCameraCommands`/
+`UInventoryDragDropOperation`, `UActionMenuWidget`, `UExamineWidget`, plus `IStrategySelectionHost`/`IStrategyCameraCommands`/
 `IInventoryMoveHost`), and `SmoresEconomy` (`UWalletComponent`, `IPricingProvider`,
 `UTraderComponent`), and `SmoresDialog` (the dialog loader and library `USmoresDialogSubsystem`,
 the condition language and fact registry, bark selection, `UBarkDirectorComponent`, the

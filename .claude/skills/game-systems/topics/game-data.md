@@ -174,13 +174,21 @@ an `FCharacterRecord`, and the record - not the unit - is the truth about that c
 
 | Piece | What it is | Lives in |
 |---|---|---|
-| `UCharacterDefinition` | a *kind* of character - "Bandit", "Settler", or one named individual. Unique flag, backstory, portrait, default faction id, role id, the seven base attributes, a default loadout, a name pool, and the actor class that would stand in for one | `SmoresCharacters/CharacterDefinition.h`; assets under `Content/Characters/Definitions/` |
+| `UCharacterDefinition` | a *kind* of character - "Bandit", "Settler", or one named individual. Unique flag, `Kind` (person or creature), backstory, portrait, default faction id, role id, the seven base attributes, a default loadout, a name pool, and the actor class that would stand in for one | `SmoresCharacters/CharacterDefinition.h`; assets under `Content/Characters/Definitions/` |
 | `FCharacterRecord` | *this* character: `RecordId`, `DefinitionId`, `Name`, `FactionId`, `Attributes` (identity), and `Health`, `LifeState`, `LastKnownLocation`, `Carried`, `Equipped` (condition) | `SmoresCharacters/CharacterRecord.h`, with `FCharacterAttributes` |
 | `UCharacterRecordComponent` | every record in the session, plus which live actor stands in for which | `SmoresCharacters/CharacterRecordComponent.h`, a default subobject of `AStrategyGameState` |
 
 `FCharacterAttributes` holds the seven attributes from `characters-and-squads.md` (Strength,
 Endurance, Agility, Perception, Intelligence, Willpower, Charisma) as floats defaulting to 10.
-**Nothing reads them**, and 10 is a placeholder baseline, not a designed scale. There is
+**One placeholder reads them**: the action menu's odds for Pickpocket and Kidnap
+(`action-menu.md`), which is a stand-in for the stealth and capture systems. 10 is a placeholder
+baseline, not a designed scale.
+
+`ECharacterKind` (`Person`, `Creature`; default `Person`) decides what the action menu offers - a
+person gets the social and illicit verbs, a creature only attack, and loot once it's down.
+`AStrategyUnit::IsPerson()` reads it; a unit with no definition counts as a person. Definitions load
+on every machine, so it needs no replicating. The content sweep doesn't check it - there is no
+wrong value to author. There is
 deliberately no skill map - the skill roster is undecided. `LifeState` reuses `EHealthState`
 rather than mirroring it in a second enum.
 
@@ -249,7 +257,10 @@ the actor's runtime name because that name isn't stable across level edits.
   save-scumming rule applied to names. An empty pool or a blank entry falls back to `DisplayName`.
 
 `UnitDisplayName` is now `Replicated`: it is the actor's copy of the record's name, and a client has
-to show the name the server chose. `FactionId` is copied the same way (`GetFactionId()`).
+to show the name the server chose. `FactionId` is copied the same way (`GetFactionId()`), and so are
+the record's `Attributes` (`GetAttributes()`) - a client works out what the squad's own numbers make
+likely for the action menu's odds, and records are server-only. A unit that finds no record store
+(a test world, the main menu) takes its definition's `BaseAttributes` instead.
 
 ### Unique characters
 

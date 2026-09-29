@@ -105,7 +105,10 @@ Read these rather than re-deriving the pattern:
 | Per-player state replicated to its owner only | `UPlayerStandingComponent` on `AStrategyPlayerState` (`COND_OwnerOnly`) |
 | Session-wide state that is deliberately **not** replicated, because clients already see its copy | `UCharacterRecordComponent` on `AStrategyGameState` - each record's replicated copy *is* its unit's components; see `game-data.md` |
 | Session-wide state that is deliberately **not** replicated, because a client knowing it would be a leak | `UWorldSeedComponent` on `AStrategyGameState` - every roll that reads it is authority-only, and a client holding the seed could work out every chest's contents before opening one; see `game-data.md` |
-| Client → own controller → authoritative component | `Server_RequestPace`, `Server_MoveUnits`, `Server_MoveInventoryItem` |
+| Client → own controller → authoritative component | `Server_RequestPace`, `Server_MoveUnits`, `Server_MoveInventoryItem`, `Server_RequestActionOrder` |
+| The client decides *who*, the server re-checks *whether* - because the selection exists only on the client | `FStrategyTargetActions::ResolveActor` (client) vs. `ValidateActionOrder` / `FindActionFor` (both sides); see `action-menu.md` |
+| Server-only per-pawn state that needs no replicating, because what players see of it already replicates | `UActionOrderComponent` - the order is authority-only; the walk it drives replicates as movement |
+| A replicated working copy of server-only data, so a client can compute from it | `AStrategyUnit::Attributes` and `FactionId`, copies of the server-only character record |
 | Server → owning client, for a decision only the server could make | `Client_NotifyRefusal`, `Client_NotifyActivity` |
 | Server-decided state replicated, and the *moment* it changed sent separately as an event to every machine | `UCombatComponent`: `bEngaged` is `Replicated`, `Multicast_DangerSignal` carries the flash; see `combat.md` |
 | A session rule keyed off the net mode, which every machine knows without being told | `UTimePaceComponent::IsPaceLocked` / `IsPaceAllowed` - the multiplayer pace lock |

@@ -3,13 +3,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "UObject/Interface.h"
+#include "SmoresInteractable.h"
 #include "InventoryHolder.generated.h"
 
-class USphereComponent;
-
 UINTERFACE(MinimalAPI, meta = (CannotImplementInterfaceInBlueprint))
-class UInventoryHolder : public UInterface
+class UInventoryHolder : public USmoresInteractable
 {
 	GENERATED_BODY()
 };
@@ -25,6 +23,11 @@ class UInventoryHolder : public UInterface
  *  other two) and three differently-named display-name getters. This is those six methods
  *  collapsed into two.
  *
+ *  **It derives from ISmoresInteractable**, which is where reach (IsInRangeOf) and the shared
+ *  sphere test now live - a door is something the squad walks up to and acts on without being an
+ *  inventory holder, so reach had to move up a layer for the two to share it. Every holder is
+ *  therefore interactable for free: GetHolderDisplayName answers GetInteractionDisplayName, below.
+ *
  *  Deliberately no GetInventory(). AWorldItem holds a single FInventoryItem and no
  *  UInventoryComponent at all - a pickup is one item on a light actor, not a grid - so a grid
  *  accessor here would either be unimplementable by one of the three implementers or would
@@ -37,7 +40,7 @@ class UInventoryHolder : public UInterface
  *  next to the other input tuning, per holder type (ContainerSelectionRadius vs. the tighter
  *  WorldItemSelectionRadius), and is passed into the holder-generic finders.
  */
-class SMORESITEMS_API IInventoryHolder
+class SMORESITEMS_API IInventoryHolder : public ISmoresInteractable
 {
 	GENERATED_BODY()
 
@@ -46,12 +49,10 @@ public:
 	/** Player-facing name for this holder, used in window titles and the selection label */
 	virtual FText GetHolderDisplayName() const = 0;
 
-	/** True if Other is close enough to transfer items with this holder. The one proximity gate
-	 *  every transfer context shares - opening a chest, looting a body, collecting a pickup. */
-	virtual bool IsInRangeOf(const AActor* Other) const = 0;
+	//~ Begin ISmoresInteractable interface
 
-	/** Shared body for every implementer's IsInRangeOf: a plain centre-to-centre distance test
-	 *  against the holder's own interaction sphere. Each holder sizes that sphere itself, so
-	 *  reach stays per-type while the test itself is written once. */
-	static bool IsActorWithinSphere(const AActor* HolderActor, const USphereComponent* RangeSphere, const AActor* Other);
+	/** A holder's interaction name is its holder name - one name, not two that could disagree */
+	virtual FText GetInteractionDisplayName() const override { return GetHolderDisplayName(); }
+
+	//~ End ISmoresInteractable interface
 };

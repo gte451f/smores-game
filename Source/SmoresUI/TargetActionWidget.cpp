@@ -11,12 +11,13 @@
 void UTargetActionWidget::SetAction(const FTargetAction& InAction)
 {
 	// The panel rebuilds its row every frame, so the common case is being handed the same action
-	// again. The label is fixed per id, so the id, the enabled flag and the reason are the whole
-	// of what can change the display - comparing them here is what stops a Slate layout
-	// invalidation per button per frame.
+	// again. The label is fixed per id, so the id, the enabled flag, the reason and the detail
+	// line are the whole of what can change the display - comparing them here is what stops a
+	// Slate layout invalidation per button per frame.
 	if (Action.Id == InAction.Id
 		&& Action.bEnabled == InAction.bEnabled
-		&& Action.DisabledReason == InAction.DisabledReason)
+		&& Action.DisabledReason == InAction.DisabledReason
+		&& Action.Detail.EqualTo(InAction.Detail))
 	{
 		return;
 	}
@@ -66,6 +67,13 @@ void UTargetActionWidget::RefreshActionDisplay()
 		// Collapsed rather than Hidden so an action with no reason to give (attacking someone
 		// already fighting you) doesn't leave a gap the width of the longest refusal
 		ReasonText->SetVisibility(Reason.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
+	}
+
+	if (DetailText)
+	{
+		// odds and who would go - empty for most actions, and then it takes no room
+		DetailText->SetText(Action.Detail);
+		DetailText->SetVisibility(Action.Detail.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
 	}
 
 	if (ActionButton)

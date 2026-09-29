@@ -76,25 +76,30 @@ the session being networked, never off how many players are in it (`player-exper
 
 ### Target panel
 
-Whatever the player last clicked: its name, what it is and how it feels about you
-(`PERSON - HOSTILE - 12m`), a health bar if it has health, and a row of the things you may
-actually do to it. With nothing targeted the panel hides rather than sitting there empty.
+Whatever the player last clicked (or right-clicked): its name, what it is and how it feels about
+you (`PERSON - HOSTILE - 12m`), a health bar if it has health, and a row of the things you may
+actually do to it. With nothing targeted the panel hides rather than sitting there empty. Loose
+items and doors are targets too, since the action menu arrived.
 
-| Target | Row |
-|---|---|
-| Container | Open |
-| Body (Downed or Dead) | Loot |
-| Person on their feet | Talk, Attack |
-| One of your own squad | *nothing* |
+**The row is the right-click menu's list, drawn as buttons.** One rules function builds both;
+the table of what each kind of thing offers, who carries it out and the odds line live in
+`action-menu.md` rather than being repeated here. Clicking a button runs the same path the menu row
+and the key do - the nearest selected squad member walks over and does it. A **disabled action
+still shows, with its reason beside it**: "Talk" greyed out and reading *They won't deal with you*
+because the person is hostile teaches the rule, where a missing button teaches nothing. Nothing is
+greyed for distance any more.
 
-**The row is real, not decorative.** Each button is assembled from what the player controller's
-own gating helpers would permit right now, and clicking one runs the same code the equivalent key
-runs. A **disabled action still shows, with its reason beside it**: "Talk" greyed out and reading
-*They won't deal with you* because the person is hostile teaches the rule, where a missing button
-teaches nothing. Attack is the one action with no range gate, correctly — the squad walks over.
+### Action menu and Examine window
 
-Your own squad gets an empty row rather than a row of disabled buttons, because every verb that
-applies to your own pawn already has a route that isn't this panel.
+Two things that aren't regions and aren't nav-rail panels, both belonging to `action-menu.md`:
+
+- **The right-click menu** is its own top-most layer at **Z-order 50**, owned by `AStrategyHUD`
+  (`ActionMenuWidgetClass`, `ActionMenuZOrder`): above every window at 0, so a menu opened beside an
+  open inventory doesn't draw behind it, and below the refusal line at 100. It is fed by
+  `DrawHUD`'s per-frame push like everything else here (`GetTargetInfoFor` on its own target).
+- **The Examine window** is an ordinary floating window at 0, a `UWindowWidget` like the panels,
+  and `HandleWindowClosed` returns early for it exactly as for a panel - it never touches the
+  inventory input context.
 
 ### Squad portrait bar
 
@@ -297,13 +302,15 @@ coincidence (see Core Rules).
   themselves on click — they ask, and the next frame's push moves the readout. A button that
   updated optimistically would show a tier the world wasn't running at whenever the request was
   refused, which is precisely when the player most needs to be told the truth.
-- **The target panel's action row is assembled from the rules, not alongside them.** Every
-  action comes out of `AStrategyPlayerController::BuildTargetInfo`, which calls the same
-  `IsLootableNPC` / `IsInteractableNPC` / reach predicates the keys call. **And the click
-  re-derives the row rather than trusting the button**: the panel the player clicked is a frame
-  old, and a frame is long enough for the squad to have walked out of range, so
-  `RequestTargetAction` rebuilds the row, finds the action in it, and refuses with the same
-  refusal line the key would have raised if it has gone disabled in between.
+- **The target panel's action row is assembled from the rules, not alongside them** - and so is
+  the right-click menu. Every action comes out of `FStrategyTargetActions::BuildTargetInfo`
+  (`smores/Variant_Strategy/StrategyTargetActions.h`), which calls the same `IsLootableNPC` /
+  `IsInteractableNPC` / reach predicates everything else calls. **And the click re-derives the row
+  rather than trusting the button**: the row the player clicked is a frame old, and a frame is
+  long enough for the target to have turned hostile, so `RequestTargetAction(Target, ActionId)`
+  rebuilds the row, finds the action in it, and refuses with the entry's own reason if it has gone
+  disabled in between. The target travels with the click - the panel and the menu can describe two
+  different things at once.
 - **The target label and the action row are one thing, not two.** `GetSelectionTargetInfo()`
   *replaced* `GetSelectionTargetLabel()` rather than joining it. Two paths would eventually let
   the name on screen and the actions offered describe different things.
@@ -518,6 +525,9 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
 - **`UTargetPanelWidget`** — name, classification line, health bar and the action row, rebuilt
   from `FStrategyTargetInfo`. It keeps its action buttons in `ActionWidgets` and resizes that row
   rather than rebuilding it, since the row usually keeps its shape while its contents change. It
+  compares with `FStrategyTargetInfo::DrawsIdenticallyTo` (shared with the menu) before redrawing,
+  but always keeps the newest `Target` actor, since two identically drawn chests are still two
+  chests. Its buttons are `UTargetActionWidget`, which has an optional `DetailText` for the odds line. It
   hides itself (`Collapsed`) when there is no target — whether that's right is a PIE call, see the
   roadmap's Open Questions.
 - **`UTargetActionWidget`** — one button on that row, spawned from `ActionWidgetClass`. It is
@@ -609,7 +619,9 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
   the name empty", because a target's name is authored data and an actor nobody got round to
   naming would otherwise make the whole panel vanish. `FTargetAction::DisabledReason` is an
   `ESmoresRefusalReason`, not a sentence, for the same reason every refusal in this project is.
-- **`StrategyTargetAction::Open()` / `Loot()` / `Talk()` / `Attack()`** — the action ids, as
+- **`StrategyTargetAction::Loot()` / `Talk()` / `Attack()` / `Open()` / `Close()` / `Trade()` /
+  `PickUp()` / `Examine()` / `Heal()` / `Kidnap()` / `Pickpocket()`** — the action ids (`Open` is a
+  door's now; a container's action is `Loot`), as
   functions rather than header constants because an `FName` built during static initialisation
   runs before the name pool is guaranteed to exist.
 
@@ -655,16 +667,11 @@ reads (`UTimePaceComponent` in `SmoresCore`, `AStrategyGameState` in `smores`).
   too, after sending Goodbye - like a panel, it never touches the inventory input context.
 - **`HandleWindowClosed`** — returns early for any `UHUDPanelWidget`, before the inventory
   bookkeeping.
-- **`BuildTargetInfo(const AActor*, const TArray<AStrategyUnit*>&)`** — a **static** that takes
-  the selection explicitly rather than reading it off the instance. Two reasons, and both are the
-  point: it is the one piece of this controller worth a test (an action row that quietly offers
-  something the rules forbid is exactly the silent kind of wrong), and a static taking a unit
-  array can be called from a test world with no controller in it at all. It also makes the
-  dependency honest — the row depends on the target and the selection, and on nothing else. It is
-  `public` for the test's sake; the gating predicates it calls stay `protected`.
-- **`IsHolderInRangeOfUnits`** — the body of `IsHolderInRangeOfSelection` with the selection
-  passed in, so `BuildTargetInfo` applies the identical reach rule. One rule, one place; a second
-  copy would eventually disagree about what "in range" means.
+- **`GetSelectionTargetInfo` / `GetTargetInfoFor`** — both call
+  `FStrategyTargetActions::BuildTargetInfo(Target, ControlledUnits, Squad)`, the squad read off the
+  world by `GetSquadUnits`. The rules moved out of the controller into their own file: statics
+  taking the selection and the squad as plain arrays, so a test world with no controller can ask
+  any question the menu can (see `action-menu.md`).
 - **`Server_RequestPace`** — the client's ask, carried to the server by the one actor the client
   owns. `RequestPaceStep` is the shared body of the `-` and `=` keys, and steps from the
   *replicated* current tier rather than a local guess, so holding the key can't run the client's
@@ -886,13 +893,8 @@ deliberately short.
 - **The pace strip has no tooltip explaining the tiers it has no button for.** A player who only
   ever clicks will never discover 1/3× or 8×; the help panel names `-` and `=` but not the ladder
   they walk. Worth revisiting with the styling pass.
-- **The target panel's hostility reading is server-only.** `BuildTargetInfo` calls
-  `AStrategyUnit::IsAggressive()`, and `Disposition` is not a replicated property — so on a remote
-  client the classification line and the Talk/Attack enable states would be wrong (everyone reads
-  as neutral). Health, distance and everything else on the panel are fine. It is invisible today
-  because a single-player PIE session is its own authority, and it is a display defect rather than
-  an exploit, since the server re-checks every rule. `combat.md`'s Known Gaps holds the detail and
-  the one-line fix.
+- **The target panel's row is horizontal**, and a standing person now offers up to seven actions.
+  Whether it wants to become a column is untested - see `action-menu.md`.
 - **The target panel's portrait is missing** — the wireframe shows per-target art, and no target
   has any. `player-interface.md`'s world-space contextual prompts are the other half of this and
   are explicitly out of scope for the HUD round.

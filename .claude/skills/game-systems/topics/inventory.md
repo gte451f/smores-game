@@ -39,8 +39,8 @@ seeded from the campaign's world seed plus the chest's own authored key, so the 
 holds the same thing - see `game-data.md`'s "Weighted Tables and Seeded Rolls" for the table side.
 
 Items also exist *outside* any grid: an `AWorldItem` is a single item instance lying on the
-ground, drawn with its definition's 3D mesh and collected by double-clicking it with a pawn in
-range. It is the one holder shape with no grid and no window behind it. This system does
+ground, drawn with its definition's 3D mesh and collected by double-clicking it (or picking
+*Pick up* from its right-click menu) - the nearest selected pawn walks over for it. It is the one holder shape with no grid and no window behind it. This system does
 **not** yet handle theft. See `Docs/roadmaps/inventory-roadmap.md` for the target design — this topic only
 documents what's actually built.
 
@@ -51,15 +51,21 @@ documents what's actually built.
   Selecting more than one player unit and pressing the key does nothing. Cycling to a
   different pawn while a window is open closes the (now stale) window rather than switching
   it to the new pawn.
-- Press the container key (`IA_Strategy_ToggleContainer`) to open the nearest world
-  container within interaction range of a selected unit; pressing it again closes it. If no
-  container is in range, the same key opens a body's loot instead — a Downed NPC or a dead
-  one, never an NPC still on its feet, and never a player-controlled unit. The window title
-  says which ("Bandit (Downed)" vs. "Bandit (Dead)"), but the two loot identically.
-- Double-clicking a container or a body in the world selects and highlights it, and
-  opens it immediately if **any** player-controlled pawn (not just the current selection) is
-  within interaction range. This rides on the same gesture as the normal select-all
-  double-click, not a separate input.
+> **Since the action menu, everything below that says "in range" walks over instead.** Opening a
+> container, looting a body, picking up an item and trading are all actions a squad member walks
+> over to carry out - from the right-click menu, the target panel, `O`, `T` or a double-click -
+> and the window opens when they arrive, with **that squad member's** pack beside it. The rules,
+> who goes and the walk itself live in `action-menu.md`; this topic keeps the windows and grids.
+
+- Press the container key (`IA_Strategy_ToggleContainer`) to loot the targeted container or body
+  (someone walks over if nobody is close); pressing it again closes the window. With nothing like
+  that targeted, it opens a container a selected unit is already standing at, then a targeted body
+  in reach. A body is a Downed NPC or a dead one, never an NPC still on its feet, and never a
+  player-controlled unit. The window title says which ("Bandit (Downed)" vs. "Bandit (Dead)"),
+  but the two loot identically.
+- Double-clicking a container or a body in the world highlights it and sends the nearest selected
+  pawn to open it (with nothing selected, a pawn already standing there opens it at once). This
+  rides on the same gesture as the normal select-all double-click, not a separate input.
 - **A chest can hold rolled contents** - junk, minerals, a sword that may be iron or steel -
   rather than only what a designer placed in it by hand. The same chest holds the same thing every
   time the level starts in the same campaign, so there's nothing to gain by reloading to "re-roll"
@@ -158,30 +164,28 @@ documents what's actually built.
   Previously only a single left-click was consumed, so right-clicking a window also marched the
   squad to whatever was behind it, and a *fast second* click of any button leaked through even
   after the first was caught.
-- **Double-click a loose item lying in the world to pick it up.** It goes into the grid of
-  whichever player pawn is nearest and close enough, trying both orientations to find room, and
-  the item disappears from the ground. No pawn in range means nothing happens at all — there's
-  no "walk over and get it" order, and no auto-pickup radius: the player has to have somebody
-  standing there already.
-- A loose item has to be clicked **more precisely than a chest** — a tighter click radius, so an
-  apple lying beside a chest doesn't swallow every double-click meant for the chest. As with a
-  chest or a corpse, a double-click that lands on one means *that item*, so it never falls
-  through to the select-all-on-screen gesture even when the pickup fails.
+- **Double-click a loose item lying in the world to pick it up.** The nearest selected pawn walks
+  over and it goes into their grid, trying both orientations to find room, and the item
+  disappears from the ground. A single click on one targets it (the target panel describes it)
+  and leaves the squad selected.
+- The double-click and the right-click find the item **under the cursor** (the hover lights it
+  first), so an apple lying beside a chest doesn't swallow a double-click meant for the chest. A
+  single click still uses the tighter `WorldItemSelectionRadius` for items.
 - **A pickup that only partly fits takes what fits.** Double-clicking a pile of 20 apples with
   room for 8 leaves 12 on the ground rather than refusing the whole pile or quietly destroying
   the rest. A grid with no room at all leaves the pile untouched.
 - Loose items show their **3D mesh**, not their inventory icon. Every item type currently points
   at the same placeholder — a plain black 100-unit sphere, about half a pawn's height — so items
   on the ground are visible and clickable but tell each other apart only by position.
-- **Double-click a living NPC to interact with them.** If some player pawn is close enough they
-  say something (a greeting bark, or a "nothing to say" one - `dialog.md`), and if they are a
-  trader their wares open beside that pawn's pack. Out of reach is a *Too far away* refusal.
-  Either way the double-click means *that person* — it never falls through to selecting everyone
-  on screen, the same as double-clicking a chest or a body already does. Double-clicking **empty
-  ground** still selects all on screen.
-- **Press the talk key (`T`) to trade with the NPC you have targeted**, provided a selected unit
-  is close enough. Same shape as `H` for attacking, reading the same targeted NPC, and it's the
-  accessible alternative to the double-click; pressing it again closes the window.
+- **Double-click a living NPC to talk to them.** The nearest selected pawn walks over; then an
+  eligible conversation opens, or a trader's wares open beside that pawn's pack, or they say a
+  "nothing to say" line (`dialog.md`). The right-click menu's **Trade** skips the conversation and
+  opens the shop directly. The double-click means *that person* — it never falls through to
+  selecting everyone on screen. Double-clicking **empty ground** (or a squad member) still selects
+  all on screen.
+- **Press the talk key (`T`) to talk to the NPC you have targeted.** Same shape as `H` for
+  attacking, reading the same targeted NPC, and it's the accessible alternative to the
+  double-click; pressing it again closes the window.
 - **A hostile, unconscious or dead NPC never trades.** A hostile one does nothing at all on a
   double-click; a fallen one opens as loot instead.
 - **Buying is dragging an item out of the trader's window into a pawn's pack, and selling is
@@ -389,7 +393,7 @@ documents what's actually built.
   item's holder instead would have a pawn's pack quoting prices with no trader in sight.
 - **Proximity and hostility are re-checked server-side on every transaction.** `MoveItem` has no
   idea how far away the asking pawn was, or what the counterparty currently thinks of it — the
-  same reason `Server_PickUpWorldItem` re-checks its own gate. Reach itself needed no new code:
+  same reason `PickUpWorldItem` re-checks its own gate. Reach itself needed no new code:
   `AStrategyUnit` already implements `IInventoryHolder`.
 - **Worn slots are a paperdoll, not a region of the grid.** `UEquipmentComponent` holds an
   `FEquippedItem` per *occupied* slot — a slot name plus one `FInventoryItem`, with no anchor
@@ -513,7 +517,7 @@ documents what's actually built.
   transfer items with me). Before the interface each carried its own private copy of both —
   three identical distance tests all named `IsUnitInRange`, one of which took a narrower
   parameter type than the other two, and three differently-named display-name getters. The
-  distance test itself is now written once, in `IInventoryHolder::IsActorWithinSphere`, and each
+  distance test itself is now written once, in `ISmoresInteractable::IsActorWithinSphere`, and each
   holder just hands it its own `InteractionRange` sphere, so reach stays per-type (a container's
   and a world item's default to 312.5 units, a unit's to 250) while the rule is single-sourced.
   A unit's was 100 until it proved unreachable in practice: reach is centre-to-centre, the
@@ -782,11 +786,12 @@ documents what's actually built.
   - `AWorldItem::IsInRangeOf` / `GetHolderDisplayName` (`IInventoryHolder`) — proximity gate and
     display name, the same two every holder answers
   - `AStrategyPlayerController::FindWorldItemAtLocation` — nearest loose item within
-    `WorldItemSelectionRadius` (100, deliberately tighter than `ContainerSelectionRadius`) of the
-    double-clicked world location; a thin wrapper over `FindHolderActorAtLocation`
-  - `AStrategyPlayerController::Server_PickUpWorldItem` — the authoritative pickup, and the one
-    inventory RPC that *does* validate: it re-checks proximity and that the destination is a
-    player pawn's own pack before calling `TryPickUp`
+    `WorldItemSelectionRadius` (100, deliberately tighter than `ContainerSelectionRadius`) of a
+    single click; a thin wrapper over `FindHolderActorAtLocation`
+  - `AStrategyPlayerController::PickUpWorldItem` — the authoritative pickup, run on a Pick up
+    order's arrival (it was the `Server_PickUpWorldItem` RPC until the action menu). It
+    re-checks proximity and that the destination is one of this player's own pawns' packs
+    before calling `TryPickUp`
   - `AStrategyPlayerController::SmoresDropItem <EntryIndex>` (console exec) — debug-only; spawns
     the pawn's EntryIndex'th grid entry on the ground in front of it via `Server_DebugDropItem`,
     so the pickup path has something to pick up without hand-placing actors. Spawns first and
@@ -795,8 +800,10 @@ documents what's actually built.
   - `AStrategyUnit::IsInRangeOf` / `GetHolderDisplayName` (`IInventoryHolder`) — as above. Its
     range check previously took a narrower `const AStrategyUnit*`; the interface widened it to
     `const AActor*`, which is what let one helper serve pawn, container and pickup alike
-  - `IInventoryHolder::IsActorWithinSphere` (static) — the single copy of the distance test all
-    three implementers forward to, each passing its own `InteractionRange` sphere
+  - `ISmoresInteractable::IsActorWithinSphere` (static, `SmoresCore`) — the single copy of the
+    distance test every implementer forwards to, each passing its own `InteractionRange` sphere.
+    It moved up from `IInventoryHolder` when doors needed reach too; `IInventoryHolder` derives
+    from `ISmoresInteractable`, so every holder is interactable (see `action-menu.md`)
   - `AStrategyPlayerController::FindHolderActorAtLocation` — the shared body of every
     `Find*AtLocation`: nearest actor of a given class within a given radius that passes a given
     predicate. Radius is a parameter because click precision is per-gesture; the predicate is a
@@ -809,8 +816,8 @@ documents what's actually built.
     here rather than a tiebreak, since proximity is the gate. Checks every player pawn rather
     than just `ControlledUnits`, because the plain select click that fires alongside a
     double-click may have just cleared the selection
-  - `AStrategyPlayerController::IsLootableNPC` (static) — the one place "lootable" is written
-    down: not a player pawn, and Downed or Dead
+  - `FStrategyTargetActions::IsLootableNPC` (static, moved out of the controller) — the one place
+    "lootable" is written down: not a player pawn, and Downed or Dead
   - `AStrategyPlayerController::ToggleInventory` / `OpenInventoryForPawn` / `CloseInventory`
     — pawn inventory window lifecycle; requires exactly one selected `AStrategyPlayerUnit`
   - `AStrategyPlayerController::ToggleContainer` / `OpenContainer` / `OpenLoot` /
@@ -823,16 +830,14 @@ documents what's actually built.
     `SelectedContainer` if it qualifies, while the NPC one never sweeps at all — only
     `SelectedNPC` is ever a candidate, so a key press can't open whichever corpse happened to be
     nearest
-  - `AStrategyPlayerController::FindContainerAtLocation` / `FindNPCAtLocation` —
-    used by the double-click path (within `ContainerSelectionRadius`), both thin wrappers over
+  - `AStrategyPlayerController::FindContainerAtLocation` / `FindDoorAtLocation` — a single
+    click's lookups (within `ContainerSelectionRadius`), thin wrappers over
     `FindHolderActorAtLocation` differing only in class and predicate
-  - `AStrategyPlayerController::SelectAllDoubleClick` — the one gesture behind five meanings,
-    resolved by type in order: loose world item, container, body, living NPC, then
-    select-all-on-screen. The world item goes first because it's the smallest thing under the
-    cursor and the only one with no selection state to set — finding one either collects it or
-    does nothing. Body and living NPC share a single `FindNPCAtLocation` sweep and are told
-    apart by `IsLootableNPC`, rather than being two sweeps that would have to agree about which
-    NPC was nearer
+  - `AStrategyPlayerController::SelectAllDoubleClick` — acts on whatever
+    `ResolveInteractableUnderCursor` finds (the hover's answer), through `GetDoubleClickAction`:
+    item → Pick up, container → Loot, door → Open/Close, body → Loot, living NPC → Talk, squad
+    member or empty ground → select all on screen. Every meaning becomes an action order - see
+    `action-menu.md`
   - `AStrategyHUD::GetWallet` — resolves the owning player's `UWalletComponent` through its
     `PlayerState` and caches it, re-running the lookup only while the pointer is still null
     (a player state can replicate in well after the HUD exists). `DrawHUD` reads the balance
@@ -867,7 +872,7 @@ documents what's actually built.
     `SetRenderOpacity`, which leaves the widget hit-testable and leaves the cell layer covered
   - `AStrategyPlayerController::Server_SortInventory_Implementation` — forwards to
     `SortEntriesWithReason`, relaying a `NoRoom` back through `Client_NotifyRefusal`.
-    Deliberately ungated beyond authority, unlike `Server_PickUpWorldItem` and `TryTradeItem`:
+    Deliberately ungated beyond authority, unlike `PickUpWorldItem` and `TryTradeItem`:
     a sort can only rearrange one holder's own contents, so there is nothing for a bad request
     to take
   - `AStrategyPlayerController::SmoresSortInventory <Criterion>` (console exec) — debug-only;
@@ -891,23 +896,21 @@ documents what's actually built.
     its pricing (buy side), then opens the nearest pawn's pack beside it and points that at the
     same pricing (sell side). The pawn window's pricing is set after `OpenInventoryForPawn`,
     which rebinds and therefore clears it
-  - `AStrategyPlayerController::InteractWithNPC` — the "interact with this person" verb shared
-    by the double-click, the talk key and the target panel: interactable and somebody close
-    enough on the client, then `Server_InteractWithNPC` decides - an eligible conversation opens
-    its window; else a trader's shop opens through `Client_OpenTrade` with a `TradeOpened` bark;
-    else a `NothingToSay` bark. A conversation's `<<OpenTrade>>` reaches the same
-    `Client_OpenTrade` through `IDialogHost::OpenTradeWith`. See `dialog.md`
-  - `AStrategyPlayerController::IsInteractableNPC` / `GetTraderStock` — the mirror of
+  - `AStrategyPlayerController::StartTalk(NPC, Listener)` — what talking to someone means, run on
+    a Talk order's arrival with the squad member who walked over as the listener (it replaced
+    `InteractWithNPC` / `Server_InteractWithNPC`): an eligible conversation opens its window;
+    else a trader's shop opens through `OpenTradeFor` with a `TradeOpened` bark; else a
+    `NothingToSay` bark. A conversation's `<<OpenTrade>>` reaches the same `OpenTradeFor` through
+    `IDialogHost::OpenTradeWith`, which finds its own listener. See `dialog.md`
+  - `AStrategyPlayerController::Client_OpenTrade(Trader, PackOwner)` / `Client_OpenHolder(Holder,
+    PackOwner)` — the owning client's half of a trade, a loot or a container opening, with the
+    pack of whoever walked over beside it. `OpenContainer` / `OpenLoot` / `OpenTrade` take that
+    pawn as an optional last argument and fall back to the nearest one
+  - `FStrategyTargetActions::IsInteractableNPC` / `GetTraderStock` — the mirror of
     `IsLootableNPC`, and the trader lookup layered on top of it. Both static, both the single
     place their rule is written down
-  - `AStrategyPlayerController::FindNPCAtLocation` — replaces `FindLootableNPCAtLocation`: the
-    nearest NPC within `ContainerSelectionRadius` in *whatever* state, so the double-click
-    branches on health rather than sweeping twice
-  - `AStrategyPlayerController::FindInteractableNPCInRange` — the talk key's counterpart to
-    `FindLootableNPCInRange`, and deliberately the same shape: only `SelectedNPC` is ever a
-    candidate, so a key press can't open whichever merchant happened to be nearest
-  - `AStrategyPlayerController::TalkKeyPressed` — the `T` handler. Toggles the shared container
-    window closed if one is already up, exactly as the container key does
+  - `AStrategyPlayerController::TalkKeyPressed` — the `T` handler: Goodbye during a conversation,
+    closes the shared container window if one is up, and otherwise asks for Talk on `SelectedNPC`
   - `UInventoryWidget::SetPricing` / `ClearPricing` / `GetItemPriceTooltip` — which side of a
     trade counter this window sits on, and the one place a price is formatted for the player.
     `ClearInventory` drops the pricing along with the inventory binding, so a pack reused for a
@@ -1160,7 +1163,7 @@ documents what's actually built.
 - **Real market pricing** — implement `IPricingProvider` and have `UTraderComponent` consult it
   instead of its own flat markup. Nothing in `TryTradeItem` or the UI reads a markup directly, so
   the swap is contained to that component.
-- **Dialog with an NPC** — `AStrategyPlayerController::Server_InteractWithNPC` is the seam, and
+- **Dialog with an NPC** — `AStrategyPlayerController::StartTalk` is the seam, and
   conversations now come first there: a trader's `core` greeting opens the shop from a choice, and
   a trader with no eligible conversation still trades straight away (`dialog.md`).
 - **A new interaction rule** (a faction refusing to deal, a merchant who only trades at certain
@@ -1174,7 +1177,7 @@ documents what's actually built.
   mid-drag, so wiring it naively turns a stray click into a dropped item. Design the confirmation
   before the plumbing; `SmoresDropItem` covers testing in the meantime.
 - **A fourth holder type** — implement `IInventoryHolder` (`GetHolderDisplayName` +
-  `IsInRangeOf`, the latter one line forwarding to `IInventoryHolder::IsActorWithinSphere` with
+  `IsInRangeOf`, the latter one line forwarding to `ISmoresInteractable::IsActorWithinSphere` with
   the actor's own range sphere) and every existing proximity path accepts it: the double-click
   handler, `FindPlayerPawnInRangeOfHolder`, `IsHolderInRangeOfSelection`. A storefront or a
   traded-with NPC needs no new proximity code at all, only its own gating layered *in front of*
@@ -1303,9 +1306,6 @@ documents what's actually built.
   black placeholder sphere, so an apple and a sword on the ground are indistinguishable until
   picked up. Deliberate — it makes the pickup testable without committing to art — but it is
   placeholder, not a design.
-- **A world item can't be reached, only collected.** There's no "go pick that up" order — if no
-  pawn is already in range the double-click says "Too far away" rather than walking anyone over.
-  Routing the pickup through a move command is a unit-commands change, not an inventory one.
 - **Nothing that a body drops is actually dropped.** A killed NPC keeps its inventory on the
   corpse actor, which is exactly the design (`Docs/roadmaps/inventory-roadmap.md`: same actor, same code path,
   no corpse container), but the actor also never despawns — a dead unit stands in the level

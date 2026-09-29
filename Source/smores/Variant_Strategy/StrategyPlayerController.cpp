@@ -61,6 +61,12 @@
 #include "DialogMemoryComponent.h"
 #include "DialogEffects.h"
 #include "EngineUtils.h"
+#include "StrategyTargetActions.h"
+#include "WorldDoor.h"
+#include "ActionOrderComponent.h"
+#include "ExamineWidget.h"
+#include "Components/MeshComponent.h"
+#include "Materials/MaterialInterface.h"
 #include "smores.h"
 
 #define LOCTEXT_NAMESPACE "StrategyPlayerController"
@@ -319,6 +325,10 @@ void AStrategyPlayerController::OnPossess(APawn* InPawn)
 void AStrategyPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
+
+	// what a right-click would open the menu on, lit before the click - cleared while turning the
+	// camera, which UpdateHover checks for itself
+	UpdateHover();
 
 	if (!bIsRotatingCamera)
 	{
@@ -723,6 +733,13 @@ void AStrategyPlayerController::HandleWindowClosed(UWindowWidget* Window)
 		return;
 	}
 
+	// The Examine window closes alone too, and for the same reason as a panel below: it has nothing
+	// to do with the inventory input context. It stays in ExamineWidget so the next look reuses it.
+	if (Window && Window == ExamineWidget)
+	{
+		return;
+	}
+
 	// A nav-rail panel closes alone and brings nothing with it. It returns before the inventory
 	// bookkeeping below on purpose: the inventory input context is the inventory's business, and
 	// a research window that re-scoped it would quietly give `R` a second meaning. The entry stays
@@ -1006,20 +1023,21 @@ void AStrategyPlayerController::FocusCameraOnUnit(const AStrategyUnit* Unit)
 	ControlledCameraPawn->SetActorLocation(NewRootLocation);
 }
 
-void AStrategyPlayerController::RequestTargetAction(FName ActionId)
+void AStrategyPlayerController::RequestTargetAction(AActor* Target, FName ActionId)
 {
-	AActor* Target = LastSelectionTarget.Get();
-
 	if (!IsValid(Target))
 	{
 		return;
 	}
 
 	// Rebuild the row and look the action up in it, rather than trusting the button that sent it.
-	// The panel the player clicked is a frame old, and a frame is long enough for the squad to
-	// have walked out of range - so the gate that *offered* the action is the gate that decides
-	// it, by construction rather than by two checks that agree today.
-	const FStrategyTargetInfo Info = BuildTargetInfo(Target, ControlledUnits);
+	// The row the player clicked is a frame old, and a frame is long enough for the target to have
+	// turned hostile or gone down - so the rules that *offered* the action are the rules that
+	// decide it, by construction rather than by two checks that agree today.
+	TArray<AStrategyUnit*> Squad;
+	GetSquadUnits(Squad);
+
+	const FStrategyTargetInfo Info = FStrategyTargetActions::BuildTargetInfo(Target, ControlledUnits, Squad);
 
 	const FTargetAction* Action = Info.Actions.FindByPredicate([ActionId](const FTargetAction& Candidate)
 	{
@@ -1028,51 +1046,57 @@ void AStrategyPlayerController::RequestTargetAction(FName ActionId)
 
 	if (!Action)
 	{
-		// no longer on offer at all - the target changed state between the draw and the click
+		// not on offer at all - the target changed state between the draw and the click, or a
+		// double-click asked a creature to talk
 		return;
 	}
 
 	if (!Action->bEnabled)
 	{
-		// the button was greyed out and the player clicked it anyway (or it went grey in between).
-		// Saying why beats doing nothing - same line the key press would have raised.
+		// the row showed it greyed and the player asked anyway (a key, a double-click), or it went
+		// grey in between. Saying why beats doing nothing.
 		NotifyRefusal(Action->DisabledReason);
 		return;
 	}
 
-	// each branch runs exactly what the equivalent key runs. Nothing here re-implements an
-	// action; the panel is a second route to the same behaviour, never a lookalike of it.
-	if (ActionId == StrategyTargetAction::Open())
+	// looking costs nothing and needs nobody - the one action nobody walks anywhere to do
+	if (ActionId == StrategyTargetAction::Examine())
 	{
-		if (AStrategyContainer* Container = Cast<AStrategyContainer>(Target))
-		{
-			// opening a container always leaves it highlighted, same as the `O` key's path
-			SetSelectedContainer(Container);
+		OpenExamine(Target);
+		return;
+	}
 
-			OpenContainer(Container);
-		}
-	}
-	else if (ActionId == StrategyTargetAction::Loot())
+	// an attack commits everyone selected, through combat's own approach, exactly as `H` does
+	if (ActionId == StrategyTargetAction::Attack())
 	{
-		if (AStrategyUnit* Body = Cast<AStrategyUnit>(Target))
+		if (AStrategyUnit* Enemy = Cast<AStrategyUnit>(Target))
 		{
-			OpenLoot(Body);
+			DoAttackCommand(Enemy);
 		}
+
+		return;
 	}
-	else if (ActionId == StrategyTargetAction::Talk())
+
+	// everything else is one squad member walking over to do it
+	AStrategyUnit* Actor = FStrategyTargetActions::ResolveActor(Target, ActionId, ControlledUnits, Squad);
+
+	if (!Actor)
 	{
-		if (AStrategyUnit* NPC = Cast<AStrategyUnit>(Target))
-		{
-			InteractWithNPC(NPC);
-		}
+		// can't happen with the entry enabled, but the refusal is the right answer if it ever does
+		NotifyRefusal(ESmoresRefusalReason::NoOneSelected);
+		return;
 	}
-	else if (ActionId == StrategyTargetAction::Attack())
+
+	// looting a container leaves it highlighted, the way opening one always has
+	if (AStrategyContainer* Container = Cast<AStrategyContainer>(Target))
 	{
-		if (AStrategyUnit* NPC = Cast<AStrategyUnit>(Target))
-		{
-			DoAttackCommand(NPC);
-		}
+		SetSelectedContainer(Container);
 	}
+
+	Server_RequestActionOrder(Actor, Target, ActionId);
+
+	// local and cosmetic, the same feedback a move order gives - somebody is on their way
+	BP_CursorFeedback(Target->GetActorLocation(), true);
 }
 
 void AStrategyPlayerController::SquadPanelKeyPressed(const FInputActionValue& Value)
@@ -1150,27 +1174,40 @@ void AStrategyPlayerController::ToggleContainer(const FInputActionValue& Value)
 		return;
 	}
 
-	// require a container within range of at least one selected unit
-	AStrategyContainer* NearbyContainer = FindContainerInRange();
+	// the targeted container, body or door, through the same path as the panel's button - which
+	// walks someone over if nobody is close
+	AActor* Target = LastSelectionTarget.Get();
 
-	if (NearbyContainer)
+	if (Cast<AStrategyContainer>(Target) || (Cast<AStrategyUnit>(Target) && FStrategyTargetActions::IsLootableNPC(Cast<AStrategyUnit>(Target))))
 	{
-		// opening a container always leaves it highlighted, even via the no-ambiguity auto-fallback
-		SetSelectedContainer(NearbyContainer);
-
-		OpenContainer(NearbyContainer);
+		RequestTargetAction(Target, StrategyTargetAction::Loot());
 		return;
 	}
 
-	// no container in range - try a Downed NPC instead, reusing the same widget/proximity rules
+	if (const AWorldDoor* Door = Cast<AWorldDoor>(Target))
+	{
+		RequestTargetAction(Target, Door->IsOpen() ? StrategyTargetAction::Close() : StrategyTargetAction::Open());
+		return;
+	}
+
+	// nothing of that kind targeted: today's sweep for a container someone selected is already
+	// standing at, so `O` still just opens the chest beside you
+	if (AStrategyContainer* NearbyContainer = FindContainerInRange())
+	{
+		RequestTargetAction(NearbyContainer, StrategyTargetAction::Loot());
+		return;
+	}
+
+	// ...then a targeted body within reach, reusing the same widget/proximity rules
 	if (AStrategyUnit* LootableNPC = FindLootableNPCInRange())
 	{
-		OpenLoot(LootableNPC);
+		RequestTargetAction(LootableNPC, StrategyTargetAction::Loot());
 		return;
 	}
 
 	// nothing to open. A key that does nothing reads as a broken keybind, which is the one thing
-	// it isn't - the pawn is just standing too far from whatever the player meant
+	// it isn't - nothing is targeted and nothing openable is beside the squad. The one place a key
+	// still raises Too far away.
 	NotifyRefusal(ESmoresRefusalReason::TooFar);
 }
 
@@ -1196,7 +1233,7 @@ void AStrategyPlayerController::CloseContainer()
 	UpdateInventoryInputContext();
 }
 
-void AStrategyPlayerController::OpenContainer(AStrategyContainer* Container)
+void AStrategyPlayerController::OpenContainer(AStrategyContainer* Container, AStrategyPlayerUnit* PackOwner)
 {
 	if (!Container)
 	{
@@ -1231,15 +1268,15 @@ void AStrategyPlayerController::OpenContainer(AStrategyContainer* Container)
 
 	UpdateInventoryInputContext();
 
-	// also open the inventory of whichever player-controlled pawn is closest to this container,
-	// regardless of current selection, so the two panels can be used together to transfer items
-	if (AStrategyPlayerUnit* ClosestPawn = FindClosestPlayerPawn(Container->GetActorLocation()))
+	// also open the pack of whoever walked over to open it - or, with nobody named, whichever of
+	// this player's pawns is closest - so the two panels can be used together to transfer items
+	if (AStrategyPlayerUnit* Collector = PackOwner ? PackOwner : FindClosestPlayerPawn(Container->GetActorLocation()))
 	{
-		OpenInventoryForPawn(ClosestPawn, /*bOpenEquipment =*/ false);
+		OpenInventoryForPawn(Collector, /*bOpenEquipment =*/ false);
 	}
 }
 
-void AStrategyPlayerController::OpenLoot(AStrategyUnit* LootTarget)
+void AStrategyPlayerController::OpenLoot(AStrategyUnit* LootTarget, AStrategyPlayerUnit* PackOwner)
 {
 	if (!LootTarget)
 	{
@@ -1278,15 +1315,15 @@ void AStrategyPlayerController::OpenLoot(AStrategyUnit* LootTarget)
 
 	UpdateInventoryInputContext();
 
-	// also open the inventory of whichever player-controlled pawn is closest to this NPC,
-	// regardless of current selection, so the two panels can be used together to transfer items
-	if (AStrategyPlayerUnit* ClosestPawn = FindClosestPlayerPawn(LootTarget->GetActorLocation()))
+	// also open the pack of whoever walked over to loot it (else the closest pawn), so the two
+	// panels can be used together to transfer items
+	if (AStrategyPlayerUnit* Collector = PackOwner ? PackOwner : FindClosestPlayerPawn(LootTarget->GetActorLocation()))
 	{
-		OpenInventoryForPawn(ClosestPawn, /*bOpenEquipment =*/ false);
+		OpenInventoryForPawn(Collector, /*bOpenEquipment =*/ false);
 	}
 }
 
-void AStrategyPlayerController::OpenTrade(AStrategyUnit* TraderUnit, UTraderComponent* Stock)
+void AStrategyPlayerController::OpenTrade(AStrategyUnit* TraderUnit, UTraderComponent* Stock, AStrategyPlayerUnit* PackOwner)
 {
 	if (!TraderUnit || !Stock)
 	{
@@ -1324,9 +1361,9 @@ void AStrategyPlayerController::OpenTrade(AStrategyUnit* TraderUnit, UTraderComp
 
 	// the pawn's own pack opens alongside, exactly as it does for a chest or a body - a trade is
 	// the same two-panel drag-and-drop transfer with prices attached
-	if (AStrategyPlayerUnit* ClosestPawn = FindClosestPlayerPawn(TraderUnit->GetActorLocation()))
+	if (AStrategyPlayerUnit* Customer = PackOwner ? PackOwner : FindClosestPlayerPawn(TraderUnit->GetActorLocation()))
 	{
-		OpenInventoryForPawn(ClosestPawn, /*bOpenEquipment =*/ false);
+		OpenInventoryForPawn(Customer, /*bOpenEquipment =*/ false);
 
 		// ...and it is the other side of the same counter, so its items quote what the trader
 		// would pay for them. Set after OpenInventoryForPawn, which rebinds and so clears this.
@@ -1337,47 +1374,12 @@ void AStrategyPlayerController::OpenTrade(AStrategyUnit* TraderUnit, UTraderComp
 	}
 }
 
-void AStrategyPlayerController::InteractWithNPC(AStrategyUnit* NPC)
+void AStrategyPlayerController::StartTalk(AStrategyUnit* NPC, AStrategyUnit* Listener)
 {
-	// a hostile NPC is filtered out by IsInteractableNPC, not by a check here - the rule that
-	// the player never trades with (or, later, talks to) someone currently trying to kill them
-	// lives in one predicate, so dialog inherits it rather than re-deriving it
-	if (!IsInteractableNPC(NPC))
-	{
-		// by the time a double-click reaches here the incapacitated cases have already gone down
-		// the loot branch, so this is someone on their feet who is currently hostile
-		NotifyRefusal(ESmoresRefusalReason::NotInteractable);
-
-		return;
-	}
-
-	// proximity is the same gate every transfer context shares - a unit implements IInventoryHolder,
-	// so this needed no new distance code. Checked before the trader question now, because talking
-	// is range-gated too: someone out of reach can't be greeted any more than traded with.
-	if (!FindPlayerPawnInRangeOfHolder(NPC))
-	{
-		NotifyRefusal(ESmoresRefusalReason::TooFar);
-
-		return;
-	}
-
-	// what talking means is the server's call: whether a conversation is eligible reads standing
-	// and the squad's dialog memory, which only the server holds
-	Server_InteractWithNPC(NPC);
-}
-
-void AStrategyPlayerController::Server_InteractWithNPC_Implementation(AStrategyUnit* NPC)
-{
-	// the client's own checks, re-run - a client shouldn't be able to start a conversation, or make
-	// someone talk, across the map
-	if (!IsInteractableNPC(NPC))
-	{
-		return;
-	}
-
-	AStrategyPlayerUnit* Listener = FindPlayerPawnInRangeOfHolder(NPC);
-
-	if (!Listener)
+	// re-checked here, on arrival, rather than trusted from when the order was given - a hostile
+	// NPC is filtered out by IsInteractableNPC, the one place "never deal with someone trying to
+	// kill you" is written down
+	if (!HasAuthority() || !FStrategyTargetActions::IsInteractableNPC(NPC) || !IsValid(Listener))
 	{
 		return;
 	}
@@ -1400,31 +1402,45 @@ void AStrategyPlayerController::Server_InteractWithNPC_Implementation(AStrategyU
 		Conversation->EndConversation(EConversationEndReason::Replaced);
 	}
 
-	UBarkDirectorComponent* Director = UBarkDirectorComponent::Get(this);
-
 	// 2. a trader with no conversation still trades - so a stripped-down mod that removed the
-	// greeting can't cost the player the shop. 3. anyone else has nothing to say.
-	const bool bTrader = GetTraderStock(NPC) != nullptr;
-
-	if (bTrader)
+	// greeting can't cost the player the shop. OpenTradeFor says the TradeOpened line itself.
+	if (FStrategyTargetActions::GetTraderStock(NPC) && OpenTradeFor(NPC, Listener))
 	{
-		Client_OpenTrade(NPC);
+		return;
 	}
 
-	// quiet time is for things that happen *to* a speaker; being spoken to always gets an answer
-	// if a line is free, or talking to someone who just barked at somebody else would go silent
-	if (Director)
+	// 3. anyone else has nothing to say. Quiet time is for things that happen *to* a speaker;
+	// being spoken to always gets an answer if a line is free.
+	if (UBarkDirectorComponent* Director = UBarkDirectorComponent::Get(this))
 	{
-		Director->RaiseEvent(bTrader ? EBarkEvent::TradeOpened : EBarkEvent::NothingToSay, NPC, Listener, PlayerState,
-			/*OutExplanation*/ nullptr, /*bIgnoreQuietTime*/ true);
+		Director->RaiseEvent(EBarkEvent::NothingToSay, NPC, Listener, PlayerState, /*OutExplanation*/ nullptr, /*bIgnoreQuietTime*/ true);
 	}
 }
 
-void AStrategyPlayerController::Client_OpenTrade_Implementation(AStrategyUnit* TraderUnit)
+void AStrategyPlayerController::Client_OpenTrade_Implementation(AStrategyUnit* TraderUnit, AStrategyPlayerUnit* PackOwner)
 {
-	if (UTraderComponent* Stock = GetTraderStock(TraderUnit))
+	if (UTraderComponent* Stock = FStrategyTargetActions::GetTraderStock(TraderUnit))
 	{
-		OpenTrade(TraderUnit, Stock);
+		OpenTrade(TraderUnit, Stock, PackOwner);
+	}
+}
+
+void AStrategyPlayerController::Client_OpenHolder_Implementation(AActor* Holder, AStrategyPlayerUnit* PackOwner)
+{
+	if (AStrategyContainer* Container = Cast<AStrategyContainer>(Holder))
+	{
+		// opening a container always leaves it highlighted
+		SetSelectedContainer(Container);
+
+		OpenContainer(Container, PackOwner);
+		return;
+	}
+
+	AStrategyUnit* Body = Cast<AStrategyUnit>(Holder);
+
+	if (FStrategyTargetActions::IsLootableNPC(Body))
+	{
+		OpenLoot(Body, PackOwner);
 	}
 }
 
@@ -1432,16 +1448,8 @@ bool AStrategyPlayerController::OpenTradeWith(AActor* Trader)
 {
 	AStrategyUnit* TraderUnit = Cast<AStrategyUnit>(Trader);
 
-	// the same gate Talk uses: someone on their feet, not hostile, who keeps a shop
-	if (!HasAuthority() || !GetTraderStock(TraderUnit))
-	{
-		return false;
-	}
-
-	Client_OpenTrade(TraderUnit);
-
-	// the shop opening is still the TradeOpened moment it always was, so a trader's quip as the
-	// counter opens plays here too - addressed to whoever was doing the talking
+	// the conversation's OpenTrade effect: addressed to whoever was doing the talking, or failing
+	// that the nearest squad member who could reach the counter
 	AStrategyUnit* Listener = Conversation ? Conversation->GetConversationSquadMember() : nullptr;
 
 	if (!Listener)
@@ -1449,9 +1457,24 @@ bool AStrategyPlayerController::OpenTradeWith(AActor* Trader)
 		Listener = FindPlayerPawnInRangeOfHolder(TraderUnit);
 	}
 
+	return OpenTradeFor(TraderUnit, Listener);
+}
+
+bool AStrategyPlayerController::OpenTradeFor(AStrategyUnit* Trader, AStrategyUnit* Listener)
+{
+	// the same gate Talk uses: someone on their feet, not hostile, who keeps a shop
+	if (!HasAuthority() || !FStrategyTargetActions::GetTraderStock(Trader))
+	{
+		return false;
+	}
+
+	Client_OpenTrade(Trader, Cast<AStrategyPlayerUnit>(Listener));
+
+	// the shop opening is the TradeOpened moment, so a trader's quip as the counter opens plays
+	// here - addressed to whoever is standing at it
 	if (UBarkDirectorComponent* Director = UBarkDirectorComponent::Get(this))
 	{
-		Director->RaiseEvent(EBarkEvent::TradeOpened, TraderUnit, Listener, PlayerState, /*OutExplanation*/ nullptr, /*bIgnoreQuietTime*/ true);
+		Director->RaiseEvent(EBarkEvent::TradeOpened, Trader, Listener, PlayerState, /*OutExplanation*/ nullptr, /*bIgnoreQuietTime*/ true);
 	}
 
 	return true;
@@ -1579,9 +1602,11 @@ void AStrategyPlayerController::TalkKeyPressed(const FInputActionValue& Value)
 		return;
 	}
 
-	if (AStrategyUnit* Target = FindInteractableNPCInRange())
+	// the targeted person, through the same path as the panel's Talk - which walks someone over,
+	// and refuses a hostile with the reason
+	if (SelectedNPC)
 	{
-		InteractWithNPC(Target);
+		RequestTargetAction(SelectedNPC, StrategyTargetAction::Talk());
 	}
 }
 
@@ -1642,92 +1667,25 @@ void AStrategyPlayerController::SelectClickAdditive(const FInputActionValue& Val
 
 void AStrategyPlayerController::SelectAllDoubleClick(const FInputActionValue& Value)
 {
-	// if the double-click landed on a container, select + open it instead of the usual select-all gesture
-	FVector CursorLocation;
+	// The thing under the cursor - the same answer the hover and the right-click get, so what is
+	// lit is what a double-click acts on. Everything walks over now: a double-clicked chest across
+	// the room sends someone to open it, where it used to refuse Too far away.
+	AActor* Clicked = ResolveInteractableUnderCursor();
+	const FName ActionId = GetDoubleClickAction(Clicked);
 
-	if (GetLocationUnderCursor(CursorLocation))
+	if (!Clicked || ActionId.IsNone())
 	{
-		// loose world items are checked first, on their own tighter radius: a pickup is the most
-		// precisely-aimed of the three gestures, and unlike a container or an NPC the item carries
-		// no selection state, so finding one either collects it or does nothing at all
-		if (AWorldItem* ClickedItem = FindWorldItemAtLocation(CursorLocation))
-		{
-			// collect it with whichever player pawn is nearest and close enough. Checked against
-			// every player pawn (not just ControlledUnits) for the same reason the container branch
-			// below is: the plain SelectClickAction fires alongside this gesture and, being
-			// non-additive, may have just cleared the current selection.
-			if (AStrategyPlayerUnit* Collector = FindPlayerPawnInRangeOfHolder(ClickedItem))
-			{
-				Server_PickUpWorldItem(ClickedItem, Collector->GetInventory());
-			}
-			else
-			{
-				// decided here rather than on the server: the client already knows where every
-				// pawn is, so there is no reason to ask and wait to be told no
-				NotifyRefusal(ESmoresRefusalReason::TooFar);
-			}
-
-			// out of range collects nothing, and still swallows the select-all - same as an
-			// out-of-range container or corpse, where the gesture means "that thing", not "everyone"
-			return;
-		}
-
-		if (AStrategyContainer* Clicked = FindContainerAtLocation(CursorLocation))
-		{
-			// highlight it dark green, same as a single click, regardless of range
-			SetSelectedContainer(Clicked);
-
-			// open it if any player-controlled pawn is close enough - see
-			// FindPlayerPawnInRangeOfHolder for why that's every pawn rather than the selection
-			if (FindPlayerPawnInRangeOfHolder(Clicked))
-			{
-				OpenContainer(Clicked);
-			}
-			else
-			{
-				// it still highlights, so the player can see they picked the right chest - the
-				// only thing missing is somebody standing near it
-				NotifyRefusal(ESmoresRefusalReason::TooFar);
-			}
-
-			return;
-		}
-
-		// no container at this location - try an NPC instead. A body and a living NPC are the same
-		// actor type differing only by health state, so this is one lookup that then branches
-		// rather than two sweeps that would have to agree with each other about which is nearer.
-		if (AStrategyUnit* Clicked = FindNPCAtLocation(CursorLocation))
-		{
-			// highlight it, same as a single click, regardless of range
-			SetSelectedNPC(Clicked);
-
-			if (IsLootableNPC(Clicked))
-			{
-				// Downed and Dead are indistinguishable here (see IsLootableNPC) - open it if any
-				// player-controlled pawn is close enough, same as the container branch
-				if (FindPlayerPawnInRangeOfHolder(Clicked))
-				{
-					OpenLoot(Clicked);
-				}
-				else
-				{
-					NotifyRefusal(ESmoresRefusalReason::TooFar);
-				}
-			}
-			else
-			{
-				// on its feet: double-click is the "interact with this person" verb. A trader
-				// opens trade; a non-trader is where dialog will go; a hostile gets neither.
-				InteractWithNPC(Clicked);
-			}
-
-			// swallowed either way, in range or not, trader or not - the gesture meant *that
-			// person*, not "select everyone". Double-clicking empty ground still selects all.
-			return;
-		}
+		// Empty ground selects everyone on screen - and so does a double-click on a squad member,
+		// which the resolver finds (they're hoverable for Heal and Examine) but which must go on
+		// meaning "select all" rather than send someone to patch them up.
+		DoSelectAllUnitsOnScreenCommand();
+		return;
 	}
 
-	DoSelectAllUnitsOnScreenCommand();
+	// highlighted the same way a single click would, so the player can see they got the right one
+	TargetActor(Clicked);
+
+	RequestTargetAction(Clicked, ActionId);
 }
 
 void AStrategyPlayerController::InteractHoldStarted(const FInputActionValue& Value)
@@ -1763,6 +1721,22 @@ void AStrategyPlayerController::InteractHoldCompleted(const FInputActionValue& V
 
 void AStrategyPlayerController::InteractClick(const FInputActionValue& Value)
 {
+	// Right-click on a *thing* opens the menu of what the squad can do to it; right-click on empty
+	// ground moves the squad. The hover has already told the player which of the two this will be,
+	// and it comes from the same resolver, so the two can't disagree.
+	if (AActor* Clicked = ResolveInteractableUnderCursor())
+	{
+		// right-clicking a thing also targets it, so the panel and the menu describe the same thing
+		TargetActor(Clicked);
+
+		if (StrategyHUD)
+		{
+			StrategyHUD->OpenActionMenu(Clicked);
+		}
+
+		return;
+	}
+
 	// get the cursor location
 	FVector CursorLocation;
 
@@ -1892,24 +1866,35 @@ bool AStrategyPlayerController::DoSelectCommand(const FVector& SelectLocation, b
 	// mean when several are nearby
 	AStrategyContainer* NearestContainer = FindContainerAtLocation(SelectLocation);
 
-	// a unit and a container can both be within range of the same click - a unit was
-	// previously always preferred even when the container was visibly closer to the cursor,
-	// since the container check only ran as a fallback when no unit overlap was found at all.
-	// Compare distances instead so whichever is actually closer to the click wins.
-	if (NearestUnit && NearestContainer)
-	{
-		const float UnitDistSq = FVector::DistSquared(NearestUnit->GetActorLocation(), SelectLocation);
-		const float ContainerDistSq = FVector::DistSquared(NearestContainer->GetActorLocation(), SelectLocation);
+	// loose items and doors are targets too, so a click on one picks it for the target panel
+	// rather than reading as empty ground - which used to clear the squad
+	AWorldItem* NearestItem = FindWorldItemAtLocation(SelectLocation);
+	AWorldDoor* NearestDoor = FindDoorAtLocation(SelectLocation);
 
-		if (ContainerDistSq < UnitDistSq)
+	// Several kinds of thing can be within range of the same click. Whichever is actually closest
+	// to it wins, rather than one kind always beating the others - a unit used to be preferred even
+	// when a container was visibly closer to the cursor.
+	AActor* Nearest = nullptr;
+	float NearestDistSq = TNumericLimits<float>::Max();
+
+	for (AActor* Candidate : { static_cast<AActor*>(NearestUnit), static_cast<AActor*>(NearestContainer), static_cast<AActor*>(NearestItem), static_cast<AActor*>(NearestDoor) })
+	{
+		if (!Candidate)
 		{
-			NearestUnit = nullptr;
+			continue;
 		}
-		else
+
+		const float DistSq = FVector::DistSquared(Candidate->GetActorLocation(), SelectLocation);
+
+		if (DistSq < NearestDistSq)
 		{
-			NearestContainer = nullptr;
+			Nearest = Candidate;
+			NearestDistSq = DistSq;
 		}
 	}
+
+	NearestUnit = (Nearest == NearestUnit) ? NearestUnit : nullptr;
+	NearestContainer = (Nearest == NearestContainer) ? NearestContainer : nullptr;
 
 	if (NearestUnit)
 	{
@@ -1976,7 +1961,16 @@ bool AStrategyPlayerController::DoSelectCommand(const FVector& SelectLocation, b
 		SetSelectedContainer(NearestContainer);
 		return true;
 	}
-	else if (!bAdditiveSelection)
+
+	if (Nearest)
+	{
+		// a loose item or a door: a target for the panel with no highlight of its own, and - like
+		// every other target - it leaves the squad selected to send there
+		SetTargetedActor(Nearest);
+		return true;
+	}
+
+	if (!bAdditiveSelection)
 	{
 		// clicked empty ground - this is the one remaining case that still clears the squad,
 		// same as it clears the container/NPC pick
@@ -1991,6 +1985,8 @@ bool AStrategyPlayerController::DoSelectCommand(const FVector& SelectLocation, b
 		{
 			SetSelectedNPC(nullptr);
 		}
+
+		SetTargetedActor(nullptr);
 	}
 
 	// didn't find a unit
@@ -2144,7 +2140,7 @@ void AStrategyPlayerController::Server_MoveUnits_Implementation(const TArray<ASt
 	{
 		if (IsValid(CurrentUnit))
 		{
-			CurrentUnit->MoveToLocation(GoalLocation, CurrentUnit == ClosestUnit, Units);
+			CurrentUnit->MoveToLocation(GoalLocation, /*bLeadUnit*/ CurrentUnit == ClosestUnit);
 		}
 	}
 }
@@ -2275,9 +2271,9 @@ bool AStrategyPlayerController::TryTradeItem(UInventoryComponent* SourceInventor
 	AStrategyUnit* TraderUnit = Cast<AStrategyUnit>(Stock->GetOwner());
 
 	// re-checked here rather than trusted from the client, for the same reason
-	// Server_PickUpWorldItem re-checks its own: MoveItem has no idea how far away the asking pawn
+	// PickUpWorldItem re-checks its own: MoveItem has no idea how far away the asking pawn
 	// was, or what the counterparty thinks of it
-	if (!IsInteractableNPC(TraderUnit))
+	if (!FStrategyTargetActions::IsInteractableNPC(TraderUnit))
 	{
 		UE_LOG(Logsmores, Warning, TEXT("[Trade] Refused: %s is not an interactable trader."), *GetNameSafe(TraderUnit));
 
@@ -2408,24 +2404,24 @@ void AStrategyPlayerController::Server_EquipItem_Implementation(UInventoryCompon
 	}
 }
 
-void AStrategyPlayerController::Server_PickUpWorldItem_Implementation(AWorldItem* WorldItem, UInventoryComponent* DestInventory)
+void AStrategyPlayerController::PickUpWorldItem(AWorldItem* WorldItem, UInventoryComponent* DestInventory)
 {
-	if (!IsValid(WorldItem) || !IsValid(DestInventory))
+	if (!HasAuthority() || !IsValid(WorldItem) || !IsValid(DestInventory))
 	{
 		return;
 	}
 
-	// the destination has to be a player pawn's own pack - nothing else is a legal pickup target,
-	// and the client picked it
+	// the destination has to be one of this player's own pawns' packs - nothing else is a legal
+	// pickup target
 	const AStrategyPlayerUnit* DestPawn = Cast<AStrategyPlayerUnit>(DestInventory->GetOwner());
 
-	if (!DestPawn)
+	if (!DestPawn || DestPawn->GetOwningController() != this)
 	{
 		return;
 	}
 
-	// proximity is the whole gate on a pickup, so it gets re-checked here rather than being left
-	// to the requesting client, which may have moved (or lied) since
+	// proximity is the whole gate on a pickup, so it gets re-checked here - the walk over ended in
+	// reach, but somebody else may have moved the item, or the unit, since
 	if (!WorldItem->IsInRangeOf(DestInventory->GetOwner()))
 	{
 		Client_NotifyRefusal(ESmoresRefusalReason::TooFar);
@@ -2436,7 +2432,7 @@ void AStrategyPlayerController::Server_PickUpWorldItem_Implementation(AWorldItem
 	// what was picked up has to be read before TryPickUp, which empties the world item on success
 	const FText ItemName = WorldItem->GetItem().GetDisplayName();
 
-	// range was the only thing the client checked, so a full pack is the server's news to break
+	// a full pack is the server's news to break
 	if (!WorldItem->TryPickUp(DestInventory))
 	{
 		Client_NotifyRefusal(ESmoresRefusalReason::NoRoom);
@@ -3411,7 +3407,7 @@ bool AStrategyPlayerController::DebugTradeEntry(UInventoryComponent* SourceInven
 
 void AStrategyPlayerController::Server_DebugTrade_Implementation(AStrategyUnit* TraderUnit, UInventoryComponent* PawnInventory, int32 BuyEntryIndex, int32 SellEntryIndex)
 {
-	UTraderComponent* Stock = GetTraderStock(TraderUnit);
+	UTraderComponent* Stock = FStrategyTargetActions::GetTraderStock(TraderUnit);
 
 	if (!Stock || !PawnInventory)
 	{
@@ -3801,58 +3797,7 @@ AActor* AStrategyPlayerController::FindHolderActorAtLocation(TSubclassOf<AActor>
 
 bool AStrategyPlayerController::IsHolderInRangeOfSelection(const AActor* HolderActor) const
 {
-	return IsHolderInRangeOfUnits(HolderActor, ControlledUnits);
-}
-
-bool AStrategyPlayerController::IsHolderInRangeOfUnits(const AActor* HolderActor, const TArray<AStrategyUnit*>& Units)
-{
-	const IInventoryHolder* Holder = Cast<IInventoryHolder>(HolderActor);
-
-	if (!Holder)
-	{
-		// an actor that isn't a holder has no reach to be inside of, so it is never in range
-		return false;
-	}
-
-	for (AStrategyUnit* CurrentUnit : Units)
-	{
-		if (IsValid(CurrentUnit) && Holder->IsInRangeOf(CurrentUnit))
-		{
-			return true;
-		}
-	}
-
-	return false;
-}
-
-bool AStrategyPlayerController::IsLootableNPC(const AStrategyUnit* Unit)
-{
-	// never one of the player's own pawns, and never an NPC still on its feet. Downed and Dead
-	// both qualify and are treated identically - the roadmap's settled decision: looting a body
-	// is the same actor and the same code path as looting a knocked-down one, not a separate
-	// corpse container.
-	return IsValid(Unit) && !Cast<AStrategyPlayerUnit>(Unit) && Unit->IsIncapacitated();
-}
-
-bool AStrategyPlayerController::IsInteractableNPC(const AStrategyUnit* Unit)
-{
-	// the mirror of IsLootableNPC: never one of the player's own pawns, on its feet rather than
-	// Downed or Dead, and not currently hostile. That last clause is the whole "never trade with
-	// someone trying to kill you" rule, written down once here so dialog inherits it.
-	return IsValid(Unit) && !Cast<AStrategyPlayerUnit>(Unit) && !Unit->IsIncapacitated() && !Unit->IsAggressive();
-}
-
-UTraderComponent* AStrategyPlayerController::GetTraderStock(const AStrategyUnit* Unit)
-{
-	if (!IsInteractableNPC(Unit))
-	{
-		return nullptr;
-	}
-
-	// the component's presence *is* the "is this a trader?" flag - there is no separate bool that
-	// could disagree with it, which is the same single-source-of-truth reasoning IInventoryHolder
-	// was built on
-	return Unit->FindComponentByClass<UTraderComponent>();
+	return FStrategyTargetActions::IsInRangeOfUnits(HolderActor, ControlledUnits);
 }
 
 AStrategyContainer* AStrategyPlayerController::FindContainerInRange() const
@@ -3891,19 +3836,7 @@ AStrategyUnit* AStrategyPlayerController::FindLootableNPCInRange() const
 	// deliberately unlike FindContainerInRange: only SelectedNPC is ever a candidate, since it's
 	// the only NPC the player has actually targeted. Sweeping the level for bodies the way that
 	// one sweeps for containers would open whichever corpse happened to be nearest.
-	if (!IsLootableNPC(SelectedNPC))
-	{
-		return nullptr;
-	}
-
-	return IsHolderInRangeOfSelection(SelectedNPC) ? SelectedNPC : nullptr;
-}
-
-AStrategyUnit* AStrategyPlayerController::FindInteractableNPCInRange() const
-{
-	// same shape as FindLootableNPCInRange, and deliberately: a key press acts on whoever the
-	// player targeted, never on whoever happens to be standing closest
-	if (!IsInteractableNPC(SelectedNPC))
+	if (!FStrategyTargetActions::IsLootableNPC(SelectedNPC))
 	{
 		return nullptr;
 	}
@@ -3917,16 +3850,6 @@ AStrategyContainer* AStrategyPlayerController::FindContainerAtLocation(const FVe
 	// the double-click handler highlights an out-of-range one rather than ignoring it
 	return Cast<AStrategyContainer>(FindHolderActorAtLocation(AStrategyContainer::StaticClass(), Location, ContainerSelectionRadius,
 		[](const AActor*) { return true; }));
-}
-
-AStrategyUnit* AStrategyPlayerController::FindNPCAtLocation(const FVector& Location) const
-{
-	// shares the container's click radius: a person, standing or fallen, is about as big a thing
-	// to aim at as a chest. The filter is only "not one of ours" - what the NPC's state *means*
-	// is the caller's branch, not a second sweep, so a body and a living NPC can never be found
-	// by two lookups that disagree about which was nearer.
-	return Cast<AStrategyUnit>(FindHolderActorAtLocation(AStrategyUnit::StaticClass(), Location, ContainerSelectionRadius,
-		[](const AActor* Actor) { return IsValid(Actor) && !Cast<AStrategyPlayerUnit>(Actor); }));
 }
 
 AStrategyPlayerUnit* AStrategyPlayerController::FindClosestPlayerPawn(const FVector& Location)
@@ -3967,6 +3890,13 @@ AWorldItem* AStrategyPlayerController::FindWorldItemAtLocation(const FVector& Lo
 			const AWorldItem* Item = Cast<AWorldItem>(Actor);
 			return Item && !Item->GetItem().IsEmpty();
 		}));
+}
+
+AWorldDoor* AStrategyPlayerController::FindDoorAtLocation(const FVector& Location) const
+{
+	// a door is about as big a thing to aim at as a chest, so it shares the chest's click radius
+	return Cast<AWorldDoor>(FindHolderActorAtLocation(AWorldDoor::StaticClass(), Location, ContainerSelectionRadius,
+		[](const AActor*) { return true; }));
 }
 
 AStrategyPlayerUnit* AStrategyPlayerController::FindPlayerPawnInRangeOfHolder(const AActor* HolderActor)
@@ -4102,154 +4032,566 @@ TArray<AStrategyUnit*> AStrategyPlayerController::GetControlledPlayerUnits()
 	return Roster;
 }
 
-FStrategyTargetInfo AStrategyPlayerController::GetSelectionTargetInfo() const
+void AStrategyPlayerController::GetSquadUnits(TArray<AStrategyUnit*>& OutSquad) const
 {
-	return BuildTargetInfo(LastSelectionTarget.Get(), ControlledUnits);
+	OutSquad.Reset();
+
+	// the world's units rather than PlayerPawns: that list is this controller's local convenience,
+	// refreshed on the client's schedule, and the server asks this too
+	for (TActorIterator<AStrategyPlayerUnit> It(GetWorld()); It; ++It)
+	{
+		if (It->GetOwningController() == this)
+		{
+			OutSquad.Add(*It);
+		}
+	}
 }
 
-FStrategyTargetInfo AStrategyPlayerController::BuildTargetInfo(const AActor* Target, const TArray<AStrategyUnit*>& SelectionUnits)
+FStrategyTargetInfo AStrategyPlayerController::GetSelectionTargetInfo() const
 {
-	FStrategyTargetInfo Info;
+	return GetTargetInfoFor(LastSelectionTarget.Get());
+}
 
-	if (!IsValid(Target))
+FStrategyTargetInfo AStrategyPlayerController::GetTargetInfoFor(const AActor* Target) const
+{
+	TArray<AStrategyUnit*> Squad;
+	GetSquadUnits(Squad);
+
+	return FStrategyTargetActions::BuildTargetInfo(Target, ControlledUnits, Squad);
+}
+
+void AStrategyPlayerController::Server_RequestActionOrder_Implementation(AStrategyUnit* Actor, AActor* Target, FName ActionId)
+{
+	TArray<AStrategyUnit*> Squad;
+	GetSquadUnits(Squad);
+
+	// the client named the actor, the target and the action, so all three are checked again here
+	// rather than trusted - a client can't send someone else's squad, or order a refused action
+	ESmoresRefusalReason Reason = ESmoresRefusalReason::None;
+
+	if (!FStrategyTargetActions::ValidateActionOrder(Actor, Target, ActionId, Squad, Reason))
 	{
-		// bHasTarget stays false, which is how the panel knows to hide itself entirely
-		return Info;
+		UE_LOG(Logsmores, Log, TEXT("[Orders] Refused %s -> %s on %s (%s)."),
+			*GetNameSafe(Actor), *ActionId.ToString(), *GetNameSafe(Target), *UEnum::GetValueAsString(Reason));
+
+		// None is a request that was never legal to make, and gets no line - NotifyRefusal ignores it
+		Client_NotifyRefusal(Reason);
+		return;
 	}
 
-	// distance is measured from the nearest selected unit, because that is the unit that would
-	// actually carry out whatever the player asks for. With nothing selected there is nothing to
-	// measure from, and the panel says so by leaving the figure negative rather than printing 0m.
-	float NearestDistanceSquared = -1.0f;
+	Actor->GetActionOrder()->IssueOrder(Target, ActionId);
+}
 
-	for (const AStrategyUnit* CurrentUnit : SelectionUnits)
+bool AStrategyPlayerController::CanPerformAction(AStrategyUnit* Actor, AActor* Target, FName ActionId, ESmoresRefusalReason& OutReason)
+{
+	TArray<AStrategyUnit*> Squad;
+	GetSquadUnits(Squad);
+
+	FTargetAction Entry;
+
+	if (!FStrategyTargetActions::FindActionFor(Target, Actor, ActionId, Squad, Entry))
 	{
-		if (!IsValid(CurrentUnit))
+		// no longer on offer at all - a person who went down on the way can't be talked to
+		OutReason = ESmoresRefusalReason::NotInteractable;
+		return false;
+	}
+
+	OutReason = Entry.DisabledReason;
+
+	return Entry.bEnabled;
+}
+
+void AStrategyPlayerController::PerformAction(AStrategyUnit* Actor, AActor* Target, FName ActionId)
+{
+	if (!HasAuthority() || !IsValid(Actor) || !IsValid(Target))
+	{
+		return;
+	}
+
+	const FText ActorName = Actor->GetHolderDisplayName();
+	const ISmoresInteractable* Interactable = Cast<ISmoresInteractable>(Target);
+	const FText TargetName = Interactable ? Interactable->GetInteractionDisplayName() : FText::GetEmpty();
+
+	// Heal, Kidnap, Pickpocket and Knock out have no system behind them yet. They are walked over to like any
+	// other action, so the whole flow can be judged; what's missing is said out loud, and nothing
+	// else changes - no item moves, nobody is carried, no wound closes.
+	if (FStrategyTargetActions::IsPlaceholderAction(ActionId))
+	{
+		FText Line;
+
+		if (ActionId == StrategyTargetAction::Pickpocket())
 		{
-			continue;
+			Line = FText::Format(LOCTEXT("PlaceholderPickpocket", "Is ready to pickpocket {0} - not built yet"), TargetName);
+		}
+		else if (ActionId == StrategyTargetAction::Kidnap())
+		{
+			Line = FText::Format(LOCTEXT("PlaceholderKidnap", "Is ready to carry off {0} - not built yet"), TargetName);
+		}
+		else if (ActionId == StrategyTargetAction::KnockOut())
+		{
+			Line = FText::Format(LOCTEXT("PlaceholderKnockOut", "Is ready to knock out {0} - not built yet"), TargetName);
+		}
+		else
+		{
+			Line = FText::Format(LOCTEXT("PlaceholderHeal", "Is ready to treat {0} - not built yet"), TargetName);
 		}
 
-		const float DistanceSquared = FVector::DistSquared(CurrentUnit->GetActorLocation(), Target->GetActorLocation());
+		Client_NotifyActivity(EActivityCategory::Squad, EActivitySeverity::Normal, Line, ActorName);
+		return;
+	}
 
-		if (NearestDistanceSquared < 0.0f || DistanceSquared < NearestDistanceSquared)
+	if (ActionId == StrategyTargetAction::Loot())
+	{
+		// the window is the owning client's to open, with the pack of whoever walked over beside it
+		Client_OpenHolder(Target, Cast<AStrategyPlayerUnit>(Actor));
+		return;
+	}
+
+	if (ActionId == StrategyTargetAction::Talk() || ActionId == StrategyTargetAction::Trade())
+	{
+		AStrategyUnit* NPC = Cast<AStrategyUnit>(Target);
+
+		// whoever is being spoken to turns to face the one speaking - the one part of the template's
+		// old arrival interaction worth keeping, now where it means something
+		if (NPC)
 		{
-			NearestDistanceSquared = DistanceSquared;
+			NPC->FaceToward(Actor);
+		}
+
+		if (ActionId == StrategyTargetAction::Talk())
+		{
+			StartTalk(NPC, Actor);
+		}
+		else
+		{
+			OpenTradeFor(NPC, Actor);
+		}
+
+		return;
+	}
+
+	if (ActionId == StrategyTargetAction::PickUp())
+	{
+		PickUpWorldItem(Cast<AWorldItem>(Target), Actor->GetInventory());
+		return;
+	}
+
+	if (ActionId == StrategyTargetAction::Open() || ActionId == StrategyTargetAction::Close())
+	{
+		if (AWorldDoor* Door = Cast<AWorldDoor>(Target))
+		{
+			Door->SetOpen(ActionId == StrategyTargetAction::Open());
+		}
+
+		return;
+	}
+
+	UE_LOG(Logsmores, Warning, TEXT("[Orders] %s reached %s to %s, which nothing carries out."),
+		*Actor->GetName(), *Target->GetName(), *ActionId.ToString());
+}
+
+void AStrategyPlayerController::HandleActionOrderEnded(AStrategyUnit* Actor, AActor* Target, const FText& TargetName, FName ActionId, EActionOrderEnd Why, ESmoresRefusalReason Reason)
+{
+	const FText ActorName = IsValid(Actor) ? Actor->GetHolderDisplayName() : FText::GetEmpty();
+
+	switch (Why)
+	{
+	case EActionOrderEnd::CannotReach:
+	case EActionOrderEnd::Refused:
+		if (Reason != ESmoresRefusalReason::None)
+		{
+			// a refusal the player can do something about - walk closer, pick another target
+			Client_NotifyRefusal(Reason);
+		}
+		else
+		{
+			// refused for a reason that isn't a refusal (a greyed Pickpocket, a Heal on someone who
+			// has since healed) - still said, because a squad member walking over and then doing
+			// nothing reads as a bug
+			Client_NotifyActivity(EActivityCategory::Squad, EActivitySeverity::Warning,
+				FText::Format(LOCTEXT("OrderRefusedQuietly", "Couldn't do that to {0} after all"), TargetName), ActorName);
+		}
+		break;
+
+	case EActionOrderEnd::ActorDown:
+		Client_NotifyActivity(EActivityCategory::Squad, EActivitySeverity::Warning,
+			FText::Format(LOCTEXT("OrderActorDown", "Went down before reaching {0}"), TargetName), ActorName);
+		break;
+
+	case EActionOrderEnd::ActorFighting:
+		Client_NotifyActivity(EActivityCategory::Squad, EActivitySeverity::Warning,
+			LOCTEXT("OrderActorFighting", "Stopped to fight back"), ActorName);
+		break;
+
+	case EActionOrderEnd::TargetGone:
+	default:
+		Client_NotifyActivity(EActivityCategory::Squad, EActivitySeverity::Warning,
+			FText::Format(LOCTEXT("OrderTargetGone", "{0} is no longer there"), TargetName), ActorName);
+		break;
+	}
+}
+
+void AStrategyPlayerController::OpenExamine(AActor* Target)
+{
+	if (!IsLocalPlayerController() || !IsValid(Target))
+	{
+		return;
+	}
+
+	if (!ExamineWidget)
+	{
+		if (!ExamineWidgetClass)
+		{
+			if (!bWarnedNoExamineWindow)
+			{
+				UE_LOG(Logsmores, Warning, TEXT("StrategyPlayerController has no ExamineWidgetClass set; Examine does nothing."));
+				bWarnedNoExamineWindow = true;
+			}
+
+			return;
+		}
+
+		ExamineWidget = CreateWidget<UExamineWidget>(this, ExamineWidgetClass);
+
+		if (!ExamineWidget)
+		{
+			return;
+		}
+
+		ExamineWidget->OnWindowClosed.AddUniqueDynamic(this, &AStrategyPlayerController::HandleWindowClosed);
+	}
+
+	// the name and the kind of thing come from the same description the panel draws; the body is
+	// the thing's own words. Everything here is authored or replicated, so there is no server hop.
+	const FStrategyTargetInfo Info = GetTargetInfoFor(Target);
+	const ISmoresInteractable* Interactable = Cast<ISmoresInteractable>(Target);
+
+	FText Body = Interactable ? Interactable->GetExamineText() : FText::GetEmpty();
+
+	if (Body.IsEmpty())
+	{
+		Body = LOCTEXT("ExamineNothingRemarkable", "Nothing remarkable about it.");
+	}
+
+	ExamineWidget->SetExamine(Info.DisplayName, Info.Classification, Body);
+
+	if (!ExamineWidget->IsInViewport())
+	{
+		// Z-order 0, the same as every other floating window
+		ExamineWidget->AddToViewport(0);
+	}
+}
+
+bool AStrategyPlayerController::IsHoverable(const AActor* Actor)
+{
+	if (!IsValid(Actor) || Actor->IsHidden())
+	{
+		return false;
+	}
+
+	// an item holding nothing is on its way out - there is nothing to pick up or look at
+	if (const AWorldItem* Item = Cast<AWorldItem>(Actor))
+	{
+		return !Item->GetItem().IsEmpty();
+	}
+
+	// every unit, your own included: your squad offers Heal and Examine, another player's Examine
+	return Cast<AStrategyContainer>(Actor) || Cast<AWorldDoor>(Actor) || Cast<AStrategyUnit>(Actor);
+}
+
+void AStrategyPlayerController::GetHoverMeshes(AActor* Actor, TArray<UMeshComponent*>& OutMeshes)
+{
+	OutMeshes.Reset();
+
+	if (!IsValid(Actor))
+	{
+		return;
+	}
+
+	// only a door's leaf: the frame spans the doorway, and an open doorway has to stay ground a
+	// right-click can walk the squad through
+	if (AWorldDoor* Door = Cast<AWorldDoor>(Actor))
+	{
+		if (Door->GetLeafMesh())
+		{
+			OutMeshes.Add(Door->GetLeafMesh());
+		}
+
+		return;
+	}
+
+	Actor->GetComponents<UMeshComponent>(OutMeshes);
+}
+
+AActor* AStrategyPlayerController::ResolveInteractableUnderCursor()
+{
+	float MouseX = 0.0f;
+	float MouseY = 0.0f;
+
+	if (!GetMousePosition(MouseX, MouseY))
+	{
+		return nullptr;
+	}
+
+	FVector RayOrigin = FVector::ZeroVector;
+	FVector RayDirection = FVector::ZeroVector;
+
+	if (!DeprojectScreenPositionToWorld(MouseX, MouseY, RayOrigin, RayDirection))
+	{
+		return nullptr;
+	}
+
+	// the ordinary cursor trace - usually the ground, sometimes the thing itself if its collision
+	// answers the selection channel
+	FHitResult Hit;
+	GetHitResultAtScreenPosition(FVector2D(MouseX, MouseY), SelectionTraceChannel, false, Hit);
+
+	// 1. the trace landed on something the squad can act on
+	if (Hit.bBlockingHit && IsHoverable(Hit.GetActor()))
+	{
+		return Hit.GetActor();
+	}
+
+	// 2. the ray passes through something on its way to whatever it hit. Tested against each
+	// thing's own mesh bounds rather than its collision, so a unit is found whatever its capsule
+	// answers and a dropped item (which has no collision at all) is found too. Anything further
+	// along the ray than what the trace hit is behind it - a chest behind a wall - and doesn't count.
+	const float RayLength = HitResultTraceDistance;
+	const FVector RayEnd = RayOrigin + RayDirection * RayLength;
+	const float BlockingDistance = Hit.bBlockingHit ? Hit.Distance : RayLength;
+
+	// how far past the blocking hit a box may start and still count - a unit standing on the
+	// ground has its box starting just short of the floor it stands on, never beyond it
+	constexpr float OcclusionTolerance = 10.0f;
+
+	AActor* BestActor = nullptr;
+	float BestDistance = TNumericLimits<float>::Max();
+	TArray<UMeshComponent*> Meshes;
+
+	auto Consider = [&](AActor* Candidate)
+	{
+		if (!IsHoverable(Candidate))
+		{
+			return;
+		}
+
+		GetHoverMeshes(Candidate, Meshes);
+
+		for (const UMeshComponent* Mesh : Meshes)
+		{
+			if (!Mesh || !Mesh->IsRegistered() || !Mesh->IsVisible())
+			{
+				continue;
+			}
+
+			FVector HitLocation = FVector::ZeroVector;
+			FVector HitNormal = FVector::ZeroVector;
+			float HitTime = 0.0f;
+
+			if (!FMath::LineExtentBoxIntersection(Mesh->Bounds.GetBox(), RayOrigin, RayEnd, FVector::ZeroVector, HitLocation, HitNormal, HitTime))
+			{
+				continue;
+			}
+
+			const float Distance = HitTime * RayLength;
+
+			if (Distance <= BlockingDistance + OcclusionTolerance && Distance < BestDistance)
+			{
+				BestActor = Candidate;
+				BestDistance = Distance;
+			}
+		}
+	};
+
+	for (TActorIterator<AWorldItem> It(GetWorld()); It; ++It) { Consider(*It); }
+	for (TActorIterator<AStrategyContainer> It(GetWorld()); It; ++It) { Consider(*It); }
+	for (TActorIterator<AWorldDoor> It(GetWorld()); It; ++It) { Consider(*It); }
+	for (TActorIterator<AStrategyUnit> It(GetWorld()); It; ++It) { Consider(*It); }
+
+	if (BestActor)
+	{
+		return BestActor;
+	}
+
+	// 3. nothing under the cursor exactly: something small and close to the point on the ground,
+	// in the double-click ladder's order, so a body lying flat or a dropped item can still be caught
+	if (!Hit.bBlockingHit)
+	{
+		return nullptr;
+	}
+
+	const FVector GroundPoint = Hit.Location;
+
+	auto FindNear = [this, &GroundPoint](TSubclassOf<AActor> HoverableClass) -> AActor*
+	{
+		AActor* Nearest = nullptr;
+		float NearestDistSq = FMath::Square(HoverPickRadius);
+
+		for (TActorIterator<AActor> It(GetWorld(), HoverableClass); It; ++It)
+		{
+			if (!IsHoverable(*It))
+			{
+				continue;
+			}
+
+			// across the ground: a unit's origin is at its hips, so a 3D distance from the floor
+			// would put everyone standing nearly a metre further away than they look
+			const float DistSq = FVector::DistSquared2D(It->GetActorLocation(), GroundPoint);
+
+			if (DistSq <= NearestDistSq)
+			{
+				Nearest = *It;
+				NearestDistSq = DistSq;
+			}
+		}
+
+		return Nearest;
+	};
+
+	for (const TSubclassOf<AActor>& HoverableClass : { TSubclassOf<AActor>(AWorldItem::StaticClass()), TSubclassOf<AActor>(AStrategyContainer::StaticClass()),
+		TSubclassOf<AActor>(AWorldDoor::StaticClass()), TSubclassOf<AActor>(AStrategyUnit::StaticClass()) })
+	{
+		if (AActor* Found = FindNear(HoverableClass))
+		{
+			return Found;
 		}
 	}
 
-	if (NearestDistanceSquared >= 0.0f)
+	return nullptr;
+}
+
+void AStrategyPlayerController::SetHoveredActor(AActor* NewHovered)
+{
+	AActor* OldHovered = HoveredActor.Get();
+
+	if (OldHovered == NewHovered)
 	{
-		// Unreal units are centimetres; the wireframe reads in metres
-		Info.DistanceMeters = FMath::Sqrt(NearestDistanceSquared) / 100.0f;
+		return;
 	}
 
-	// real reach, not click precision - the holder's own interaction sphere, which is the same
-	// gate every transfer in the game already uses
-	const bool bInRange = IsHolderInRangeOfUnits(Target, SelectionUnits);
-	const ESmoresRefusalReason RangeRefusal = bInRange ? ESmoresRefusalReason::None : ESmoresRefusalReason::TooFar;
+	TArray<UMeshComponent*> Meshes;
 
-	if (const AStrategyContainer* Container = Cast<AStrategyContainer>(Target))
+	if (OldHovered)
 	{
-		Info.bHasTarget = true;
-		Info.DisplayName = Container->GetHolderDisplayName();
-		Info.Classification = LOCTEXT("TargetClassContainer", "CONTAINER");
+		GetHoverMeshes(OldHovered, Meshes);
 
-		FTargetAction OpenAction;
-		OpenAction.Id = StrategyTargetAction::Open();
-		OpenAction.Label = LOCTEXT("TargetActionOpen", "Open");
-		OpenAction.KeyHint = LOCTEXT("TargetKeyOpen", "O");
-		OpenAction.bEnabled = bInRange;
-		OpenAction.DisabledReason = RangeRefusal;
-
-		Info.Actions.Add(OpenAction);
-
-		return Info;
+		for (UMeshComponent* Mesh : Meshes)
+		{
+			Mesh->SetOverlayMaterial(nullptr);
+		}
 	}
 
-	const AStrategyUnit* Unit = Cast<AStrategyUnit>(Target);
+	HoveredActor = NewHovered;
 
-	if (!Unit)
+	if (NewHovered && HoverOverlayMaterial)
 	{
-		// something targetable that is neither a container nor a unit doesn't exist today; if one
-		// ever does, it gets a name and no actions rather than a wrong action row
-		return Info;
+		GetHoverMeshes(NewHovered, Meshes);
+
+		for (UMeshComponent* Mesh : Meshes)
+		{
+			Mesh->SetOverlayMaterial(HoverOverlayMaterial);
+		}
+	}
+}
+
+void AStrategyPlayerController::UpdateHover()
+{
+	if (!IsLocalPlayerController())
+	{
+		return;
 	}
 
-	Info.bHasTarget = true;
-	Info.DisplayName = Unit->GetHolderDisplayName();
+	AActor* NewHovered = nullptr;
 
-	if (const UHealthComponent* Health = Unit->GetHealth())
+	if (StrategyHUD && StrategyHUD->IsActionMenuOpen())
 	{
-		Info.bHasHealth = true;
-		Info.HealthFraction = Health->MaxHealth > 0.0f
-			? FMath::Clamp(Health->GetHealth() / Health->MaxHealth, 0.0f, 1.0f)
-			: 0.0f;
+		// while the menu is open, what it's about stays lit - the cursor is over the menu now
+		NewHovered = StrategyHUD->GetActionMenuTarget();
+	}
+	else if (!bIsRotatingCamera && !(StrategyHUD && StrategyHUD->IsCursorOverHUD()))
+	{
+		// nothing lights while the cursor is over the HUD or a window - a click there never
+		// reaches the world, so the promise the highlight makes would be a lie
+		NewHovered = ResolveInteractableUnderCursor();
 	}
 
-	// AStrategyPlayerUnit derives from AStrategyUnit, so it has to be checked first
-	if (Cast<AStrategyPlayerUnit>(Unit))
-	{
-		Info.Classification = Unit->IsIncapacitated()
-			? LOCTEXT("TargetClassSquadDown", "SQUAD - DOWN")
-			: LOCTEXT("TargetClassSquad", "SQUAD");
+	SetHoveredActor(NewHovered);
+}
 
-		// Deliberately no actions. Everything the player does with their own pawn - the pack, the
-		// paperdoll, a move order - already has a route that doesn't involve this panel, and a row
-		// of disabled buttons on a squad member would teach a rule that doesn't exist.
-		return Info;
+void AStrategyPlayerController::TargetActor(AActor* Actor)
+{
+	if (AStrategyContainer* Container = Cast<AStrategyContainer>(Actor))
+	{
+		SetSelectedContainer(Container);
+	}
+	else if (Cast<AStrategyPlayerUnit>(Actor))
+	{
+		// a squad member is described without being selected - selecting is the left button's job
+		LastSelectionTarget = Actor;
+	}
+	else if (AStrategyUnit* NPC = Cast<AStrategyUnit>(Actor))
+	{
+		SetSelectedNPC(NPC);
+	}
+	else
+	{
+		SetTargetedActor(Actor);
+	}
+}
+
+void AStrategyPlayerController::SetTargetedActor(AActor* Actor)
+{
+	if (Actor)
+	{
+		LastSelectionTarget = Actor;
+		return;
 	}
 
-	if (AStrategyPlayerController::IsLootableNPC(Unit))
+	// clearing only lets go of the kinds with no highlight of their own - a container's or an
+	// NPC's pick is cleared by its own setter
+	AActor* Current = LastSelectionTarget.Get();
+
+	if (Cast<AWorldItem>(Current) || Cast<AWorldDoor>(Current))
 	{
-		// Downed and Dead are the same thing here, exactly as they are to the `O` key
-		Info.Classification = LOCTEXT("TargetClassBody", "BODY");
+		LastSelectionTarget = nullptr;
+	}
+}
 
-		FTargetAction LootAction;
-		LootAction.Id = StrategyTargetAction::Loot();
-		LootAction.Label = LOCTEXT("TargetActionLoot", "Loot");
-		LootAction.KeyHint = LOCTEXT("TargetKeyLoot", "O");
-		LootAction.bEnabled = bInRange;
-		LootAction.DisabledReason = RangeRefusal;
-
-		Info.Actions.Add(LootAction);
-
-		return Info;
+FName AStrategyPlayerController::GetDoubleClickAction(const AActor* Actor)
+{
+	if (!IsHoverable(Actor))
+	{
+		return NAME_None;
 	}
 
-	const bool bHostile = Unit->IsAggressive();
+	if (Cast<AWorldItem>(Actor))
+	{
+		return StrategyTargetAction::PickUp();
+	}
 
-	Info.Classification = bHostile
-		? LOCTEXT("TargetClassPersonHostile", "PERSON - HOSTILE")
-		: LOCTEXT("TargetClassPersonNeutral", "PERSON - NEUTRAL");
+	if (Cast<AStrategyContainer>(Actor))
+	{
+		return StrategyTargetAction::Loot();
+	}
 
-	// Talk is offered on anyone on their feet, enabled or not. Greyed out because they are
-	// currently trying to kill you is the rule made visible; leaving the button off the row
-	// would teach nothing.
-	const bool bInteractable = AStrategyPlayerController::IsInteractableNPC(Unit);
+	if (const AWorldDoor* Door = Cast<AWorldDoor>(Actor))
+	{
+		return Door->IsOpen() ? StrategyTargetAction::Close() : StrategyTargetAction::Open();
+	}
 
-	FTargetAction TalkAction;
-	TalkAction.Id = StrategyTargetAction::Talk();
-	TalkAction.Label = LOCTEXT("TargetActionTalk", "Talk");
-	TalkAction.KeyHint = LOCTEXT("TargetKeyTalk", "T");
-	TalkAction.bEnabled = bInteractable && bInRange;
-	TalkAction.DisabledReason = !bInteractable ? ESmoresRefusalReason::NotInteractable : RangeRefusal;
+	// a squad member - yours or anyone's - keeps the gesture's old meaning, select all on screen
+	if (Cast<AStrategyPlayerUnit>(Actor))
+	{
+		return NAME_None;
+	}
 
-	Info.Actions.Add(TalkAction);
+	if (const AStrategyUnit* Unit = Cast<AStrategyUnit>(Actor))
+	{
+		// a body is gone through; anyone on their feet is talked to - "interact with this person"
+		return FStrategyTargetActions::IsLootableNPC(Unit) ? StrategyTargetAction::Loot() : StrategyTargetAction::Talk();
+	}
 
-	// Attack has no range gate, and correctly so - DoAttackCommand sends the squad to close the
-	// distance. What it can't do is start a fight that is already running, which is why someone
-	// already hostile gets the button disabled with no reason given: "you are already doing this"
-	// is not a refusal.
-	FTargetAction AttackAction;
-	AttackAction.Id = StrategyTargetAction::Attack();
-	AttackAction.Label = LOCTEXT("TargetActionAttack", "Attack");
-	AttackAction.KeyHint = LOCTEXT("TargetKeyAttack", "H");
-	AttackAction.bEnabled = !bHostile;
-	AttackAction.DisabledReason = ESmoresRefusalReason::None;
-
-	Info.Actions.Add(AttackAction);
-
-	return Info;
+	return NAME_None;
 }
 
 FVector2D AStrategyPlayerController::GetMouseLocationForPlayer()

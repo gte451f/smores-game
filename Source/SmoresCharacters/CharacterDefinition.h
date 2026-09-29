@@ -12,6 +12,24 @@ class AStrategyUnit;
 class UTexture2D;
 
 /**
+ *  Whether a kind of character is somebody you can talk to or something you can only fight.
+ *
+ *  It decides what the right-click menu and the target panel offer: a person gets the social and
+ *  illicit verbs (talk, trade, pickpocket, heal, kidnap), a creature only attack, and loot once it
+ *  is down. Authored on the definition rather than inferred from anything, because nothing else
+ *  about a unit tells the two apart - every NPC is the same actor class.
+ */
+UENUM(BlueprintType)
+enum class ECharacterKind : uint8
+{
+	/** Someone - talked to, traded with, stolen from, carried off */
+	Person,
+
+	/** Something - an animal, a monster. Fought and butchered, never spoken to. */
+	Creature
+};
+
+/**
  *  What a *kind* of character is - "Bandit", "Settler", or one named individual like Warlord
  *  Kess. Authored identity, identical every campaign, never written at runtime.
  *
@@ -37,6 +55,10 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Identity")
 	bool bUnique = false;
+
+	/** A person or a creature - see ECharacterKind. Person unless authored otherwise, which is what every character so far is. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Identity")
+	ECharacterKind Kind = ECharacterKind::Person;
 
 	/** Who this is. Designer-facing for a kind of character, player-facing for a unique one. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Identity", meta = (MultiLine = "true"))

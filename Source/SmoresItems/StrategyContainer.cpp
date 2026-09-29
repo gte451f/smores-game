@@ -122,7 +122,7 @@ void AStrategyContainer::RollLootTable()
 
 bool AStrategyContainer::IsInRangeOf(const AActor* Other) const
 {
-	return IInventoryHolder::IsActorWithinSphere(this, InteractionRange, Other);
+	return ISmoresInteractable::IsActorWithinSphere(this, InteractionRange, Other);
 }
 
 void AStrategyContainer::NotifyOpened()

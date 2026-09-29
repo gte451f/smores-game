@@ -48,6 +48,9 @@ public:
 	/** The owning player controller as the HUD command interface, or null if it doesn't implement it */
 	IStrategyHUDCommands* GetHUDCommands() const;
 
+	/** True if this region stops clicks reaching the world - what AStrategyHUD::IsCursorOverHUD asks */
+	bool BlocksWorldClicks() const { return bBlockWorldClicks; }
+
 protected:
 
 	//~ Begin UUserWidget interface

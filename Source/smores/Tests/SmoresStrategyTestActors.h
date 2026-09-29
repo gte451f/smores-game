@@ -6,8 +6,11 @@
 #include "StrategyUnit.h"
 #include "StrategyPlayerUnit.h"
 #include "StrategyContainer.h"
+#include "WorldItem.h"
+#include "WorldDoor.h"
 #include "CharacterDefinition.h"
 #include "LootTableDefinition.h"
+#include "ActionOrderHost.h"
 #include "SmoresStrategyTestActors.generated.h"
 
 /**
@@ -66,6 +69,15 @@ public:
 		PlacedRecordId = InPlacedRecordId;
 		SetAuthoredDisplayName(PlacedName);
 	}
+
+	/** Gives this unit a definition after spawning - for what the definition decides at any time (a person or a creature), not for records */
+	void SetDefinitionForTest(UCharacterDefinition* Definition) { CharacterDefinition = Definition; }
+
+	/** Sets the replicated attributes directly, as a record would - the action menu's odds read these */
+	void SetAttributesForTest(const FCharacterAttributes& InAttributes) { Attributes = InAttributes; }
+
+	/** Names the unit, as a level designer or its record would */
+	void SetNameForTest(const FText& Name) { SetAuthoredDisplayName(Name); }
 };
 
 /** The player-pawn stand-in - the "one of your own squad" case. See ATestStrategyNPC. */
@@ -77,6 +89,72 @@ class ATestStrategyPlayerUnit : public AStrategyPlayerUnit
 public:
 
 	ATestStrategyPlayerUnit();
+
+	/** Sets the replicated attributes directly, as a record would - see ATestStrategyNPC */
+	void SetAttributesForTest(const FCharacterAttributes& InAttributes) { Attributes = InAttributes; }
+
+	/** Names the unit, as a level designer or its record would */
+	void SetNameForTest(const FText& Name) { SetAuthoredDisplayName(Name); }
+};
+
+/** The loose-item stand-in. See ATestStrategyNPC. */
+UCLASS(NotPlaceable, Hidden)
+class ATestWorldItem : public AWorldItem
+{
+	GENERATED_BODY()
+};
+
+/** The door stand-in. See ATestStrategyNPC. */
+UCLASS(NotPlaceable, Hidden)
+class ATestWorldDoor : public AWorldDoor
+{
+	GENERATED_BODY()
+};
+
+/**
+ *  Stands in for the player controller as a unit's IActionOrderHost, counting what the order asks
+ *  of it. Answers CanPerformAction through the real rules (FStrategyTargetActions::FindActionFor)
+ *  against its own Squad, so an order test exercises the same re-check on arrival the controller
+ *  does - without a controller, which a test world can't usefully have.
+ */
+UCLASS(NotPlaceable, Hidden)
+class UTestActionOrderHost : public UObject, public IActionOrderHost
+{
+	GENERATED_BODY()
+
+public:
+
+	/**
+	 *  The squad the rules treat as this player's own. Weak and deliberately **not** a UPROPERTY:
+	 *  the host is kept alive for the whole test, so holding the units strongly would keep alive the
+	 *  world they were spawned into, and the teardown then fails with "Previously active world not
+	 *  cleaned up" - the same trap as USmoresTestDelegateListener::LastActor (testing.md).
+	 */
+	TArray<TWeakObjectPtr<AStrategyUnit>> Squad;
+
+	int32 CanPerformCount = 0;
+	int32 PerformCount = 0;
+	int32 EndedCount = 0;
+
+	FName LastPerformedAction;
+	EActionOrderEnd LastEnd = EActionOrderEnd::TargetGone;
+	ESmoresRefusalReason LastReason = ESmoresRefusalReason::None;
+
+	/** Reset between steps of one test */
+	void ResetCounts()
+	{
+		CanPerformCount = 0;
+		PerformCount = 0;
+		EndedCount = 0;
+		LastPerformedAction = NAME_None;
+		LastReason = ESmoresRefusalReason::None;
+	}
+
+	//~ Begin IActionOrderHost interface
+	virtual bool CanPerformAction(AStrategyUnit* Actor, AActor* Target, FName ActionId, ESmoresRefusalReason& OutReason) override;
+	virtual void PerformAction(AStrategyUnit* Actor, AActor* Target, FName ActionId) override;
+	virtual void HandleActionOrderEnded(AStrategyUnit* Actor, AActor* Target, const FText& TargetName, FName ActionId, EActionOrderEnd Why, ESmoresRefusalReason Reason) override;
+	//~ End IActionOrderHost interface
 };
 
 /** The container stand-in. See ATestStrategyNPC. */

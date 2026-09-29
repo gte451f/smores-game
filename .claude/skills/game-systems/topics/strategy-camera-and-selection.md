@@ -112,7 +112,13 @@ happens to be nearest, so a key press acts on whoever the player actually target
 
 ## Known Gaps
 
-- Double-click now resolves five meanings by type, in order: loose world item → container →
+- **Superseded by the action menu** (`action-menu.md`): the double-click now acts on the thing the
+  hover resolver finds *under the cursor*, not on the nearest thing within a click radius, and every
+  meaning walks the nearest selected squad member over rather than refusing *Too far away*. A
+  double-click on a squad member selects all on screen. A single click on a loose item or a door
+  targets it for the target panel instead of reading as empty ground. The history below is kept
+  for why the ladder's order is what it is.
+- Double-click used to resolve five meanings by type, in order: loose world item → container →
   body → living NPC (trade, and dialog's future home) → empty ground, which is the only one that
   still selects all on screen. Anything the gesture lands *on* swallows it, in range or not.
   Adding a sixth meaning means picking both a position in that order and a click radius sized

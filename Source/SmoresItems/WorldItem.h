@@ -91,6 +91,9 @@ public:
 	/** Returns true if the given actor is close enough to pick this item up */
 	virtual bool IsInRangeOf(const AActor* Other) const override;
 
+	/** The item definition's own description - the same words its inventory tooltip would use */
+	virtual FText GetExamineText() const override { return Item.GetDescription(); }
+
 	//~ End IInventoryHolder interface
 
 	/** Replaces what's lying here. Authority-only; a silent no-op elsewhere. */

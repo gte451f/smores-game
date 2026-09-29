@@ -9,6 +9,7 @@
 #include "StrategyHUDCommands.generated.h"
 
 class AStrategyUnit;
+class AActor;
 
 UINTERFACE(MinimalAPI)
 class UStrategyHUDCommands : public UInterface
@@ -66,9 +67,10 @@ public:
 	virtual void RequestSelectUnit(AStrategyUnit* Unit, bool bFocusCamera) = 0;
 
 	/**
-	 *  Runs the action the target panel offered under this id (open a container, talk, attack,
-	 *  loot). The panel only ever offers what the controller's own gating helpers already
-	 *  permit, so this re-checks rather than trusts.
+	 *  Runs the action offered under this id on Target (loot, talk, open a door, attack, examine).
+	 *  The target panel passes its target, the right-click menu passes its own - they can describe
+	 *  different things at once. Whatever offered the action, this re-checks it through the same
+	 *  rules rather than trusting the button, since a row is a frame old by the time it's clicked.
 	 */
-	virtual void RequestTargetAction(FName ActionId) = 0;
+	virtual void RequestTargetAction(AActor* Target, FName ActionId) = 0;
 };

@@ -66,7 +66,7 @@ void AWorldItem::RefreshMesh()
 
 bool AWorldItem::IsInRangeOf(const AActor* Other) const
 {
-	return IInventoryHolder::IsActorWithinSphere(this, InteractionRange, Other);
+	return ISmoresInteractable::IsActorWithinSphere(this, InteractionRange, Other);
 }
 
 void AWorldItem::SetItem(const FInventoryItem& NewItem)

@@ -12,6 +12,7 @@
 #include "DialogHost.h"
 #include "DialogTypes.h"
 #include "ActivityEntry.h"
+#include "ActionOrderHost.h"
 #include "StrategyPlayerController.generated.h"
 
 class AStrategyPawn;
@@ -43,6 +44,10 @@ class USquadActivityWatcher;
 class IInventoryHolder;
 class UConversationComponent;
 class UConversationWidget;
+class UExamineWidget;
+class UMaterialInterface;
+class UMeshComponent;
+class AWorldDoor;
 
 /**
  *  Player Controller for a top-down strategy game.
@@ -50,7 +55,7 @@ class UConversationWidget;
  *  Implements both mouse and touch controls.
  */
 UCLASS(abstract)
-class AStrategyPlayerController : public APlayerController, public IStrategySelectionHost, public IStrategyCameraCommands, public IStrategyHUDCommands, public IInventoryMoveHost, public IDialogHost
+class AStrategyPlayerController : public APlayerController, public IStrategySelectionHost, public IStrategyCameraCommands, public IStrategyHUDCommands, public IInventoryMoveHost, public IDialogHost, public IActionOrderHost
 {
 	GENERATED_BODY()
 
@@ -213,15 +218,38 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input", meta = (ClampMin = 0, ClampMax = 10000, Units = "cm"))
 	float SelectionRadius = 250.0f;
 
-	/** Max distance to look for a nearby container when doing a click or touch interaction */
+	/** Max distance to look for a nearby container (or door) on a single click or touch */
 	UPROPERTY(EditAnywhere, Category="Input", meta = (ClampMin = 0, ClampMax = 10000, Units = "cm"))
 	float ContainerSelectionRadius = 250.0f;
 
-	/** Max distance to look for a loose world item when double-clicking. Deliberately tighter than
+	/** Max distance to look for a loose world item on a single click. Deliberately tighter than
 	 *  ContainerSelectionRadius: a dropped item is a small thing to aim at, and a generous radius
-	 *  would let one lying near a chest swallow every double-click meant for the chest. */
+	 *  would let one lying near a chest swallow every click meant for the chest. (The double-click
+	 *  and the right-click use the hover's exact resolver instead - see HoverPickRadius.) */
 	UPROPERTY(EditAnywhere, Category="Input", meta = (ClampMin = 0, ClampMax = 10000, Units = "cm"))
 	float WorldItemSelectionRadius = 100.0f;
+
+	/**
+	 *  How far from the point under the cursor the hover still catches something the cursor isn't
+	 *  quite on - a body lying flat, a dropped item. Measured across the ground, ignoring height.
+	 *
+	 *  **Deliberately small**, and the whole reason the right-click menu and move orders don't
+	 *  fight: the thing under the cursor is found exactly first (see ResolveInteractableUnderCursor),
+	 *  and this is only the fallback. The double-click ladder used to use ContainerSelectionRadius
+	 *  (250) here, which made the ground beside a person impossible to right-click.
+	 */
+	UPROPERTY(EditAnywhere, Category="Input", meta = (ClampMin = 0, ClampMax = 1000, Units = "cm"))
+	float HoverPickRadius = 40.0f;
+
+	/**
+	 *  Drawn over whatever the cursor is on, so the player knows before clicking that a right-click
+	 *  will open the menu rather than move the squad there. An overlay material, so it adds a rim on
+	 *  top of the thing's own look - which must stay readably different from the *selected* look
+	 *  (units' BP_UnitSelected, containers' dark-green material swap). Local and cosmetic: in co-op
+	 *  every player lights their own. Unset draws nothing, and the menu still works.
+	 */
+	UPROPERTY(EditAnywhere, Category="Input")
+	TObjectPtr<UMaterialInterface> HoverOverlayMaterial;
 
 	/** Cached starting position for camera drag scrolling */
 	FVector2D StartingDragScrollPosition;
@@ -328,8 +356,22 @@ protected:
 	UPROPERTY()
 	TObjectPtr<AStrategyUnit> SelectedNPC;
 
-	/** Whichever pawn, NPC, or container was most recently selected/targeted. Drives the selection target UI label */
+	/** Whichever pawn, NPC, container, door or loose item was most recently selected/targeted. Drives the target panel. */
 	TWeakObjectPtr<AActor> LastSelectionTarget;
+
+	/** What the hover highlight is currently drawn on, if anything. Local only - see HoverOverlayMaterial. */
+	TWeakObjectPtr<AActor> HoveredActor;
+
+	/** The examine window's class - WBP_Examine. Without it Examine does nothing, and says so once. */
+	UPROPERTY(EditAnywhere, Category="UI")
+	TSubclassOf<UExamineWidget> ExamineWidgetClass;
+
+	/** The examine window, once spawned. Kept after it closes, like the panel windows. */
+	UPROPERTY()
+	TObjectPtr<UExamineWidget> ExamineWidget;
+
+	/** Warned once when Examine was picked and ExamineWidgetClass was empty */
+	bool bWarnedNoExamineWindow = false;
 
 	/** Inventory screen widget class to spawn when the player opens an inventory */
 	UPROPERTY(EditAnywhere, Category="UI")
@@ -481,25 +523,20 @@ public:
 	 *  selected, or a struct with an empty name if none */
 	virtual FStrategyTargetInfo GetSelectionTargetInfo() const override;
 
+	/** The same, for any target - the right-click menu's, which is not necessarily the panel's */
+	virtual FStrategyTargetInfo GetTargetInfoFor(const AActor* Target) const override;
+
 	/** This player's own squad, in the Tab cycle's deterministic order. Drives the squad portrait bar. */
 	virtual TArray<AStrategyUnit*> GetControlledPlayerUnits() override;
 
 	//~ End IStrategySelectionHost interface
 
 	/**
-	 *  Everything the target panel draws about Target, measured and gated against SelectionUnits.
-	 *
-	 *  Static, and takes the selection explicitly, for two reasons. It is the one piece of this
-	 *  controller that is worth a test - an action row that quietly offers something the rules
-	 *  forbid is exactly the silent kind of wrong - and a static taking a unit array can be
-	 *  called from a test world with no controller in it at all. It also makes the dependency
-	 *  honest: the row depends on the target and the selection, and on nothing else. Public for
-	 *  that test's sake - the gating predicates it calls stay protected.
-	 *
-	 *  Every action it offers reuses the existing gating predicates (IsLootableNPC,
-	 *  IsInteractableNPC, IsHolderInRangeOfUnits) rather than restating their rules.
+	 *  This player's whole squad, selected or not, read off the world rather than PlayerPawns - so it
+	 *  answers correctly on the server, which never refreshes that list. What the action rules take
+	 *  as "Squad" (see FStrategyTargetActions).
 	 */
-	static FStrategyTargetInfo BuildTargetInfo(const AActor* Target, const TArray<AStrategyUnit*>& SelectionUnits);
+	void GetSquadUnits(TArray<AStrategyUnit*>& OutSquad) const;
 
 	//~ Begin IStrategyCameraCommands interface
 
@@ -525,8 +562,13 @@ public:
 	 *  click and its focus gesture. */
 	virtual void RequestSelectUnit(AStrategyUnit* Unit, bool bFocusCamera) override;
 
-	/** Runs a target-panel action by id, re-checking the same gate that offered it */
-	virtual void RequestTargetAction(FName ActionId) override;
+	/**
+	 *  Runs an action on Target by id, re-checking the same rules that offered it. The target panel,
+	 *  the right-click menu, the `T` and `O` keys and the double-click all end up here, so there is
+	 *  one behaviour: Examine opens its window, Attack sends the squad, and everything else becomes
+	 *  an order for one squad member to walk over and do it.
+	 */
+	virtual void RequestTargetAction(AActor* Target, FName ActionId) override;
 
 	//~ End IStrategyHUDCommands interface
 
@@ -656,25 +698,24 @@ protected:
 	/** Closes the container screen if one is open */
 	void CloseContainer();
 
-	/** Opens the given container's inventory screen, spawning the widget on first use */
-	void OpenContainer(AStrategyContainer* Container);
-
-	/** Opens the given lootable NPC's inventory screen, spawning the widget on first use. Downed and
-	 *  Dead bodies take the identical path - see IsLootableNPC. */
-	void OpenLoot(AStrategyUnit* LootTarget);
-
-	/** Opens the given trader's wares alongside the nearest pawn's pack, both windows priced.
-	 *  Reuses the same ContainerWidget a chest and a corpse use - a shop shelf is a grid like any
-	 *  other, and only the title and the prices differ. */
-	void OpenTrade(AStrategyUnit* TraderUnit, UTraderComponent* Stock);
-
 	/**
-	 *  The "interact with this person" verb, shared by the double-click gesture, the talk key and
-	 *  the target panel's Talk button. In order: a hostile NPC refuses; out of reach is a TooFar
-	 *  refusal; then the server decides - an eligible conversation opens its window; else a trader
-	 *  opens trade (with a TradeOpened bark); else the NPC says a NothingToSay bark.
+	 *  Opens the given container's inventory screen, spawning the widget on first use, with
+	 *  PackOwner's pack alongside - the squad member who walked over to open it. Null falls back to
+	 *  whichever of this player's pawns is nearest.
 	 */
-	void InteractWithNPC(AStrategyUnit* NPC);
+	void OpenContainer(AStrategyContainer* Container, AStrategyPlayerUnit* PackOwner = nullptr);
+
+	/** Opens the given lootable NPC's inventory screen, with PackOwner's pack alongside - see
+	 *  OpenContainer. Downed and Dead bodies take the identical path - see IsLootableNPC. */
+	void OpenLoot(AStrategyUnit* LootTarget, AStrategyPlayerUnit* PackOwner = nullptr);
+
+	/** Opens the given trader's wares alongside PackOwner's pack (else the nearest pawn's), both
+	 *  windows priced. Reuses the same ContainerWidget a chest and a corpse use - a shop shelf is a
+	 *  grid like any other, and only the title and the prices differ. */
+	void OpenTrade(AStrategyUnit* TraderUnit, UTraderComponent* Stock, AStrategyPlayerUnit* PackOwner = nullptr);
+
+	/** Opens (or rebinds) the Examine window on Target - its name, what it is, and what the squad can see of it, in words. Local only. */
+	void OpenExamine(AActor* Target);
 
 	/** Opens or closes the conversation window to match what UConversationComponent's view says. Owning client. */
 	void HandleConversationViewChanged();
@@ -682,7 +723,7 @@ protected:
 	/** Attacks the currently-selected NPC if it's Passive (flips it to Aggressive); no-op otherwise */
 	void AttackKeyPressed(const FInputActionValue& Value);
 
-	/** Talks to / trades with the currently-selected NPC, if one is targeted and in range of the selection */
+	/** Talks to the currently-targeted NPC - sends someone over if nobody is close. The same path as the panel's Talk. */
 	void TalkKeyPressed(const FInputActionValue& Value);
 
 	/** Rotates the inventory item currently being dragged, if there is one. Purely local UI state -
@@ -716,7 +757,7 @@ protected:
 	/** Interaction hold input completed or canceled */
 	void InteractHoldCompleted(const FInputActionValue& Value);
 
-	/** Interaction click input started */
+	/** Right-click released: over something, target it and open the action menu; over empty ground, a move order */
 	void InteractClick(const FInputActionValue& Value);
 
 	/** Touch primary finger hold started */
@@ -826,7 +867,7 @@ public:
 	 *  Server-side entry point for repacking one holder's grid (an inventory window's sort
 	 *  buttons). Forwards to UInventoryComponent::SortEntries, which does all the work.
 	 *
-	 *  Deliberately ungated beyond authority, unlike Server_PickUpWorldItem and TryTradeItem: a
+	 *  Deliberately ungated beyond authority, unlike PickUpWorldItem and TryTradeItem: a
 	 *  sort can only ever rearrange one holder's own contents, so there is nothing for a bad
 	 *  request to take. Proximity is already the gate on the window being open at all.
 	 */
@@ -898,9 +939,40 @@ public:
 	/** The conversation component. Never null - it's a default subobject. */
 	UConversationComponent* GetConversation() const { return Conversation; }
 
-	/** Server -> owning client: open this trader's shop - the server decided Talk means trade, or a conversation ran OpenTrade */
+	/** Server -> owning client: open this trader's shop, with PackOwner's pack alongside - the server
+	 *  decided Talk means trade, a conversation ran OpenTrade, or a squad member walked over to Trade */
 	UFUNCTION(Client, Reliable)
-	void Client_OpenTrade(AStrategyUnit* TraderUnit);
+	void Client_OpenTrade(AStrategyUnit* TraderUnit, AStrategyPlayerUnit* PackOwner);
+
+	/**
+	 *  Server -> owning client: a squad member has walked up to Holder to loot it - open its window,
+	 *  with that squad member's own pack alongside rather than whichever pawn happens to be nearest.
+	 *  A container or a body; each opens the window it always did.
+	 */
+	UFUNCTION(Client, Reliable)
+	void Client_OpenHolder(AActor* Holder, AStrategyPlayerUnit* PackOwner);
+
+	/**
+	 *  Client -> server: send Actor over to do ActionId to Target. The server re-checks that Actor is
+	 *  this player's own and able, and that the action is on offer for them, rather than trusting
+	 *  the menu - the same stance RequestSelectUnit takes - then hands it to the unit's
+	 *  UActionOrderComponent. A refused request says why (Client_NotifyRefusal).
+	 */
+	UFUNCTION(Server, Reliable)
+	void Server_RequestActionOrder(AStrategyUnit* Actor, AActor* Target, FName ActionId);
+
+	//~ Begin IActionOrderHost interface
+
+	/** The arrival re-check, through FStrategyTargetActions::FindActionFor - the rules the menu drew from */
+	virtual bool CanPerformAction(AStrategyUnit* Actor, AActor* Target, FName ActionId, ESmoresRefusalReason& OutReason) override;
+
+	/** Carries out an action a squad member has walked over to do. Server-side; windows open on the owning client. */
+	virtual void PerformAction(AStrategyUnit* Actor, AActor* Target, FName ActionId) override;
+
+	/** Tells this player why an order ended without acting - a refusal, or a line in the feed */
+	virtual void HandleActionOrderEnded(AStrategyUnit* Actor, AActor* Target, const FText& TargetName, FName ActionId, EActionOrderEnd Why, ESmoresRefusalReason Reason) override;
+
+	//~ End IActionOrderHost interface
 
 	/**
 	 *  Server -> owning client: somebody within earshot of this player's squad said a line.
@@ -919,23 +991,33 @@ public:
 	UFUNCTION(Client, Reliable)
 	void Client_NotifyBark(FName LineId, AActor* Speaker, const FText& SpeakerName);
 
-	/**
-	 *  Server-side half of InteractWithNPC: re-checks the same gates the client ran (interactable,
-	 *  a squad member in reach), then decides what talking means. An eligible greeting opens a
-	 *  conversation; else a trader opens trade and says a TradeOpened line; else the NPC says a
-	 *  NothingToSay line. The server decides, rather than trusting the client's word for it -
-	 *  selection reads standing and the squad's dialog memory, which only the server holds.
-	 */
-	UFUNCTION(Server, Reliable)
-	void Server_InteractWithNPC(AStrategyUnit* NPC);
+protected:
 
 	/**
-	 *  Server-side entry point for collecting a loose world item into a pawn's grid. Re-checks
-	 *  proximity and that the destination really is a player pawn's own inventory rather than
-	 *  trusting the requesting client's own check, since range is the whole gate on a pickup.
+	 *  What talking to NPC means, with Listener doing the talking - the Talk action's arrival.
+	 *  Server-side. Re-checks that NPC may be dealt with, then: an eligible greeting opens a
+	 *  conversation; else a trader opens trade and says a TradeOpened line; else the NPC says a
+	 *  NothingToSay line. The server decides - selection reads standing and the squad's dialog
+	 *  memory, which only the server holds.
 	 */
-	UFUNCTION(Server, Reliable)
-	void Server_PickUpWorldItem(AWorldItem* WorldItem, UInventoryComponent* DestInventory);
+	void StartTalk(AStrategyUnit* NPC, AStrategyUnit* Listener);
+
+	/**
+	 *  Opens Trader's shop for this player with Listener at the counter, and plays the TradeOpened
+	 *  bark addressed to them. Server-side. The body of OpenTradeWith - kept apart from it so the
+	 *  Trade action's arrival can name its own listener without changing IDialogHost's signature,
+	 *  which conversations' OpenTrade effect also calls.
+	 */
+	bool OpenTradeFor(AStrategyUnit* Trader, AStrategyUnit* Listener);
+
+	/**
+	 *  Collects a loose world item into DestInventory - the Pick up action's arrival. Server-side.
+	 *  Re-checks proximity and that the destination really is a player pawn's own pack, since range
+	 *  is the whole gate on a pickup.
+	 */
+	void PickUpWorldItem(AWorldItem* WorldItem, UInventoryComponent* DestInventory);
+
+public:
 
 protected:
 
@@ -946,7 +1028,7 @@ protected:
 	 *  rather than a fourth resolution inside it.
 	 *
 	 *  Re-checks proximity and hostility here rather than trusting the client, for the same
-	 *  reason Server_PickUpWorldItem does: MoveItem itself has no idea how far away the asking
+	 *  reason PickUpWorldItem does: MoveItem itself has no idea how far away the asking
 	 *  pawn was, or whether the counterparty is currently trying to kill it.
 	 *
 	 *  A purchase is priced against the *whole* requested quantity before anything moves. That
@@ -1244,32 +1326,10 @@ protected:
 	 */
 	AActor* FindHolderActorAtLocation(TSubclassOf<AActor> HolderClass, const FVector& Location, float Radius, TFunctionRef<bool(const AActor*)> Filter) const;
 
-	/** True if any currently selected unit is close enough to transfer items with HolderActor. The
-	 *  selection-side counterpart to FindHolderActorAtLocation's click-side radius: this is real
-	 *  reach (the holder's own interaction sphere), not click precision. Takes the actor rather
-	 *  than the bare IInventoryHolder so callers can hand over whatever they already have; an
-	 *  actor that doesn't implement the interface is simply never in range. */
+	/** True if any currently selected unit is within HolderActor's own reach. Real reach (the
+	 *  thing's own interaction sphere), not click precision - FStrategyTargetActions::IsInRangeOfUnits
+	 *  over this controller's selection. */
 	bool IsHolderInRangeOfSelection(const AActor* HolderActor) const;
-
-	/** The body of IsHolderInRangeOfSelection with the selection passed in rather than read off
-	 *  this controller, so BuildTargetInfo can apply the identical reach rule without an instance.
-	 *  One rule, one place - a second copy would eventually disagree about what "in range" means. */
-	static bool IsHolderInRangeOfUnits(const AActor* HolderActor, const TArray<AStrategyUnit*>& Units);
-
-
-	/** Returns true if Unit is an NPC that can be looted - i.e. not one of the player's own pawns,
-	 *  and Downed or Dead. The one place that rule is written down. */
-	static bool IsLootableNPC(const AStrategyUnit* Unit);
-
-	/** Returns true if Unit is an NPC the player may currently interact with - not one of the
-	 *  player's own pawns, on its feet, and not hostile. The counterpart to IsLootableNPC, and
-	 *  likewise the only place its rule is written down: dialog, when it exists, extends this
-	 *  predicate rather than adding a check of its own. */
-	static bool IsInteractableNPC(const AStrategyUnit* Unit);
-
-	/** Returns Unit's wares if it is currently interactable *and* carries a UTraderComponent, or
-	 *  null. The component's presence is the only "is this a trader?" flag there is. */
-	static UTraderComponent* GetTraderStock(const AStrategyUnit* Unit);
 
 	/** Returns the first container in the level with a selected unit within its InteractionRange, preferring SelectedContainer if it qualifies, or nullptr */
 	AStrategyContainer* FindContainerInRange() const;
@@ -1279,18 +1339,8 @@ protected:
 	 *  the player has actually targeted it. */
 	AStrategyUnit* FindLootableNPCInRange() const;
 
-	/** Returns SelectedNPC if it's interactable and within range of a controlled unit, or nullptr.
-	 *  Deliberately never sweeps the level, for the same reason FindLootableNPCInRange doesn't. */
-	AStrategyUnit* FindInteractableNPCInRange() const;
-
 	/** Returns the container within click range of the given world location, or nullptr */
 	AStrategyContainer* FindContainerAtLocation(const FVector& Location) const;
-
-	/** Returns the nearest NPC within click range of the given world location, in whatever state
-	 *  it happens to be in, or nullptr; a player-controlled pawn never qualifies. One lookup
-	 *  rather than one per meaning, because a body and a living NPC are the same actor type
-	 *  differing only by health state - the caller branches on that. */
-	AStrategyUnit* FindNPCAtLocation(const FVector& Location) const;
 
 	/** Returns whichever player-controlled pawn is closest to the given world location, or nullptr if none
 	 *  exist. Finds a *collector*, not a holder - there's no proximity gate here at all, so it answers
@@ -1299,6 +1349,44 @@ protected:
 
 	/** Returns the loose world item within WorldItemSelectionRadius of the given world location, or nullptr */
 	AWorldItem* FindWorldItemAtLocation(const FVector& Location) const;
+
+	/** Returns the door within ContainerSelectionRadius of the given world location, or nullptr - a single click's door lookup */
+	AWorldDoor* FindDoorAtLocation(const FVector& Location) const;
+
+	/**
+	 *  The thing the cursor is on, or null over empty ground - what the hover lights, what a
+	 *  right-click opens the menu on, and what a double-click acts on. One answer for all three, so
+	 *  what is lit is what any of those clicks will act on.
+	 *
+	 *  Exact first: whatever the cursor's ray passes through - a unit's body, a chest, a door's
+	 *  leaf, an item - tested against each thing's own mesh bounds, so it works whatever each one's
+	 *  collision is set to, and nothing behind a wall counts. Only then the small HoverPickRadius
+	 *  fallback around the point on the ground, in the double-click ladder's order (item, container,
+	 *  door, unit). A single click keeps its own generous sweep (DoSelectCommand) - picking your own
+	 *  moving pawns is a different job.
+	 */
+	AActor* ResolveInteractableUnderCursor();
+
+	/** True if Actor is a thing the hover and the menu treat as a target - an item with something in it, a container, a door, any unit */
+	static bool IsHoverable(const AActor* Actor);
+
+	/** The meshes the hover draws on (and aims at) for Actor - a door's leaf only, so an open doorway is still ground; otherwise every mesh it has */
+	static void GetHoverMeshes(AActor* Actor, TArray<UMeshComponent*>& OutMeshes);
+
+	/** Moves the hover highlight to NewHovered (null clears it) */
+	void SetHoveredActor(AActor* NewHovered);
+
+	/** Per-frame: what the cursor is over, or nothing while it's over the HUD or the camera is turning. The menu's target stays lit while the menu is open. */
+	void UpdateHover();
+
+	/** Targets Actor the way a click on it would - the container or NPC highlight, or just the target panel for things without one */
+	void TargetActor(AActor* Actor);
+
+	/** Makes Actor the target panel's subject without any highlight of its own - loose items and doors. Null clears it if it's one of those. */
+	void SetTargetedActor(AActor* Actor);
+
+	/** What a double-click on Actor does, or None if it does nothing to that kind of thing */
+	static FName GetDoubleClickAction(const AActor* Actor);
 
 	/** Returns the nearest player-controlled pawn close enough to transfer items with Holder, or nullptr.
 	 *  Unlike FindClosestPlayerPawn this applies the holder's own reach, since proximity is a gate here

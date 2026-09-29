@@ -126,10 +126,12 @@ only owns that they're reachable from a menu during active play.
 Right-clicking empty ground moves the selected squad. Right-clicking a *thing* — a person, a
 creature, a body, a container, a door, an item on the ground — opens a short menu of what the
 squad can do to it: talk, trade, loot, open, examine, attack, heal, and the illicit verbs such as
-pickpocket and kidnap. **What the cursor is over is shown before the click**: the thing under it
-lights up, so the player always knows which of the two right-clicks they are about to make. This
-is the RTS "smart right-click" convention, with a menu in place of a single default action because
-a person offers too many verbs for one click to guess.
+pickpocket, knocking someone out and kidnap. **What the cursor is over is shown before the click**:
+the thing under it lights up, so the player always knows which of the two right-clicks they are
+about to make. This is the RTS "smart right-click" convention, with a menu in place of a single
+default action because a person offers too many verbs for one click to guess. (Chosen over
+right-click-and-hold for the menu, and confirmed in play 2026-09-29: holding is slow, hard to
+discover, and on PC often means the camera.)
 
 - **The menu lists what applies to that kind of thing** — people get the social and illicit verbs,
   creatures and objects don't. An action that applies but can't be used right now still shows,
@@ -142,8 +144,10 @@ a person offers too many verbs for one click to guess.
   with which squad member would go — a skilled thief and a clumsy one read differently on the same
   mark. A number is fine here because it comes from the squad member's own skill, which the player
   already knows (see Diegetic vs. Non-Diegetic Philosophy).
-- **Examine is the one action that never walks anywhere** — looking costs nothing. It describes
-  what the squad can see, in words, and never lists a target's numbers.
+- **Examine is the one action that never walks anywhere** — looking costs nothing. It opens a small
+  window that describes what the squad can see, in words, and never lists a target's numbers.
+- **Someone spoken to turns to face the speaker.** Nobody else turns just because a squad member
+  stopped nearby.
 - **The world keeps running while the menu is open.** It never pauses on the player's behalf, in
   keeping with `notifications-and-alerts.md`.
 

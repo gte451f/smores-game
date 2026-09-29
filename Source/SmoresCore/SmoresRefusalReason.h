@@ -44,5 +44,11 @@ enum class ESmoresRefusalReason : uint8
 	WrongSlot       UMETA(DisplayName = "Wrong Slot"),
 
 	/** They won't deal with you - currently hostile, or not on their feet. */
-	NotInteractable UMETA(DisplayName = "Not Interactable")
+	NotInteractable UMETA(DisplayName = "Not Interactable"),
+
+	/** The action needs a squad member to carry it out, and none is selected (or none selected can act). */
+	NoOneSelected   UMETA(DisplayName = "No One Selected"),
+
+	/** A squad member set off to do something and there was no way to get close enough. */
+	CannotReach     UMETA(DisplayName = "Cannot Reach")
 };

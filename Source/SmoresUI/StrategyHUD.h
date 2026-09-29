@@ -8,6 +8,7 @@
 
 class UStrategyUI;
 class URefusalWidget;
+class UActionMenuWidget;
 class UWalletComponent;
 class UTimePaceComponent;
 
@@ -46,6 +47,25 @@ protected:
 	 */
 	UPROPERTY(EditAnywhere, Category="UI")
 	int32 RefusalZOrder = 100;
+
+	/** The right-click action menu's layer (see UActionMenuWidget). Null until BeginPlay, and stays null if no class is set. */
+	UPROPERTY()
+	TObjectPtr<UActionMenuWidget> ActionMenuWidget;
+
+	/** Type of action menu widget to spawn - WBP_ActionMenu. Leaving this unset costs the right-click menu and nothing else. */
+	UPROPERTY(EditAnywhere, Category="UI")
+	TSubclassOf<UActionMenuWidget> ActionMenuWidgetClass;
+
+	/**
+	 *  Z-order for the action menu's layer: above every window at 0, so a menu opened beside an
+	 *  open inventory doesn't draw behind it, and below the refusal line at 100, which left room for
+	 *  exactly this.
+	 */
+	UPROPERTY(EditAnywhere, Category="UI")
+	int32 ActionMenuZOrder = 50;
+
+	/** Warned once when a right-click wanted the menu and ActionMenuWidgetClass was empty */
+	bool bWarnedNoActionMenu = false;
 
 	/** If true, the HUD will draw the selection box */
 	bool bDrawBox = false;
@@ -109,6 +129,29 @@ public:
 	 *  interface. The feed gets the line separately; this is only the moment of it.
 	 */
 	void ShowBarkBubble(const AActor* Speaker, const FText& Line);
+
+	/** Opens the right-click menu on Target at the cursor. The controller's right-click comes here; the rows arrive with DrawHUD's next push. */
+	void OpenActionMenu(AActor* Target);
+
+	/** Closes the right-click menu if it is open */
+	void CloseActionMenu();
+
+	/** True while the right-click menu is showing */
+	bool IsActionMenuOpen() const;
+
+	/** What the right-click menu is about, or null when it's closed */
+	AActor* GetActionMenuTarget() const;
+
+	/**
+	 *  True while the cursor is over something on screen that would take a click for itself - a
+	 *  HUD region, a window, the open menu - rather than letting it reach the world.
+	 *
+	 *  The hover highlight asks this so it never lights up something a click couldn't reach. UMG has
+	 *  no one-call answer, so this asks Slate for the widgets under the cursor and looks for one of
+	 *  the kinds that swallow clicks. The refusal line and the bark bubbles are hit-test invisible,
+	 *  so they correctly never count.
+	 */
+	bool IsCursorOverHUD() const;
 
 protected:
 

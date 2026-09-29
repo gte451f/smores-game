@@ -35,6 +35,12 @@ FText URefusalWidget::GetRefusalText(ESmoresRefusalReason Reason)
 	case ESmoresRefusalReason::NotInteractable:
 		return LOCTEXT("RefusalNotInteractable", "They won't deal with you");
 
+	case ESmoresRefusalReason::NoOneSelected:
+		return LOCTEXT("RefusalNoOneSelected", "No one selected");
+
+	case ESmoresRefusalReason::CannotReach:
+		return LOCTEXT("RefusalCannotReach", "Can't get there");
+
 	case ESmoresRefusalReason::None:
 	default:
 		return FText::GetEmpty();

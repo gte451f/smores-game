@@ -20,8 +20,8 @@ Amend this topic in the same change as any new binding.
 
 | Key | Action asset | Does |
 |---|---|---|
-| Left mouse | `IA_Strategy_SelectClick`, `_SelectHold`, `_SelectClickAdditive`, `_SelectAllDoubleClick` | Select; hold to drag a selection box; additive select; double-click a loose world item to pick it up, a container or a body to open it, a *living* NPC to interact with them (they say a line, and trade opens if they carry a trader component; never on a hostile one), or empty ground to select all on screen |
-| Right mouse | `IA_Strategy_InteractClick` | Move order / interact at the cursor |
+| Left mouse | `IA_Strategy_SelectClick`, `_SelectHold`, `_SelectClickAdditive`, `_SelectAllDoubleClick` | Select (a click on a loose item or a door targets it, and leaves the squad selected); hold to drag a selection box; additive select; double-click the lit thing under the cursor to act on it - pick up an item, loot a container or a body, open or close a door, talk to a *living* NPC (never on a hostile one) - with the nearest selected squad member walking over to do it. A double-click on a squad member or on empty ground selects all on screen |
+| Right mouse | `IA_Strategy_InteractClick` | On release. Over something lit up by the hover (see Core Rules), opens the action menu on it; over empty ground, a move order. See `action-menu.md` |
 | Middle mouse (hold) | `IA_Strategy_InteractHold` | Rotate the camera |
 | Mouse wheel | `IA_Strategy_Zoom` | Camera zoom |
 | `W` `A` `S` `D` | `IA_Strategy_MoveCamera` | Pan the camera |
@@ -29,9 +29,9 @@ Amend this topic in the same change as any new binding.
 | `Shift` (either) | `IA_Strategy_SelectionModifier` | Hold to add to / remove from the selection |
 | `Tab` | `IA_Strategy_CyclePawn` | Cycle the selection to the next player pawn |
 | `I` | `IA_Strategy_Inventory` | Toggle the selected pawn's inventory window |
-| `O` | `IA_Strategy_ToggleContainer` | Open the nearest container, or a Downed NPC's loot |
-| `H` | `IA_Strategy_Attack` | Attack the selected NPC |
-| `T` | `IA_Strategy_Talk` | Talk to / trade with the selected NPC — the keyboard route to the double-click interact, reading the same targeted NPC `H` does. Pressed again while a conversation window is open it is Goodbye, and while a trade screen is open it closes it. The conversation window's choices are mouse-only for now: number keys for them would need their own actions, mapped by hand in the IMC (`dialog.md`'s Known Gaps) |
+| `O` | `IA_Strategy_ToggleContainer` | Loot the targeted container or body, or open / close the targeted door - someone walks over if nobody is close. With nothing like that targeted, loots a container a selected unit is already standing at. Pressed again while a container, loot or trade window is open, closes it |
+| `H` | `IA_Strategy_Attack` | Attack the selected NPC, with everyone selected |
+| `T` | `IA_Strategy_Talk` | Talk to the targeted NPC - the keyboard route to the double-click, reading the same targeted NPC `H` does, and walking the nearest selected squad member over. Pressed again while a conversation window is open it is Goodbye, and while a trade screen is open it closes it. The conversation window's choices are mouse-only for now: number keys for them would need their own actions, mapped by hand in the IMC (`dialog.md`'s Known Gaps) |
 | `P` | `IA_Strategy_SquadPanel` | Toggle the squad roster panel (a stub today — see `hud-and-panels.md`) |
 | `M` | `IA_Strategy_MapPanel` | Toggle the world map panel (a stub today) |
 | `U` | `IA_Strategy_ResearchPanel` | Toggle the research panel (a stub today) |
@@ -50,8 +50,10 @@ The three time keys work the same way against the pace strip's buttons, through
 ladder is paused, 1/3×, 1/2×, 3/4×, 1×, 2×, 4×, 8×; the strip has buttons for only four of those,
 and `-`/`=` walk all eight. That is deliberate, not an omission — see `hud-and-panels.md`.
 
-`T`, `O` and `H` likewise each have a button on the target panel's action row when the current
-target is one they apply to.
+`T`, `O` and `H` likewise each have a button on the target panel's action row - and a row in the
+right-click menu - when the current target is one they apply to. All three routes run
+`IStrategyHUDCommands::RequestTargetAction`, so the key, the button and the menu row can't drift
+apart; see `action-menu.md`.
 
 `L` is the odd one out among the HUD keys: it has **no button anywhere**. Expanding the feed is a
 property of the feed, not a command to the controller, so it goes controller ->
@@ -108,8 +110,11 @@ control built only as a button has **no keyboard route at all** — the inventor
 currently have none, and giving them one means adding a real `UInputAction` to
 `IMC_Strategy_Inventory` like the rotate key, not a `NativeOnKeyDown`.
 
-Right-click means "move order" in the world and "equip" over a window, which works only
-because a window now swallows the *press* of every button that lands on it — see Core Rules.
+| Left-click | A row of the right-click menu | That action on the menu's target - see `action-menu.md` |
+
+Right-click means "move order" on empty ground, "action menu" on a lit thing in the world, and
+"equip" over a window, which works only because a window swallows the *press* of every button that
+lands on it — see Core Rules.
 
 ## Core Rules
 
@@ -149,6 +154,17 @@ because a window now swallows the *press* of every button that lands on it — s
   press the viewport *did* see (a drag-select begun on the world, ended over a window) leaves
   that button stuck down in `UPlayerInput`. Slate bubbles from the deepest widget up, so a child
   that wants the button still gets it first.
+- **The hover tells the player which right-click they are about to make** (chosen over
+  hold-to-open, and confirmed in PIE 2026-09-29). One right mouse
+  button means two things in the world - move there, or open the action menu on that - and the
+  thing under the cursor lights up (an amber rim) whenever a right-click would open the menu. The
+  hover, the right-click and the double-click share one resolver, which finds the thing exactly
+  first and only then falls back to a 40 cm radius (`HoverPickRadius`), so the ground beside a
+  person stays ground. This replaced the double-click's old 250 cm radii for those gestures; the
+  single left click keeps its generous sweep. See `action-menu.md`.
+- **The open action menu swallows the press and the double-click of every mouse button outside
+  it**, closing itself, and lets the release through - the window rule below, applied to a
+  full-screen catcher. The click that closes the menu does nothing else.
 - **The always-on HUD is not a window and gets none of that for free.** It sits at Z-order 0
   *below* every floating window, and its regions are plain `UUserWidget`s. `UHUDRegionWidget`
   (`SmoresUI`) is the base that supplies the same press-swallowing behaviour, and every HUD region

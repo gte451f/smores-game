@@ -89,8 +89,13 @@ hit while otherwise idle. Looting a body's inventory is a related but separate s
     having been ignored. This bit an automation test, and is why
     `ATestStrategyNPC::MakeHostileForTest` sets `Disposition` directly instead — see
     `testing.md`.
-  - `Disposition` is *not* replicated, so this is server-side state; anything a client needs to
-    know about hostility has to come from something that is.
+  - `Disposition` is **replicated** (the action menu roadmap closed the gap), because the target
+    panel and the right-click menu read it on every machine to grey out Talk, Trade, Pickpocket and
+    Attack. Only the server changes it - `SetAggressive` is authority-gated - and every rule that
+    matters is re-checked server-side anyway.
+- **An attack ends any action order silently**, and auto-retaliation ends one *with* a feed line
+  ("Stopped to fight back") before it swings - the player sent the unit to do something else, so
+  that ending is said. Going Downed or Dead ends one with a line too. See `action-menu.md`.
 - `AttackTarget(Target)` bails early if the attacker or `Target` is incapacitated (Downed or
   Dead — neither a corpse nor a knocked-down unit fights, or is worth swinging at), or `Target`
   is invalid. In range, it calls `PerformAttack` immediately; out of range, it issues a
@@ -267,27 +272,6 @@ the hit.
     listen server's own screen and nowhere else — see `hud-and-panels.md`'s Known Gaps.
 
 ## Known Gaps
-
-- **`Disposition` is not replicated, and something on the HUD now reads it.** `AStrategyUnit`
-  declares no `GetLifetimeReplicatedProps` at all, so hostility is server-only state. Health is
-  replicated (`UHealthComponent` has both `OnRep_`s), so "is this a body?" is correct everywhere —
-  but "is this person hostile?" is correct only on the server or a listen-server host.
-  **`AStrategyPlayerController::BuildTargetInfo` calls `IsAggressive()` client-side**, to classify
-  the target as `PERSON - HOSTILE` and to decide whether the target panel's Talk and Attack
-  buttons are enabled. On a remote client every NPC would therefore read as neutral, Talk would
-  look available against someone actively attacking you, and Attack would look available against
-  someone already fighting.
-  - **This is a display defect, not a security hole.** Every rule that matters is re-checked
-    server-side — `TryTradeItem` re-checks hostility before a single item moves, and
-    `Server_AttackCommand` runs on the server — so a client acting on the wrong-looking row gets
-    refused, not rewarded.
-  - **It is latent**: multiplayer isn't wired up or testable yet, and in a single-player PIE
-    session the client *is* the authority, so nothing about it is visible today.
-  - **The fix is one line plus a `DOREPLIFETIME`** — mark `Disposition` `UPROPERTY(Replicated)`
-    and give `AStrategyUnit` a `GetLifetimeReplicatedProps`. Worth doing with the first real co-op
-    session rather than speculatively, but it should not be *discovered* then. Per
-    `multiplayer-discipline.md`, this is the "decide who owns new state before writing it" rule
-    catching up with state that predates the rule.
 
 - Damage is a flat, hardcoded `25` per hit; no weapon or damage-type variation.
 - **Nothing in the damage path ever kills.** `Dead` exists, replicates, and is honoured by every

@@ -86,6 +86,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Container")
 	FText ContainerDisplayName;
 
+	/** What the Examine window says about this container, in words. Empty is fine - the window then says there is nothing remarkable about it. */
+	UPROPERTY(EditAnywhere, Category = "Container", meta = (MultiLine = "true"))
+	FText ExamineText;
+
 public:
 
 	/** Constructor */
@@ -122,6 +126,9 @@ public:
 
 	/** Returns true if the given actor is close enough to open this container */
 	virtual bool IsInRangeOf(const AActor* Other) const override;
+
+	/** This container's authored ExamineText */
+	virtual FText GetExamineText() const override { return ExamineText; }
 
 	//~ End IInventoryHolder interface
 

@@ -40,6 +40,13 @@ public:
 	virtual FStrategyTargetInfo GetSelectionTargetInfo() const = 0;
 
 	/**
+	 *  The same description, for any target - the right-click menu's. The menu has its own target
+	 *  rather than reading the panel's, because `Tab` can retarget the panel while the menu is open.
+	 *  One rules function builds both, so the two can never disagree about what a thing offers.
+	 */
+	virtual FStrategyTargetInfo GetTargetInfoFor(const AActor* Target) const = 0;
+
+	/**
 	 *  The player's own squad, in the same deterministic order the Tab cycle already walks, so
 	 *  the portrait bar doesn't reshuffle itself between frames.
 	 *

@@ -32,11 +32,13 @@ client have shown this before the player committed?" first.
 
 | The player sees | It means | What to do about it |
 |---|---|---|
-| *Too far away* | No pawn is close enough to reach it | Walk a pawn over |
+| *Too far away* | The `O` key found nothing targeted and nothing openable beside the squad, or a trade or pickup was re-checked on the server with nobody in reach | Target the thing, or walk a pawn over |
 | *No room for that* | It won't fit — no free cells of the right shape, and no matching stack with space | Rearrange the grid, rotate the item, or drop something |
 | *Not enough gold* | The price is more than the wallet holds | Sell something first |
 | *Can't be worn there* | The item isn't worn in that slot, or isn't wearable at all | Put it in a different slot |
-| *They won't deal with you* | The NPC is hostile | Nothing — not while they're trying to kill you |
+| *They won't deal with you* | The NPC is hostile (or, on arrival, no longer offers what the squad member walked over to do) | Nothing — not while they're trying to kill you |
+| *No one selected* | The action needs a squad member to carry it out and none is selected, or none selected can act | Select someone |
+| *Can't get there* | A squad member set off to do something and no path gets close enough - a shut door, a partial path | Open the way, or pick another target |
 
 - **A "denied" sound** plays alongside the line, if one has been assigned in the Blueprint. It
   is optional and unset by default; the text works without it.
@@ -46,9 +48,10 @@ client have shown this before the player committed?" first.
   tab, in amber, so a player who was looking somewhere else can still find out why nothing
   happened. The line answers it *now*; the feed is the record. See `hud-and-panels.md`.
 - **The gestures that now speak up**, all of which were previously silent:
-  - Double-clicking a container, a body, or a loose world item that no pawn is near
-  - Pressing the container key with nothing in reach
-  - Double-clicking a hostile NPC
+  - Pressing the container key with nothing targeted and nothing in reach
+  - Double-clicking a hostile NPC, or pressing `T` on one
+  - Asking for an action with nobody selected to do it
+  - A squad member who can't find a way to what they were sent to
   - Buying something the player can't afford, or trying to trade with someone out of reach
   - A sort button that can't fit everything back into the grid
   - Right-clicking an item into a slot it isn't worn in, or off a paperdoll into a full grid
@@ -126,7 +129,8 @@ client have shown this before the player committed?" first.
 ## C++ Implementation
 
 **`ESmoresRefusalReason`** (`Source/SmoresCore/SmoresRefusalReason.h`) — the shared vocabulary:
-`None`, `TooFar`, `NoRoom`, `CannotAfford`, `WrongSlot`, `NotInteractable`. A `uint8`-based
+`None`, `TooFar`, `NoRoom`, `CannotAfford`, `WrongSlot`, `NotInteractable`, `NoOneSelected`,
+`CannotReach` (the last two added by the action menu). A `uint8`-based
 `UENUM(BlueprintType)`, so it replicates as an RPC parameter and is readable from Blueprint.
 
 It lives in `SmoresCore` — until now an empty proving module — because refusing is not an
@@ -193,14 +197,14 @@ tell apart. In each case the plain version is now a one-line forwarder.
 | Site | Reason | Route |
 |---|---|---|
 | `UInventoryItemWidget::TryEquip` — item isn't wearable | `WrongSlot` | local (widget) |
-| `ToggleContainer` — nothing in reach | `TooFar` | local |
-| `SelectAllDoubleClick` — world item / container / body out of reach | `TooFar` | local |
-| `InteractWithNPC` — hostile | `NotInteractable` | local |
-| `InteractWithNPC` — out of reach | `TooFar` | local |
+| `ToggleContainer` — nothing targeted and nothing in reach | `TooFar` | local |
+| `RequestTargetAction` — the entry is greyed out (the panel, the menu, `T`, `O`, the double-click) | the entry's own reason: `NotInteractable`, `NoOneSelected` | local |
+| `Server_RequestActionOrder` — the server's re-check refused the order | the entry's reason | RPC |
+| An action order ending on arrival, or giving up (`IActionOrderHost::HandleActionOrderEnded`) | the entry's reason, or `CannotReach` | RPC |
 | `Server_MoveInventoryItem` — `MoveItem` refused | `NoRoom` | RPC |
 | `Server_SortInventory` — abandoned repack | `NoRoom` | RPC |
 | `Server_EquipItem` / `Server_UnequipItem` | from the component | RPC |
-| `Server_PickUpWorldItem` — out of reach / won't fit | `TooFar` / `NoRoom` | RPC |
+| `PickUpWorldItem` (a Pick up order's arrival) — out of reach / won't fit | `TooFar` / `NoRoom` | RPC |
 | `TryTradeItem` — hostile trader | `NotInteractable` | RPC |
 | `TryTradeItem` — out of reach | `TooFar` | RPC |
 | `TryTradeItem` — insufficient gold | `CannotAfford` | RPC |
@@ -311,6 +315,8 @@ completely different things of the player.
 - **No refusal has a keyboard or gamepad route to dismiss it**, and it doesn't need one — it
   fades. Worth remembering if a message ever becomes important enough to need acknowledging,
   because that's the point it stops being this system.
-- **Nothing outside inventory, equipment and trade raises a refusal yet.** Unit move orders,
-  attack commands and the camera all still fail silently where they fail at all. The mechanism is
-  general; the coverage isn't.
+- **Plain move orders, attack commands and the camera still fail silently** where they fail at
+  all. Action orders speak up (`action-menu.md`); the mechanism is general, the coverage isn't yet.
+- **The *Too far away* sites that remain are all server re-checks or the `O` fallback.** The
+  double-click and the panel's buttons used to raise it and now walk over instead - the "prevent
+  rather than explain" rule taken literally.

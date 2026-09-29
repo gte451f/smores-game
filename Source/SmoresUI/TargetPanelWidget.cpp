@@ -11,49 +11,13 @@
 
 #define LOCTEXT_NAMESPACE "TargetPanelWidget"
 
-namespace
-{
-	/**
-	 *  True if two target infos would draw identically.
-	 *
-	 *  The HUD pushes a freshly built struct every frame, and almost every one of them describes
-	 *  the same target in the same state - distance is the only field that moves continuously,
-	 *  and it is drawn to the nearest metre. Comparing what would be *drawn*, rather than the raw
-	 *  floats, is what keeps a stationary squad from invalidating Slate layout sixty times a
-	 *  second.
-	 */
-	bool DrawsIdentically(const FStrategyTargetInfo& A, const FStrategyTargetInfo& B)
-	{
-		if (A.bHasTarget != B.bHasTarget
-			|| !A.DisplayName.EqualTo(B.DisplayName)
-			|| !A.Classification.EqualTo(B.Classification)
-			|| A.bHasHealth != B.bHasHealth
-			|| FMath::RoundToInt(A.DistanceMeters) != FMath::RoundToInt(B.DistanceMeters)
-			|| FMath::RoundToInt(A.HealthFraction * 100.0f) != FMath::RoundToInt(B.HealthFraction * 100.0f)
-			|| A.Actions.Num() != B.Actions.Num())
-		{
-			return false;
-		}
-
-		for (int32 Index = 0; Index < A.Actions.Num(); ++Index)
-		{
-			const FTargetAction& Left = A.Actions[Index];
-			const FTargetAction& Right = B.Actions[Index];
-
-			if (Left.Id != Right.Id || Left.bEnabled != Right.bEnabled || Left.DisabledReason != Right.DisabledReason)
-			{
-				return false;
-			}
-		}
-
-		return true;
-	}
-}
-
 void UTargetPanelWidget::SetTargetInfo(const FStrategyTargetInfo& NewTarget)
 {
-	if (DrawsIdentically(Target, NewTarget))
+	if (Target.DrawsIdenticallyTo(NewTarget))
 	{
+		// nothing visible moved, but which actor is described still matters: two chests with the
+		// same name at the same distance draw identically, and a click must reach the right one
+		Target.Target = NewTarget.Target;
 		return;
 	}
 
@@ -85,9 +49,10 @@ void UTargetPanelWidget::HandleActionClicked(FName ActionId)
 {
 	if (IStrategyHUDCommands* Commands = GetHUDCommands())
 	{
-		// the controller re-checks the gate rather than trusting the button that offered it - the
-		// row is a frame old by the time a click lands, and the squad may have moved
-		Commands->RequestTargetAction(ActionId);
+		// the controller re-checks the rules rather than trusting the button that offered it - the
+		// row is a frame old by the time a click lands. The panel's own target, not whatever the
+		// controller has targeted since.
+		Commands->RequestTargetAction(Target.Target.Get(), ActionId);
 	}
 }
 

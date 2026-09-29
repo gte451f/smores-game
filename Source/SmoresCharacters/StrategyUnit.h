@@ -7,6 +7,7 @@
 #include "AIController.h"
 #include "EnvironmentQuery/EnvQueryTypes.h"
 #include "InventoryHolder.h"
+#include "CharacterRecord.h"
 #include "StrategyUnit.generated.h"
 
 class USphereComponent;
@@ -19,7 +20,9 @@ class UCombatComponent;
 class UTexture2D;
 class UCharacterDefinition;
 class UCharacterRecordComponent;
+class UActionOrderComponent;
 struct FCharacterRecord;
+enum class EActionApproachResult : uint8;
 
 /** Delegate to report that this unit has finished moving */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnUnitMoveCompletedDelegate, AStrategyUnit*, Unit);
@@ -64,6 +67,10 @@ private:
 	 *  Present on NPC and player units alike - see SmoresCombat's UCombatComponent. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UCombatComponent> Combat;
+
+	/** This unit's walk-over-to-act order, if it has one. Server-side state - see UActionOrderComponent. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UActionOrderComponent> ActionOrder;
 
 	/**
 	 *  Display name shown in the selection target UI (e.g. "Pawn 1", "NPC 3").
@@ -150,11 +157,36 @@ public:
 	/** Notifies this unit that it was deselected */
 	void UnitDeselected();
 
-	/** Notifies this unit that it's been interacted with by another actor */
-	void Interact(AStrategyUnit* Interactor);
+	/** Turns this unit to face Other, yaw only - a squad member facing what it acts on, an NPC facing whoever came to talk. Does nothing while Downed or Dead. */
+	void FaceToward(const AActor* Other);
 
-	/** Attempts to move this unit to the passed location, and optionally signals it to interact on arrival */
-	void MoveToLocation(const FVector& Location, bool bInteract, const TArray<AStrategyUnit*> IgnoreList);
+	/**
+	 *  Attempts to move this unit to the passed location. bLeadUnit is the move order's lead - the
+	 *  selected unit nearest the goal - which goes to the best point; the rest spread out around it.
+	 *  Cancels any pending action order, silently - every caller means "this unit is now doing
+	 *  something else".
+	 */
+	void MoveToLocation(const FVector& Location, bool bLeadUnit);
+
+	/**
+	 *  Walks toward Goal and keeps following it if it moves - the walk behind an action order.
+	 *
+	 *  A goal-actor move rather than MoveToLocation's EQS-picked point: EQS hands non-lead units a
+	 *  random point in the best 25%, which can end outside reach, and a fixed point wouldn't follow
+	 *  a target that wanders off. Same guards as MoveToLocation (authority, incapacitated) and
+	 *  clears attack state the same way. Only the action order calls this; the walk it starts is
+	 *  the one OnMoveFinished reports back to the order.
+	 */
+	EActionApproachResult MoveToActor(AActor* Goal, float AcceptanceRadius);
+
+	/** Stops the action order's walk, if that is the walk running. Anything else this unit is doing is left alone. */
+	void StopActionApproach();
+
+	/**
+	 *  Drops whatever this unit was doing - a pending move query, a walk, an attack - so an action
+	 *  order can take over. Authority only. Leaves the order itself alone; the order calls this.
+	 */
+	void TakeOverForActionOrder();
 
 	/** Returns the last cached movement goal location */
 	FVector GetMovementGoal() const;
@@ -164,6 +196,9 @@ public:
 
 	/** Returns this unit's equipment (worn slots) component */
 	UEquipmentComponent* GetEquipment() const { return Equipment; }
+
+	/** Returns this unit's action order component. Never null - it's a default subobject. */
+	UActionOrderComponent* GetActionOrder() const { return ActionOrder; }
 
 	/** This unit's portrait face: its own PortraitTexture, else its character definition's Portrait, else null */
 	UTexture2D* GetPortraitTexture() const;
@@ -181,6 +216,16 @@ public:
 
 	/** This unit's faction id - a replicated copy of its record's, None when unaffiliated. Nothing reads it for behaviour yet. */
 	FName GetFactionId() const { return FactionId; }
+
+	/**
+	 *  This unit's attributes - a replicated copy of its record's, so a client can work out what the
+	 *  squad's own numbers make likely (the action menu's odds). 10 across the board until a record
+	 *  or a definition says otherwise.
+	 */
+	const FCharacterAttributes& GetAttributes() const { return Attributes; }
+
+	/** True for a person, false for a creature - see ECharacterKind. A unit with no definition counts as a person. */
+	bool IsPerson() const;
 
 	/**
 	 *  Copies this unit's current condition - health, life state, location, carried grid, worn
@@ -204,7 +249,18 @@ public:
 	/** Returns true if the given actor is close enough to this one to loot or interact with it */
 	virtual bool IsInRangeOf(const AActor* Other) const override;
 
+	/**
+	 *  What the squad can see of this unit: its definition's description, a person's backstory,
+	 *  and its condition in words (unhurt, hurt, down, dead). **Never a number** - no attributes,
+	 *  no skills, no health figure, even for your own squad, whose numbers belong on the character
+	 *  sheet. See player-interface.md's known-vs-hidden rule.
+	 */
+	virtual FText GetExamineText() const override;
+
 	//~ End IInventoryHolder interface
+
+	/** This unit's condition as the squad would describe it - "Unhurt.", "Badly hurt.", "Dead." Words only. */
+	FText GetConditionText() const;
 
 	/** Returns this unit's health component */
 	UHealthComponent* GetHealth() const { return Health; }
@@ -238,8 +294,15 @@ protected:
 	UFUNCTION()
 	void OnEQSFinished(UEnvQueryInstanceBlueprintWrapper* QueryInstance, EEnvQueryStatus::Type QueryStatus);
 
-	/** Called by the AI controller when this unit has finished moving */
+	/**
+	 *  Called by the AI controller when a move request ends - arrived, blocked, or aborted. It fires
+	 *  for aborts too, and synchronously inside whatever call replaced the move, so the action
+	 *  order only hears about the one walk it started (ActionMoveRequestId), never about another.
+	 */
 	void OnMoveFinished(FAIRequestID RequestID, const FPathFollowingResult& Result);
+
+	/** Unbinds and forgets a pending MoveToLocation query, so its late answer can't send this unit somewhere it's no longer going */
+	void DropPendingMoveQuery();
 
 	/** Wraps up movement logic */
 	void HandleMoveFinished();
@@ -285,21 +348,17 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category="NPC", meta = (DisplayName="Unit Deselected"))
 	void BP_UnitDeselected();
 
-	/** Blueprint handler to stop the unit's interaction animation */
-	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable, Category="NPC", meta = (DisplayName="Stop Animation"))
-	void BP_StopAnimation();
-
-	/** Blueprint handler for strategy game interactions */
-	UFUNCTION(BlueprintImplementableEvent, Category="NPC", meta = (DisplayName="Interaction Behavior"))
-	void BP_InteractionBehavior(AStrategyUnit* Interactor);
-
 protected:
 
-	/** EnvQuery to use when this unit interacts after movement */
+	/**
+	 *  EnvQuery the lead unit of a move order uses to pick its spot - the single best point near the
+	 *  goal. The name is the Strategy template's, from when the lead unit also played an interaction
+	 *  on arrival; kept because it is what the unit Blueprints have assigned.
+	 */
 	UPROPERTY(EditAnywhere, Category="NPC")
 	TObjectPtr<UEnvQuery> InteractionQuery;
 
-	/** EnvQuery to use when this unit does not interact after movement */
+	/** EnvQuery every other unit of a move order uses - a random pick from the best quarter, so a group spreads out */
 	UPROPERTY(EditAnywhere, Category="NPC")
 	TObjectPtr<UEnvQuery> NoInteractionQuery;
 
@@ -307,24 +366,25 @@ protected:
 	UPROPERTY(EditAnywhere, Category="NPC", meta = (ClampMin = 0, ClampMax = 10000, Units = "cm"))
 	float MovementAcceptanceRadius = 100.0f;
 
-	/** Max distance to look for nearby units when doing an interaction check */
-	UPROPERTY(EditAnywhere, Category="Input", meta = (ClampMin = 0, ClampMax = 10000, Units = "cm"))
-	float InteractionRadius = 250.0f;
-
 	/** EQS instance running the movement query for this unit */
 	TObjectPtr<UEnvQueryInstanceBlueprintWrapper> EnvQueryInstance;
 
 	/** Cached movement goal for this unit */
 	FVector CurrentMovementGoal;
 
-	/** If true, this unit will attempt to interact with a nearby unit upon finishing movement */
-	bool bInteractOnArrival = false;
+	/** True while this unit is its move order's lead - see MoveToLocation */
+	bool bLeadUnit = false;
 
-	/** List of actors to ignore when searching for units to interact with */
-	TArray<AStrategyUnit*> InteractIgnoreList;
-
-	/** This unit's current behavior/targeting state */
+	/**
+	 *  This unit's current behavior/targeting state. Replicated: the target panel and the
+	 *  right-click menu read it on every machine to decide whether Talk, Trade and Pickpocket are
+	 *  on offer, and a remote client would otherwise offer all three against someone attacking it.
+	 */
+	UPROPERTY(Replicated)
 	EStrategyDisposition Disposition = EStrategyDisposition::Passive;
+
+	/** The move request behind the action order's walk, or invalid when none is running. See OnMoveFinished. */
+	FAIRequestID ActionMoveRequestId;
 
 	/** If true, this unit will attack PendingAttackTarget upon finishing movement */
 	bool bAttackOnArrival = false;
@@ -345,6 +405,10 @@ protected:
 	/** Replicated copy of the record's FactionId */
 	UPROPERTY(Replicated, VisibleInstanceOnly, Category = "Character")
 	FName FactionId;
+
+	/** Replicated copy of the record's Attributes, set wherever FactionId is. See GetAttributes. */
+	UPROPERTY(Replicated, VisibleInstanceOnly, Category = "Character")
+	FCharacterAttributes Attributes;
 
 	/** True while ApplyRecordToActor is pushing record state into the components, so their change broadcasts don't write it straight back */
 	bool bApplyingRecord = false;

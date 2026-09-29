@@ -516,8 +516,8 @@ In `SmoresUI`:
 
 1. **An event.** Health: `UBarkUnitWatcher` hears `OnDamaged` / `OnDowned` / `OnDied` on every unit
    (found at the director's `BeginPlay`, on `OnActorSpawned`, and in each level streamed in through
-   `LevelAddedToWorld`). Interaction: `InteractWithNPC` calls `Server_RaiseInteractionBark`, which
-   re-checks the gates server-side and decides `TradeOpened` or `NothingToSay` itself.
+   `LevelAddedToWorld`). Interaction: a Talk order's arrival runs `StartTalk(NPC, Listener)` on the
+   server, which re-checks the gates and decides `TradeOpened` or `NothingToSay` itself.
 2. **Selection.** `UBarkDirectorComponent::SayIfAny` checks the speaker's quiet time, then
    `SelectBark` over the event's lines. `WitnessedDeath` tries each ally within `WitnessRange`
    (15 m), nearest first, until one has a line. Allies are the same player's squad, or the same
@@ -573,8 +573,9 @@ said it; nobody happened to hear.
 
 ### How a conversation runs
 
-1. **Talk.** `InteractWithNPC` runs the client-side gates (hostile, reach), then
-   `Server_InteractWithNPC` re-runs them and decides: `UConversationComponent::TryStartGreeting`
+1. **Talk.** Talk is an action order (`action-menu.md`): the nearest selected squad member walks
+   over, and on arrival the server's `StartTalk(NPC, Listener)` - that squad member as the
+   listener - re-checks the NPC may be dealt with and decides: `UConversationComponent::TryStartGreeting`
    selects over every Greeting (`SelectConversation`, with this player's memory); failing that a
    trader gets `Client_OpenTrade` and a `TradeOpened` bark; anyone else a `NothingToSay` bark.
 2. **Start.** `StartConversation` ends any other conversation this player had, records both sides'

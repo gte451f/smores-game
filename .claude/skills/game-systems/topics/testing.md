@@ -7,11 +7,11 @@ the standing rule for when a piece of work should add to it. The forward-looking
 still needs building, in what order, and the decisions behind it — lives in
 `Docs/roadmaps/testing-roadmap.md`.
 
-> **Status: the harness is built and Slices 1 and 2 have shipped.** 197 tests run green (one with a
+> **Status: the harness is built and Slices 1 and 2 have shipped.** 215 tests run green (one with a
 > warning - see the content sweeps below), covering `SmoresItems`, `SmoresEconomy`,
 > `UHealthComponent`, the content smoke tests, and (added by later roadmaps) the time-pace ladder
 > and its multiplayer lock, combat engagement (the danger flash's state),
-> the target panel's action assembly, the activity log, the definition layer, faction standing,
+> the target panel's and action menu's rows, walk-over action orders and the door, the activity log, the definition layer, faction standing,
 > character records, loot tables, and dialog (barks, the approach trigger, the floating bark
 > bubbles, conversations, their effects and the squad's dialog memory).
 > Only Slice 3 of
@@ -56,7 +56,8 @@ them test smores.
 | Time-pace ladder (tiers, dilation, stepping, clamping, authority) | `SmoresCore` | ✅ 6 tests | HUD 2 |
 | Time-pace multiplayer lock (every tier standalone, only 1x networked, pause inside the lock) | `SmoresCore` | ✅ 1 test | danger 1 |
 | Combat engagement (one signal per fight, escalation, timeout and re-entry, the Hit trigger, a knockdown from clear, attacking engages the attacker, restores silent) | `SmoresCombat` | ✅ 7 tests | danger 1 |
-| Target-panel action assembly (per target kind, reach, hostility) | `smores` | ✅ 7 tests | HUD 2 |
+| Target-panel / action-menu rows, one per row of the rules table, plus who acts, *No one selected*, the placeholder odds and distance | `smores` | ✅ 13 tests | HUD 2 / action menu 1 |
+| Walk-over action orders (in reach, arrival, already-at-goal, silent cancels, going down, fighting back, retries to *Can't get there*, refused on arrival, target gone), the server's order validation, the door, and the shared interactable interface | `smores` | ✅ 12 tests | action menu 1 |
 | Activity log ring buffer (eviction, shrink, filtering, broadcast, ids) | `SmoresCore` | ✅ 6 tests | HUD 3 |
 | `USmoresDefinitionLibrary` look-up and enumeration | `SmoresCore` | ✅ via the sweeps above | data 1 |
 | Dialog condition language (parse, evaluate, every kind of mistake rejected with its reason, subjects an event lacks, unknown content ids as warnings, line numbers) | `SmoresDialog` | ✅ 5 tests | dialog 1 |
@@ -74,7 +75,7 @@ them test smores.
 | Attack range / out-of-range branch | `SmoresCombat` | — | unclaimed |
 | Trade transaction ordering | `smores` | — | 3 |
 
-**197 tests.** Several rows came from the HUD, game-data, dialog and danger-alert rounds, not from the testing roadmap — a
+**215 tests.** Several rows came from the HUD, game-data, dialog and danger-alert rounds, not from the testing roadmap — a
 slice that ships numbers-and-state-machine code writes its own tests, whichever roadmap it came from.
 Update this table as slices ship; it is the quick answer to "is this already covered?"
 

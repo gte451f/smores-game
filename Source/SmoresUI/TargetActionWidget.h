@@ -14,7 +14,8 @@ class UTextBlock;
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnTargetActionClicked, FName);
 
 /**
- *  One button on the target panel's action row - "Open", "Talk", "Attack".
+ *  One button on the target panel's action row - "Loot", "Talk", "Attack" - and one row of the
+ *  right-click menu, which reuses this same widget (and the same WBP) for its rows.
  *
  *  Deliberately **not** a UHUDRegionWidget: it lives inside one. A real UButton consumes its own
  *  press, and when this action is disabled the button doesn't handle the click at all, so it
@@ -42,6 +43,10 @@ protected:
 	/** Why it's unavailable. Name it "ReasonText" in the WBP to auto-bind. Hidden while enabled. */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> ReasonText;
+
+	/** The per-squad-member line - a success chance, who would go. Name it "DetailText" in the WBP to auto-bind. Hidden when empty. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> DetailText;
 
 	/** The action this button currently stands for */
 	FTargetAction Action;

@@ -9,7 +9,13 @@
 #include "TimePaceComponent.h"
 #include "StrategyUI.h"
 #include "RefusalWidget.h"
+#include "ActionMenuWidget.h"
+#include "WindowWidget.h"
+#include "HUDRegionWidget.h"
 #include "SmoresUI.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Slate/SObjectWidget.h"
+#include "Layout/WidgetPath.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/GameStateBase.h"
@@ -45,6 +51,102 @@ void AStrategyHUD::BeginPlay()
 	{
 		UE_LOG(LogSmoresUI, Warning, TEXT("AStrategyHUD has no RefusalWidgetClass set; refused actions will fail silently."));
 	}
+
+	// the right-click menu is a layer of its own for the same reason: it must draw over any window
+	// the player has open, and the HUD root sits below them all
+	if (ActionMenuWidgetClass)
+	{
+		ActionMenuWidget = CreateWidget<UActionMenuWidget>(GetOwningPlayerController(), ActionMenuWidgetClass);
+
+		if (ActionMenuWidget)
+		{
+			ActionMenuWidget->AddToViewport(ActionMenuZOrder);
+		}
+	}
+}
+
+void AStrategyHUD::OpenActionMenu(AActor* Target)
+{
+	if (!ActionMenuWidget)
+	{
+		// the usual silent single point of failure - say so once, the first time it's missed
+		if (!bWarnedNoActionMenu)
+		{
+			UE_LOG(LogSmoresUI, Warning, TEXT("AStrategyHUD has no ActionMenuWidgetClass set; right-clicking a target does nothing."));
+			bWarnedNoActionMenu = true;
+		}
+
+		return;
+	}
+
+	ActionMenuWidget->OpenAt(Target);
+}
+
+void AStrategyHUD::CloseActionMenu()
+{
+	if (ActionMenuWidget)
+	{
+		ActionMenuWidget->Close();
+	}
+}
+
+bool AStrategyHUD::IsActionMenuOpen() const
+{
+	return ActionMenuWidget && ActionMenuWidget->IsOpen();
+}
+
+AActor* AStrategyHUD::GetActionMenuTarget() const
+{
+	return ActionMenuWidget ? ActionMenuWidget->GetMenuTarget() : nullptr;
+}
+
+bool AStrategyHUD::IsCursorOverHUD() const
+{
+	if (!FSlateApplication::IsInitialized())
+	{
+		return false;
+	}
+
+	FSlateApplication& Slate = FSlateApplication::Get();
+
+	const FVector2D CursorPosition = Slate.GetCursorPos();
+	const FWidgetPath Path = Slate.LocateWindowUnderMouse(CursorPosition, Slate.GetInteractiveTopLevelWindows());
+
+	if (!Path.IsValid())
+	{
+		return false;
+	}
+
+	// every UMG user widget on the path is wrapped in an SObjectWidget; the ones that matter are
+	// the kinds that swallow a click rather than letting it fall through to the world
+	static const FName ObjectWidgetType(TEXT("SObjectWidget"));
+
+	for (int32 Index = Path.Widgets.Num() - 1; Index >= 0; --Index)
+	{
+		const TSharedRef<SWidget>& Widget = Path.Widgets[Index].Widget;
+
+		if (Widget->GetType() != ObjectWidgetType)
+		{
+			continue;
+		}
+
+		const UUserWidget* UserWidget = StaticCastSharedRef<SObjectWidget>(Widget)->GetWidgetObject();
+
+		if (Cast<UWindowWidget>(UserWidget) || Cast<UActionMenuWidget>(UserWidget))
+		{
+			return true;
+		}
+
+		if (const UHUDRegionWidget* Region = Cast<UHUDRegionWidget>(UserWidget))
+		{
+			if (Region->BlocksWorldClicks())
+			{
+				return true;
+			}
+		}
+	}
+
+	return false;
 }
 
 void AStrategyHUD::DragSelectUpdate(FVector2D Start, FVector2D WidthAndHeight, FVector2D CurrentPosition, bool bDraw)
@@ -130,6 +232,13 @@ void AStrategyHUD::DrawHUD()
 			// rebuilt from whatever the controller last targeted. One push, not a label and a
 			// separate action list that could describe different things.
 			UIWidget->SetTargetInfo(SelectionHost->GetSelectionTargetInfo());
+
+			// the right-click menu's rows, for the menu's own target - the same rules as the panel's,
+			// refreshed every frame so a row greys out the moment it stops being possible
+			if (ActionMenuWidget && ActionMenuWidget->IsOpen())
+			{
+				ActionMenuWidget->SetTargetInfo(SelectionHost->GetTargetInfoFor(ActionMenuWidget->GetMenuTarget()));
+			}
 
 			// the simulation's speed, read off the GameState the same way the wallet is read off
 			// the player state - and whether it is held at 1x, which a networked session always is

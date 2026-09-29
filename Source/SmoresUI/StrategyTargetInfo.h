@@ -7,7 +7,8 @@
 #include "StrategyTargetInfo.generated.h"
 
 /**
- *  One button on the target panel's action row.
+ *  One button on the target panel's action row, and one row of the right-click menu - the two are
+ *  views of the same list, built by the same rules (smores' StrategyTargetActions).
  *
  *  **A disabled action is still an action.** "Talk" greyed out because the person is hostile
  *  teaches the player the rule; a button that simply isn't there teaches nothing, and leaves them
@@ -45,6 +46,26 @@ struct SMORESUI_API FTargetAction
 	/** Why it's disabled, in the shared refusal vocabulary. None when enabled. */
 	UPROPERTY(BlueprintReadOnly, Category = "Target")
 	ESmoresRefusalReason DisabledReason = ESmoresRefusalReason::None;
+
+	/**
+	 *  Who would carry it out - the selected squad member nearest the target, "Everyone selected"
+	 *  for an attack by several. Empty when nobody would (and then the action is disabled with
+	 *  NoOneSelected), and for Examine, which nobody walks anywhere to do.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Target")
+	FText ActorName;
+
+	/**
+	 *  The line that changes with who would go: a success chance for an action whose outcome
+	 *  depends on the squad member attempting it ("62% chance"), and that squad member's name when
+	 *  it isn't the one the menu's header names. Empty for most actions.
+	 *
+	 *  A number is allowed here because it is built from the squad's own numbers, which the player
+	 *  already knows - never from a target's, which only ever surface as words. See game-design's
+	 *  player-interface.md.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Target")
+	FText Detail;
 };
 
 /**
@@ -72,6 +93,14 @@ struct SMORESUI_API FStrategyTargetInfo
 	UPROPERTY(BlueprintReadOnly, Category = "Target")
 	bool bHasTarget = false;
 
+	/**
+	 *  The thing described. Carried so that a click on one of this struct's actions acts on the
+	 *  thing that was drawn, not on whatever the controller happens to have targeted by then - the
+	 *  menu and the panel can describe two different things at once.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Target")
+	TWeakObjectPtr<AActor> Target;
+
 	/** The target's name, blank if whoever placed it never gave it one */
 	UPROPERTY(BlueprintReadOnly, Category = "Target")
 	FText DisplayName;
@@ -83,6 +112,10 @@ struct SMORESUI_API FStrategyTargetInfo
 	/** Metres from the nearest selected unit, or negative when nothing is selected to measure from */
 	UPROPERTY(BlueprintReadOnly, Category = "Target")
 	float DistanceMeters = -1.0f;
+
+	/** Who would carry out most of these actions - the menu's "who would go" line. Empty when nobody would. */
+	UPROPERTY(BlueprintReadOnly, Category = "Target")
+	FText ActorName;
 
 	/** True if this target has health worth drawing a bar for - a container doesn't */
 	UPROPERTY(BlueprintReadOnly, Category = "Target")
@@ -99,6 +132,18 @@ struct SMORESUI_API FStrategyTargetInfo
 
 	/** True when there is something to show. The panel hides itself when this is false. */
 	bool HasTarget() const { return bHasTarget; }
+
+	/**
+	 *  True if Other would draw identically to this - the panel's and the menu's shared "is there
+	 *  anything to redraw?" check.
+	 *
+	 *  The HUD pushes a freshly built struct every frame, and almost every one of them describes
+	 *  the same target in the same state - distance is the only field that moves continuously, and
+	 *  it is drawn to the nearest metre. Comparing what would be *drawn*, rather than the raw
+	 *  floats, is what keeps a stationary squad from invalidating Slate layout sixty times a
+	 *  second. Which actor is described is deliberately not compared: it isn't drawn.
+	 */
+	bool DrawsIdenticallyTo(const FStrategyTargetInfo& Other) const;
 };
 
 /**
@@ -111,15 +156,39 @@ struct SMORESUI_API FStrategyTargetInfo
  */
 namespace StrategyTargetAction
 {
-	/** Open a container's grid. The `O` key's action. */
+	/** Open a shut door. The `O` key's action on a door. (Until the action menu this opened a container - that is Loot now.) */
 	SMORESUI_API FName Open();
 
-	/** Loot a downed or dead body. Also the `O` key - same window, same rules. */
+	/** Shut an open door. Also the `O` key. */
+	SMORESUI_API FName Close();
+
+	/** Go through a container, or a downed or dead body. The `O` key - same window, same rules. */
 	SMORESUI_API FName Loot();
 
-	/** Talk to / trade with someone on their feet. The `T` key's action. */
+	/** Talk to someone on their feet: a conversation if one is eligible, else trade if they keep a shop, else a line. The `T` key's action. */
 	SMORESUI_API FName Talk();
+
+	/** Open a trader's shop directly, skipping the conversation */
+	SMORESUI_API FName Trade();
+
+	/** Pick up a loose item lying on the ground */
+	SMORESUI_API FName PickUp();
+
+	/** Look at something. The one action nobody walks anywhere to do. */
+	SMORESUI_API FName Examine();
 
 	/** Send the squad to attack. The `H` key's action. */
 	SMORESUI_API FName Attack();
+
+	/** Treat someone's wounds. A placeholder - see StrategyTargetActions' IsPlaceholderAction. */
+	SMORESUI_API FName Heal();
+
+	/** Carry off someone who is down. A placeholder. */
+	SMORESUI_API FName Kidnap();
+
+	/** Lift something from someone's pockets. A placeholder. */
+	SMORESUI_API FName Pickpocket();
+
+	/** Knock someone out cold, without killing them. A placeholder. */
+	SMORESUI_API FName KnockOut();
 }
